@@ -59,16 +59,16 @@ const FACIAL_VERIFICATION_FALLBACK_ACTIONS = ["VIEW", "CREATE", "APPROVE", "REJE
 // gate operations is resolving a *serious* exception, not the gate event
 // itself, see `exception` below.
 const GATE_EVENT_ACTIONS = ["VIEW", "CREATE", "EDIT"] as const;
-// Company Administrator / Security Manager manage the checklist itself.
+// Company Administrator / Security Supervisor manage the checklist itself.
 const INSPECTION_TEMPLATE_ACTIONS = ["VIEW", "CREATE", "EDIT", "DELETE", "CONFIGURE"] as const;
 // CREATE = an officer raising an exception during inspection; APPROVE =
 // resolving one, in particular the supervisor-approval path — deliberately
 // not granted to the same role as CREATE (see seed.ts "Gate Security
-// Officer" vs "Security Manager") so the self-approval rule
-// (gate-event-repository.ts, hard rule, not tenant-configurable — see
-// DECISIONS.md) is meaningfully testable, not vacuous. CONFIGURE manages the
-// tenant's ExceptionType catalogue (the DocumentExpiryRule-equivalent
-// tenant-configurable rule set for exceptions).
+// Officer" vs "Security Supervisor / Approving Manager") so the
+// self-approval rule (gate-event-repository.ts, hard rule, not
+// tenant-configurable — see DECISIONS.md) is meaningfully testable, not
+// vacuous. CONFIGURE manages the tenant's ExceptionType catalogue (the
+// DocumentExpiryRule-equivalent tenant-configurable rule set for exceptions).
 const EXCEPTION_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE"] as const;
 
 // Phase 4 — evidence/media (PRODUCT_REQUIREMENTS.md EVID-001..004). VIEW here

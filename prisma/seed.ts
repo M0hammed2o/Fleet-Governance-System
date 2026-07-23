@@ -73,12 +73,16 @@ async function seedMediaAsset(params: {
 
 type RolePermissionSpec = { resource: PermissionResource; action: PermissionAction }[];
 
-// Tenant-scoped roles (build brief section 6). Resources introduced in later
-// phases (gateEvent, evidence, risk, control, ...) will extend these mappings
-// as each module lands — see TODO.md.
+// Tenant-scoped roles. As of 2026-07-23 this maps onto the six primary
+// customer roles + three additional non-daily profiles specified by the
+// user (see DECISIONS.md D-015 and WORKLOG.md Session 6/7 for the full
+// mapping rationale from the original 8-role set). Resources introduced in
+// later phases (telematics, vehicleUsePolicy, supportAccessSession, ...)
+// will extend these mappings as each module lands — see TODO.md.
 const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions: RolePermissionSpec }> = {
+  // --- Primary role 1/6 ---
   "Company Administrator": {
-    description: "Manages company configuration, sites, gates and users.",
+    description: "Configures the company, sites, gates, users and operational policy. Full oversight visibility. Cannot silently alter immutable gate evidence (view-only on media).",
     permissions: [
       { resource: "site", action: "VIEW" }, { resource: "site", action: "CREATE" }, { resource: "site", action: "EDIT" }, { resource: "site", action: "DELETE" }, { resource: "site", action: "CONFIGURE" },
       { resource: "gate", action: "VIEW" }, { resource: "gate", action: "CREATE" }, { resource: "gate", action: "EDIT" }, { resource: "gate", action: "DELETE" }, { resource: "gate", action: "CONFIGURE" },
@@ -98,31 +102,25 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "mediaAsset", action: "VIEW" },
     ],
   },
-  "Security Manager": {
-    description: "Manages gates, officers, inspection rules and exceptions.",
+  // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
+  // movement duties. Plans/creates/submits movements; never approves its own
+  // (no movement:APPROVE/REJECT at all — segregation of duties is structural,
+  // not just a runtime self-approval check). ---
+  "Dispatch and Logistics Officer": {
+    description: "Plans deliveries, collections and other movements: assigns driver/vehicle, records destination/customer/purpose/sender/recipient/references, uploads delivery notes, submits for approval. Cannot approve movements.",
     permissions: [
-      { resource: "site", action: "VIEW" },
-      { resource: "gate", action: "VIEW" }, { resource: "gate", action: "EDIT" }, { resource: "gate", action: "CONFIGURE" },
-      { resource: "user", action: "VIEW" },
-      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
-      // The natural approving supervisor for a gate officer's manual
-      // facial-verification fallback request.
-      { resource: "facialVerificationFallback", action: "VIEW" }, { resource: "facialVerificationFallback", action: "APPROVE" }, { resource: "facialVerificationFallback", action: "REJECT" },
+      { resource: "site", action: "VIEW" }, { resource: "gate", action: "VIEW" },
+      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" },
+      { resource: "movement", action: "VIEW" }, { resource: "movement", action: "CREATE" }, { resource: "movement", action: "EDIT" },
       { resource: "gateEvent", action: "VIEW" },
-      // Manages the inspection checklist and the exception-type catalogue,
-      // and is the intended supervisor who resolves serious exceptions
-      // raised by a Gate Security Officer — deliberately not the same role
-      // that has exception:CREATE, so the self-approval rule and the
-      // unauthorised-approval boundary are both meaningfully testable.
-      { resource: "inspectionTemplate", action: "VIEW" }, { resource: "inspectionTemplate", action: "CREATE" }, { resource: "inspectionTemplate", action: "EDIT" }, { resource: "inspectionTemplate", action: "CONFIGURE" },
-      { resource: "exception", action: "VIEW" }, { resource: "exception", action: "APPROVE" }, { resource: "exception", action: "CONFIGURE" },
-      // Resolves exceptions and oversees officers but doesn't personally
-      // capture evidence — view-only, same reasoning as Company Administrator.
-      { resource: "mediaAsset", action: "VIEW" },
+      // Uploads delivery notes / supporting movement documents directly
+      // (Phase 5C — MediaAsset-backed, not a public URL).
+      { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
     ],
   },
+  // --- Primary role 3/6 — unchanged from the original 8-role set. ---
   "Gate Security Officer": {
-    description: "Performs entry and exit checks, captures evidence and readings.",
+    description: "Retrieves approved movements, verifies the driver, performs entry/exit inspections, captures readings/photographs/video, raises exceptions. Cannot approve its own serious exception; cannot edit financial data (no complianceDocument/movement write access at all).",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -132,7 +130,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "facialVerificationFallback", action: "VIEW" }, { resource: "facialVerificationFallback", action: "CREATE" },
       // Runs the gate check-in/check-out flow end-to-end (start, inspect,
       // clear/deny normal cases) but cannot resolve a serious exception —
-      // no exception:APPROVE. See "Security Manager" above.
+      // no exception:APPROVE. See "Security Supervisor / Approving Manager".
       { resource: "gateEvent", action: "VIEW" }, { resource: "gateEvent", action: "CREATE" }, { resource: "gateEvent", action: "EDIT" },
       { resource: "inspectionTemplate", action: "VIEW" },
       { resource: "exception", action: "VIEW" }, { resource: "exception", action: "CREATE" },
@@ -141,8 +139,35 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
     ],
   },
-  "Fleet Manager": {
-    description: "Manages vehicles, drivers and movement records.",
+  // --- Primary role 4/6 — merge of the old "Security Manager" (gate
+  // exception/checklist oversight) and "Approving Manager" (movement
+  // approval), per the user's explicit role spec. Gate CONFIGURE moved to
+  // Company Administrator (see DECISIONS.md D-015) rather than staying here. ---
+  "Security Supervisor / Approving Manager": {
+    description: "Approves/rejects submitted movements, reviews and resolves gate exceptions, approves manual facial-verification fallback, reviews security dashboards. Cannot rewrite original evidence (view-only on media).",
+    permissions: [
+      { resource: "site", action: "VIEW" }, { resource: "gate", action: "VIEW" },
+      { resource: "user", action: "VIEW" },
+      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" },
+      { resource: "movement", action: "VIEW" }, { resource: "movement", action: "APPROVE" }, { resource: "movement", action: "REJECT" },
+      { resource: "facialVerificationFallback", action: "VIEW" }, { resource: "facialVerificationFallback", action: "APPROVE" }, { resource: "facialVerificationFallback", action: "REJECT" },
+      { resource: "gateEvent", action: "VIEW" },
+      // Owns the inspection checklist and exception-type catalogue, and is
+      // the intended supervisor who resolves serious exceptions raised by a
+      // Gate Security Officer — deliberately not the same role that has
+      // exception:CREATE, so the self-approval rule and the
+      // unauthorised-approval boundary are both meaningfully testable.
+      { resource: "inspectionTemplate", action: "VIEW" }, { resource: "inspectionTemplate", action: "CREATE" }, { resource: "inspectionTemplate", action: "EDIT" }, { resource: "inspectionTemplate", action: "CONFIGURE" },
+      { resource: "exception", action: "VIEW" }, { resource: "exception", action: "APPROVE" }, { resource: "exception", action: "CONFIGURE" },
+      { resource: "mediaAsset", action: "VIEW" },
+    ],
+  },
+  // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
+  // driver/vehicle master-data ownership, loses movement CREATE/EDIT (that's
+  // Dispatch and Logistics Officer's job now). Telematics/GPS permissions
+  // are added here once that resource exists (Phase 6). ---
+  "Fleet and GPS Manager": {
+    description: "Maintains driver/vehicle master data, vehicle-to-tracker mappings, GPS provider connections and geofences/vehicle-use policies (Phase 6), reviews utilisation and trip history.",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -150,10 +175,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "vehicle", action: "VIEW" }, { resource: "vehicle", action: "CREATE" }, { resource: "vehicle", action: "EDIT" }, { resource: "vehicle", action: "DELETE" }, { resource: "vehicle", action: "EXPORT" },
       { resource: "complianceDocument", action: "VIEW" }, { resource: "complianceDocument", action: "CREATE" }, { resource: "complianceDocument", action: "EDIT" }, { resource: "complianceDocument", action: "DELETE" },
       { resource: "tyrePositionConfig", action: "VIEW" },
-      // Fleet Manager creates/edits movement requests but does not approve
-      // them — kept separate from Approving Manager on purpose so the
-      // self-approval and unauthorised-approval rules are meaningfully testable.
-      { resource: "movement", action: "VIEW" }, { resource: "movement", action: "CREATE" }, { resource: "movement", action: "EDIT" },
+      // View-only on movements — reviews dispatch/utilisation but doesn't
+      // create dispatch requests (see "Dispatch and Logistics Officer").
+      { resource: "movement", action: "VIEW" },
       { resource: "gateEvent", action: "VIEW" },
       // Owns driver/vehicle master data, including portraits and compliance
       // document attachments — needs upload rights for those, not just
@@ -161,19 +185,12 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
     ],
   },
-  "Approving Manager": {
-    description: "Approves journeys and defined exceptions.",
-    permissions: [
-      { resource: "site", action: "VIEW" },
-      { resource: "gate", action: "VIEW" },
-      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" },
-      { resource: "movement", action: "VIEW" }, { resource: "movement", action: "APPROVE" }, { resource: "movement", action: "REJECT" },
-      { resource: "gateEvent", action: "VIEW" },
-      { resource: "mediaAsset", action: "VIEW" },
-    ],
-  },
-  "Risk/Compliance Manager": {
-    description: "Manages risks, controls and compliance exceptions.",
+  // --- Primary role 6/6 — renamed/refocused "Risk/Compliance Manager".
+  // Review-only across the board per the explicit "must not edit original
+  // inspections, GPS history, photographs, videos or audit events" rule —
+  // no resource below grants anything beyond VIEW/AUDIT(verify). ---
+  "Accountant / Finance and Compliance Officer": {
+    description: "Reviews fuel/odometer information, maintains licence/renewal/compliance dates, reviews customer-side financial/compliance reporting. Never edits original inspections, GPS history, photographs, videos or audit events.",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -186,8 +203,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "mediaAsset", action: "VIEW" },
     ],
   },
-  "Internal Auditor": {
-    description: "Read-only access to evidence, reports and audit history.",
+  // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
+  "Internal Investigator / Auditor": {
+    description: "Read-only access to evidence, reports and audit history, for internal investigations. Can record control-test results and findings where authorised (Phase 6 Governance).",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -200,13 +218,32 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "exception", action: "VIEW" },
       // Views evidence for audit purposes but never creates it — see
       // SECURITY_AND_POPIA.md / TESTING.md "unauthorised roles cannot view
-      // facial or video evidence" (Internal Auditor is deliberately
-      // authorised, exercising the allowed side of that boundary).
+      // facial or video evidence" (this role is deliberately authorised,
+      // exercising the allowed side of that boundary).
       { resource: "mediaAsset", action: "VIEW" },
     ],
   },
-  "Executive Viewer": {
-    description: "Read-only dashboards and reports.",
+  // --- Additional non-daily profile 2/3 — new. More restricted than the
+  // internal profile: no visibility into internal staff (no user:VIEW), no
+  // audit export, no inspection-template/checklist-config visibility. An
+  // external party (e.g. insurance/compliance reviewer) sees case-relevant
+  // evidence and records, not internal operational configuration. ---
+  "External Reviewer": {
+    description: "Restricted read-only access for an external reviewer (e.g. insurer, external compliance auditor) — evidence and records only, no internal staff/configuration visibility, no export.",
+    permissions: [
+      { resource: "site", action: "VIEW" },
+      { resource: "gate", action: "VIEW" },
+      { resource: "auditLog", action: "VIEW" },
+      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
+      { resource: "complianceDocument", action: "VIEW" },
+      { resource: "gateEvent", action: "VIEW" },
+      { resource: "exception", action: "VIEW" },
+      { resource: "mediaAsset", action: "VIEW" },
+    ],
+  },
+  // --- Additional non-daily profile 3/3 — renamed "Executive Viewer". ---
+  "Executive Read-Only Viewer": {
+    description: "Read-only dashboards and reports for executive oversight. Deliberately no media/evidence access — aggregate reporting only.",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -359,13 +396,14 @@ async function upsertUser(input: { tenantId: string; roleId: string; email: stri
 function fictionalNameFor(roleName: string): string {
   const names: Record<string, string> = {
     "Company Administrator": "Thandiwe Mokoena",
-    "Security Manager": "Johan van der Merwe",
+    "Dispatch and Logistics Officer": "Refilwe Sekgobela",
     "Gate Security Officer": "Sipho Dlamini",
-    "Fleet Manager": "Fatima Patel",
-    "Approving Manager": "David Botha",
-    "Risk/Compliance Manager": "Nomvula Khumalo",
-    "Internal Auditor": "Andries Pretorius",
-    "Executive Viewer": "Lindiwe Zulu",
+    "Security Supervisor / Approving Manager": "Johan van der Merwe",
+    "Fleet and GPS Manager": "Fatima Patel",
+    "Accountant / Finance and Compliance Officer": "Nomvula Khumalo",
+    "Internal Investigator / Auditor": "Andries Pretorius",
+    "External Reviewer": "Michael O'Sullivan",
+    "Executive Read-Only Viewer": "Lindiwe Zulu",
   };
   return names[roleName] ?? roleName;
 }
@@ -543,11 +581,14 @@ async function seedMasterData(tenantId: string, siteId: string, usersByRole: Map
     });
   }
 
-  const fleetManager = usersByRole.get("Fleet Manager");
-  const approvingManager = usersByRole.get("Approving Manager");
-  if (fleetManager && approvingManager) {
+  const dispatchOfficer = usersByRole.get("Dispatch and Logistics Officer");
+  const fleetManager = usersByRole.get("Fleet and GPS Manager");
+  const securitySupervisor = usersByRole.get("Security Supervisor / Approving Manager");
+  if (dispatchOfficer && fleetManager && securitySupervisor) {
     // Demo MediaAsset — driver portrait (Phase 4, real upload replaces the
     // old dev-mode Driver.portraitUrl placeholder, see DECISIONS.md D-012).
+    // Captured by Fleet and GPS Manager, who owns driver master data — not
+    // Dispatch and Logistics Officer, who only plans movements.
     if (!driver1.portraitMediaAssetId) {
       const portrait = await seedMediaAsset({
         tenantId,
@@ -574,8 +615,8 @@ async function seedMasterData(tenantId: string, siteId: string, usersByRole: Map
       deliveryOrCollectionReference: "DN-88213",
       approvedCargoSummary: "12 pallets packaged goods, sealed",
       sealOrContainerReference: "SEAL-55291",
-      requesterUserId: fleetManager.id,
-      approverUserId: approvingManager.id,
+      requesterUserId: dispatchOfficer.id,
+      approverUserId: securitySupervisor.id,
       status: "APPROVED",
       referenceCode: "MV-DEMO1",
     });
@@ -587,7 +628,7 @@ async function seedMasterData(tenantId: string, siteId: string, usersByRole: Map
       purpose: "Collect returned equipment",
       destination: "Supplier — Boksburg",
       purchaseOrderReference: "PO-33012",
-      requesterUserId: fleetManager.id,
+      requesterUserId: dispatchOfficer.id,
       status: "SUBMITTED",
       referenceCode: "MV-DEMO2",
     });
@@ -625,8 +666,8 @@ async function seedMasterData(tenantId: string, siteId: string, usersByRole: Map
       destination: "Main warehouse",
       deliveryOrCollectionReference: "DN-99120",
       approvedCargoSummary: "8 pallets cement, sealed",
-      requesterUserId: fleetManager.id,
-      approverUserId: approvingManager.id,
+      requesterUserId: dispatchOfficer.id,
+      approverUserId: securitySupervisor.id,
       status: "APPROVED",
       referenceCode: "MV-DEMO3",
     });
@@ -659,8 +700,8 @@ async function seedGateOperations(
   console.log("Seeding inspection template, exception types, and demo gate events...");
 
   const officer = usersByRole.get("Gate Security Officer");
-  const securityManager = usersByRole.get("Security Manager");
-  if (!officer || !securityManager) return;
+  const securitySupervisor = usersByRole.get("Security Supervisor / Approving Manager");
+  if (!officer || !securitySupervisor) return;
 
   const mainGate = await prisma.gate.findFirst({ where: { tenantId, siteId, name: "Main Gate" } });
   const yardGate = await prisma.gate.findFirst({ where: { tenantId, siteId, name: "Yard Gate" } });

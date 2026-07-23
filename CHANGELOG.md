@@ -1,5 +1,28 @@
 # CHANGELOG.md
 
+## 2026-07-23
+### Added
+- First Git checkpoints for the repository (`c5e5d33`, `7e2a455`) — 198 tracked files, previously
+  uncommitted despite four completed build phases.
+- Remapped the 8 seeded tenant roles onto 9 (six primary customer roles + three additional non-daily
+  profiles), per an expanded, more detailed role specification: merged Security Manager + Approving
+  Manager into "Security Supervisor / Approving Manager"; split Fleet Manager into "Dispatch and
+  Logistics Officer" and "Fleet and GPS Manager"; renamed Risk/Compliance Manager, Internal Auditor, and
+  Executive Viewer; added a new "External Reviewer" profile. See DECISIONS.md D-015.
+- 8 new segregation-of-duties tests (294/294 total) proving the new role boundaries hold, plus a live
+  curl regression check that the renamed "Fleet and GPS Manager" can no longer create movements (that
+  capability moved to "Dispatch and Logistics Officer").
+- Expanded product requirements transcribed into PRODUCT_REQUIREMENTS.md: departure/return reconciliation
+  detail, dispatch-workflow enhancements, a provider-neutral telematics foundation, vehicle-use policies,
+  and a controlled platform support-access view — all `todo`, targeting a real-customer pilot by October
+  2026.
+- A real project README, replacing the unedited `create-next-app` boilerplate.
+
+### Fixed
+- Completed a Phase 4 independent-verification step that had been interrupted by an incorrect column
+  name in a manual SQL query (`checksum` vs the actual `checksumSha256`) — no application defect, the
+  correct query confirmed all 3 seeded MediaAsset checksums match their stored files byte-for-byte.
+
 ## 2026-07-22
 ### Added
 - Phase 3 gate operations: GateEvent state machine (11 states), configurable guided-inspection engine

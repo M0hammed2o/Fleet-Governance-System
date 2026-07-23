@@ -168,7 +168,8 @@ the one who resolves it, regardless of role/permission (see D-008 for why this d
 actions split into two groups: `WARNING`/`CLEARED_WITH_OBSERVATION`/`MANUAL_REVIEW`/`SUPERVISOR_APPROVAL`
 return the GateEvent to `VEHICLE_CHECKS_IN_PROGRESS`; `WORKSHOP_LOCKOUT`/`SECURITY_HOLD`/`DENIED` terminate
 it at `DENIED`. In the seeded permission matrix, `exception:CREATE` (raise) and `exception:APPROVE`
-(resolve) are deliberately granted to different roles (Gate Security Officer vs Security Manager) so the
+(resolve) are deliberately granted to different roles (Gate Security Officer vs Security Supervisor /
+Approving Manager) so the
 authorization boundary is meaningfully testable — the hard self-approval rule inside the repository
 function is the actual, unconditional guarantee, independent of that role split (same "defense in depth,
 not role-name-based" principle as D-007).

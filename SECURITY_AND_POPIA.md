@@ -20,7 +20,13 @@
 ## Access model
 Permission-based (resource + action), not role-name checks in business logic — see ARCHITECTURE.md.
 Platform Administrator support access to tenant data is restricted and must itself be audit-logged; it is
-not a silent bypass (build-brief requirement — "cannot silently access tenant evidence").
+not a silent bypass (build-brief requirement — "cannot silently access tenant evidence"). Planned
+(Phase 7, DECISIONS.md D-016): a dedicated `SupportAccessSession` model — visible "Support view —
+[Customer]" banner, read-only by default, mandatory reason/ticket reference, time-limited, start/end/actor/
+customer/reason all audit-logged, no default access to biometric evidence or restricted investigation
+cases, explicit separate elevated-access workflow required for any authorised change. This replaces
+granting platform roles any standing permission on customer tenant business resources — there is no such
+grant today and none is planned.
 
 ## Sensitive data classifications
 - **Restricted:** facial reference/verification data, identity documents (licences, PDP), vehicle video,
@@ -37,16 +43,26 @@ of scope for V1 storage — treated as Restricted and access-logged if ever adde
 ## Video and image treatment
 Gate evidence (photos/video) is Restricted — enforced, not just documented, as of Phase 4. Every
 `MediaAsset` defaults to `classification: RESTRICTED`. Access requires the `mediaAsset:VIEW` permission
-(role-differentiated across the 8 tenant roles — e.g. Gate Security Officer and Fleet Manager can both
-create and view evidence they capture; Internal Auditor, Risk/Compliance Manager, Company Administrator and
-Security Manager can view but never create; Executive Viewer has no `mediaAsset` permission at all) plus a
-tenant match, both re-checked at signed-URL mint time (`mintSignedUrlForMediaAsset()`), not just implied by
-a UI control. Every grant is audit-logged (`AuditLog`, `entityType: "MediaAsset"`,
-`action: "mediaAsset.readAccessGranted"`) — see DECISIONS.md D-014 for the chosen granularity (per mint,
-not per raw-byte fetch). No raw storage path is ever reachable without a valid, unexpired, tenant-matched
-signature — verified by `tests/media-asset-repository.test.ts` and `tests/media-tenant-isolation.test.ts`,
-and manually confirmed via curl (direct filesystem-style paths 404, a tampered signature 403s, an expired
-one 410s, a different tenant's session is rejected even against a genuinely-minted signature).
+(role-differentiated across the nine tenant roles, see DECISIONS.md D-015 — e.g. Gate Security Officer,
+Dispatch and Logistics Officer, and Fleet and GPS Manager can create and view evidence they capture;
+Internal Investigator/Auditor, Accountant/Finance and Compliance Officer, Company Administrator, and
+Security Supervisor / Approving Manager can view but never create; Executive Read-Only Viewer has no
+`mediaAsset` permission at all) plus a tenant match, both re-checked at signed-URL mint time
+(`mintSignedUrlForMediaAsset()`), not just implied by a UI control. Every grant is audit-logged
+(`AuditLog`, `entityType: "MediaAsset"`, `action: "mediaAsset.readAccessGranted"`) — see DECISIONS.md
+D-014 for the chosen granularity (per mint, not per raw-byte fetch). No raw storage path is ever reachable
+without a valid, unexpired, tenant-matched signature — verified by `tests/media-asset-repository.test.ts`
+and `tests/media-tenant-isolation.test.ts`, and manually confirmed via curl (direct filesystem-style paths
+404, a tampered signature 403s, an expired one 410s, a different tenant's session is rejected even
+against a genuinely-minted signature).
+
+## GPS/location and vehicle-use-policy treatment (planned, Phase 6)
+Location/GPS history is already classified Restricted (above). Telematics data (position, ignition,
+odometer, speed) will be accessed only through the `TelematicsProvider` interface — no raw vendor
+credentials or API tokens stored in plaintext, logs, or exposed through any API response
+(`INTEGRATIONS.md`). Geofence/after-hours/mileage-policy violations raise an `Exception` for human review
+through the existing Phase 3 workflow; the system must never state or imply that an employee committed
+fraud, theft, or a crime — a violation is a fact pattern for a human to review, not a conclusion.
 
 ## Retention configuration
 Tenant-level `retentionDays` setting exists on `Tenant` (Phase 1 schema) as the config point; the
@@ -121,6 +137,9 @@ flow that pauses for a second factor when `mfaEnabled` is true. Not scheduled fo
 - Cross-border storage location if a cloud region outside South Africa is used.
 - Data subject access/erasure request process (drivers are data subjects, not just system users).
 - Consent/notice wording shown to drivers regarding facial verification and video capture at gates.
+- Employee GPS/location tracking (Phase 6): lawful-basis analysis, notice to employees/drivers about
+  vehicle tracking, and any restrictions on after-hours or private-use location monitoring — this varies
+  by jurisdiction and employment context and has not been assessed.
 
 None of the above are legal conclusions from this document — they are flagged items for professional
 review, per the hard rule against providing legal conclusions.

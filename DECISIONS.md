@@ -268,8 +268,71 @@ as the right granularity for "who was granted access," not "how many bytes were 
 **Revisit condition:** If a future compliance requirement needs literal byte-fetch-level audit granularity
 (not just grant-level), revisit — no such requirement exists today.
 
+## D-015 — 2026-07-23 — Remapped the 8 seeded roles onto 9 (six primary customer roles + three additional profiles)
+**Context:** The user supplied an authoritative, more detailed role specification: six primary daily
+customer roles (Company Administrator, Dispatch and Logistics Officer, Gate Security Officer, Security
+Supervisor / Approving Manager, Fleet and GPS Manager, Accountant / Finance and Compliance Officer) plus
+three additional non-daily profiles (Internal Investigator/Auditor, External Reviewer, Executive
+Read-Only Viewer). The prior 8-role set (Company Administrator, Security Manager, Gate Security Officer,
+Fleet Manager, Approving Manager, Risk/Compliance Manager, Internal Auditor, Executive Viewer) didn't map
+1:1.
+**Decision:** Merge old "Security Manager" + "Approving Manager" → "Security Supervisor / Approving
+Manager" (gate CONFIGURE moves to Company Administrator, who already had it — no longer duplicated).
+Split old "Fleet Manager" into "Dispatch and Logistics Officer" (gets `movement:CREATE/EDIT`, loses
+driver/vehicle master-data rights) and "Fleet and GPS Manager" (keeps driver/vehicle master-data rights,
+loses `movement:CREATE/EDIT`, drops to `movement:VIEW`). Rename "Risk/Compliance Manager" →
+"Accountant / Finance and Compliance Officer" (same permission set — review-only across the board, no
+resource beyond VIEW/AUDIT, matching "must not edit original inspections/GPS/photos/videos/audit
+events"). Rename "Internal Auditor" → "Internal Investigator / Auditor" and "Executive Viewer" →
+"Executive Read-Only Viewer" (unchanged permissions). Add new "External Reviewer" — same read-only
+evidence access as the internal profile, but no `user:VIEW` and no `auditLog:EXPORT` (an external party
+shouldn't see internal staff lists or bulk-export audit history).
+**Alternatives considered:** Keep "Security Manager" as a distinct gate-configuration role separate from
+approval duties — rejected because the new spec's role #4 responsibilities explicitly span both (approve
+movements *and* review/resolve gate exceptions *and* approve manual facial-verification fallback), and
+gate configuration itself already duplicated Company Administrator's existing rights.
+**Consequences:** A real behaviour change, not just a rename: the old "Fleet Manager" role could
+create/edit movements; the new "Fleet and GPS Manager" cannot (view-only). Any integration or seed data
+written against the old role names would break — confirmed via `tests/role-segregation.test.ts` (8 new
+cases) and a live curl regression check that a Fleet and GPS Manager session is 403'd creating a movement.
+The local dev database was dropped and recreated (`docker exec ... DROP/CREATE DATABASE`, fictional data
+only, explicitly authorised) rather than left with orphaned old-named Role rows and stale users from the
+rename — `prisma/seed.ts`'s upsert-by-name pattern doesn't clean up renamed/removed roles on its own.
+**Revisit condition:** None expected; this is the role model going forward. Telematics-specific
+permissions (Phase 6) and support-access-session permissions (Phase 7) will extend "Fleet and GPS
+Manager" and the platform-side roles respectively, not restructure this set again.
+
+## D-016 — 2026-07-23 — Platform-side roles and customer roles are architecturally separate, not more permission grants on the same model
+**Context:** The new spec adds a "Platform Support Analyst" platform-side role and a detailed
+platform-customer-list + controlled support-access design. Platform Administrator is already modeled as a
+user of a special "platform" tenant with a `platformTenant` permission resource (D-005), deliberately
+never granted access to any customer tenant's business data.
+**Decision:** Platform Support Analyst will be a second role within the same "platform" tenant (Phase 7),
+distinguished from Platform Administrator by a narrower permission set (no tenant status/creation rights,
+only support-session-related permissions). Support access to a customer tenant's data will go through a
+new, separately-scoped, fully audited `SupportAccessSession` model — not by granting platform roles any
+direct `driver`/`vehicle`/`mediaAsset`/etc. permission on customer tenants. This is exactly the
+"break-glass" mechanism already flagged as a TODO item since D-005/Phase 1.
+**Alternatives considered:** Giving Platform Administrator/Support Analyst a standing cross-tenant
+permission bypass — rejected outright, directly contradicts "cannot silently access tenant evidence" and
+this project's tenant-isolation architecture (ARCHITECTURE.md).
+**Consequences:** Phase 7 needs a new permission-evaluation path: `hasPermission()` as it exists today
+answers "does this session have X on its own tenant"; a support session needs "does this session have an
+*active, audited, time-limited* grant to view (read-only by default) *this specific other* tenant's data."
+This is additive — existing `hasPermission()` callers are unaffected — but is a genuinely new code path,
+not a permission-catalogue extension.
+**Revisit condition:** Design this fully when Phase 7 starts; not blocking Phases 5B/5C/6.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
-- **Telematics provider** — blocked, no vendor selected. Interface + mock built regardless.
+- **Telematics provider** — blocked, no vendor selected. Interface + mock built regardless. October pilot
+  scope (per the user's latest instruction) targets one production provider matched to the pilot
+  customer's existing tracker — still requires the user's vendor decision + credentials before that can
+  start; Phase 6 builds only the provider-neutral interface, mock, and manual-confirmation fallback.
 - **Production hosting (Supabase vs self-managed Postgres, storage provider, deploy target)** — deferred
   to Phase 7; will be raised as a major decision (paid third-party service) before any account is created.
+- **Subscription billing** — explicitly out of scope for this run (Phases 5-7 only); next planned work
+  after Phase 7 completes.
+- **Full investigation-case management** — explicitly out of scope for this run; External Reviewer /
+  Internal Investigator profiles exist for evidence access, but no dedicated case-management module
+  (case creation, findings, disposition tracking) is planned in Phases 5-7.

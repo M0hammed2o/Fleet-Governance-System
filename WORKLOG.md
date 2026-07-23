@@ -673,3 +673,78 @@ DATA_MODEL.md/DECISIONS.md with the new role/support-access/telematics/vehicle-u
 then map the 8 existing seeded roles onto the 6 primary customer roles (preserving segregation of duties
 and the existing Internal Auditor/Executive Viewer profiles), update `prisma/seed.ts`, and add tests
 proving prohibited cross-role actions remain blocked after the remap.
+
+---
+
+## 2026-07-23 — Session 7 — Phase 5A: role and requirement alignment
+**Objective:** Map the existing 8 seeded roles onto the user's more detailed role specification (six
+primary customer roles + three additional non-daily profiles + two platform-side roles), preserving
+segregation of duties, then transcribe the full expanded requirement set (telematics, vehicle-use
+policies, dispatch enhancements, platform support-access) into the project's memory docs.
+
+**Role remap (DECISIONS.md D-015):** Company Administrator and Gate Security Officer unchanged. "Security
+Manager" + "Approving Manager" merged into "Security Supervisor / Approving Manager" (gate CONFIGURE
+moved to Company Administrator, who already had it). "Fleet Manager" split into "Dispatch and Logistics
+Officer" (gets `movement:CREATE/EDIT`) and "Fleet and GPS Manager" (keeps driver/vehicle master-data
+rights, drops to `movement:VIEW` — a real behaviour change, not just a rename). "Risk/Compliance Manager"
+→ "Accountant / Finance and Compliance Officer" (same grants, renamed). "Internal Auditor" → "Internal
+Investigator / Auditor", "Executive Viewer" → "Executive Read-Only Viewer" (both unchanged permissions).
+New "External Reviewer" role added — same evidence-review access as the internal profile, but no
+`user:VIEW` and no `auditLog:EXPORT`.
+
+**Files changed:**
+- `prisma/seed.ts` — `TENANT_ROLE_DEFINITIONS` fully rewritten (9 roles, updated descriptions/comments),
+  `fictionalNameFor()` name map updated, all `usersByRole.get("...")` demo-data lookups updated (movement
+  requester/approver, driver-portrait capturer, gate-operations exception-resolver guard) — required
+  introducing a separate `dispatchOfficer` variable distinct from `fleetManager` since those two concepts
+  used to be one overloaded role.
+- `src/lib/auth/permissions.ts` — updated two stale comments referencing "Security Manager".
+- `tests/role-segregation.test.ts` (new) — 8 cases proving the specific prohibited actions named in the
+  new role spec remain blocked after the remap (Dispatch and Logistics Officer cannot approve movements,
+  Fleet and GPS Manager cannot create movements — the actual behaviour-change regression, Gate Security
+  Officer cannot resolve exceptions/fallbacks, Security Supervisor cannot create movements/exceptions,
+  Accountant/Finance cannot edit inspections/media, External Reviewer is more restricted than Internal
+  Investigator/Auditor, Executive Read-Only Viewer has zero media access, Company Administrator never
+  gets `mediaAsset:CREATE`).
+- Docs: `PRODUCT_REQUIREMENTS.md` (new "Roles — nine-role structure" section with an old→new mapping
+  table; new RECON-003, DISPATCH-001..005, GPS-001..006/GPS-BLOCKED, POLICY-001/002, SUPPORT-001..004
+  requirement tables, all `todo`, none implemented this session), `DECISIONS.md` (D-015 role remap
+  rationale, D-016 platform-side-roles/SupportAccessSession architecture note), `MVP_SCOPE.md` (scope
+  expansion note, October 2026 pilot target), `SECURITY_AND_POPIA.md` (SupportAccessSession design
+  pointer, GPS/vehicle-use-policy treatment section, employee-tracking legal-review flag, role names in
+  "Video and image treatment" updated), `INTEGRATIONS.md` (TelematicsProvider section moved from "Phase
+  3" — stale, that phase already happened without it — to Phase 6, expanded interface sketch, added
+  VehicleUsePolicy note), `ARCHITECTURE.md` + `PROJECT.md` (stale "Security Manager"/8-role references
+  corrected to the current 9-role structure), `TESTING.md` (Phase 5A coverage section), `TODO.md` (Phase
+  5A moved to Completed recently, revised build order note pointing at 5B→5C→6→7).
+
+**A deliberate operational decision this session:** the local dev Postgres database
+(`gate_fleet_governance`) was dropped and recreated (`docker exec gate-fleet-governance-postgres psql ...
+DROP DATABASE` / `CREATE DATABASE`, then `prisma migrate deploy` + `npm run seed`) rather than left with
+the old-named Role rows and their now-stale Users after the rename — `prisma/seed.ts`'s upsert-by-name
+pattern has no cleanup step for roles that no longer appear in `TENANT_ROLE_DEFINITIONS`, and renaming 6
+of 8 roles would otherwise have left 6 orphaned roles + their orphaned users (one of which,
+"Gate Security Officer", had already accumulated a second stray user from earlier live-testing sessions).
+This is 100% fictional local dev data, explicitly authorised under "creating local test data" — no
+customer or production data exists anywhere in this project.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean.
+- `npm test` — **294/294 passing** (23 files; 286 baseline + 8 new `role-segregation.test.ts` cases).
+- `npm run build` — clean.
+- Manual curl verification: fresh dev DB reseeded (confirmed via `psql` — exactly 9 roles under the demo
+  tenant, one user each, no orphans); Dispatch and Logistics Officer logs in (200) and is 403'd attempting
+  to approve a movement; Fleet and GPS Manager logs in (200) and is 403'd attempting to create a movement
+  (the actual behaviour-change regression check, not just a permission-table read).
+
+**Bugs found this session:** none.
+
+**Remaining work:** All of Phase 5B/5C/6/7 as scoped in `PRODUCT_REQUIREMENTS.md` and `TODO.md`. No new
+schema landed this session (pure role/permission remap + docs) — Phase 5B is the next schema change.
+
+**Exact recommended next action:** Begin Phase 5B (Reconciliation) — RECON-001 (departure-vs-return
+GateEvent pairing), RECON-002 (Discrepancy model + resolution workflow), RECON-003 (reconciliation
+dashboard). Small-checkpoint discipline continues: docs → repository layer → routes/validation → UI →
+tests → deliberate invalid-order/wrong-role/cross-tenant/duplicate-submission tests → tsc/lint/test/build
+→ docs update → Git commit, before moving to 5C.

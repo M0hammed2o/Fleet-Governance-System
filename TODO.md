@@ -1,13 +1,22 @@
 # TODO.md
 
 ## Now
-- [ ] Begin Phase 5 (Reconciliation): correct departure-vs-return pairing (RECON-001), Discrepancy record +
-      resolution workflow (RECON-002). GateEvent's minimal movement-lifecycle wiring from Phase 3
-      (clear→IN_PROGRESS, complete→COMPLETED, see DECISIONS.md D-010) is a placeholder, not the real
-      reconciliation design — this is where it gets replaced with real departure/return matching, likely
-      also wiring in `GateEvent`'s `direction` (ENTRY/EXIT) pairing per vehicle/movement and surfacing
-      discrepancies (odometer/fuel/condition mismatches, using the Phase 4 evidence now available for
-      comparison) on the security dashboard. | Priority: high | Deps: none — Phase 4 evidence/media is complete
+- [ ] Begin Phase 5B (Reconciliation): correct departure-vs-return pairing (RECON-001), Discrepancy record +
+      resolution workflow (RECON-002), reconciliation dashboard/detail page (RECON-003). GateEvent's
+      minimal movement-lifecycle wiring from Phase 3 (clear→IN_PROGRESS, complete→COMPLETED, see
+      DECISIONS.md D-010) is a placeholder, not the real reconciliation design — this is where it gets
+      replaced with real departure/return matching, wiring in `GateEvent`'s `direction` (ENTRY/EXIT)
+      pairing per vehicle/movement and surfacing discrepancies (odometer/fuel/condition/tyre mismatches,
+      using the Phase 4 evidence now available for comparison) on the security dashboard. Significant
+      discrepancies should raise an Exception via the existing Phase 3 workflow, not a parallel mechanism.
+      | Priority: high | Deps: none — Phase 5A role realignment is complete
+
+## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
+Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Next: 5B (Reconciliation, above) → 5C
+(Dispatch document/movement enhancements — DISPATCH-001..005) → Phase 6 (Telematics foundation + basic
+geofencing — GPS-001..006, POLICY-001/002) → Phase 7 (Platform support-access view — SUPPORT-001..004).
+Subscription billing and full investigation-case management are explicitly out of scope for this run —
+next planned work after Phase 7. Full requirement detail in PRODUCT_REQUIREMENTS.md.
 
 ## Next
 - [ ] Driver-portrait and compliance-document-attachment upload UI — both are fully wired end-to-end at the
@@ -44,6 +53,16 @@
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 5A: remapped the 8 seeded roles onto 9 (six primary customer roles + three additional
+      profiles, DECISIONS.md D-015) — `prisma/seed.ts` TENANT_ROLE_DEFINITIONS rewritten, fictional demo
+      users/emails updated, local dev DB dropped/recreated to clear orphaned old-role rows, 8 new
+      segregation-of-duties tests (`tests/role-segregation.test.ts`), live curl regression check that
+      Fleet and GPS Manager (ex-"Fleet Manager") can no longer create movements — 294/294 tests passing,
+      tsc/lint/build clean — 2026-07-23
+- [x] Recovery checkpoint: completed the interrupted Phase 4 independent verification (corrected
+      `checksumSha256` column name, confirmed file/checksum match, full tsc/lint/test/build re-run) and
+      created the repository's first two Git commits (`c5e5d33` baseline, `7e2a455` docs) — the repo had
+      zero commits despite four completed phases — 2026-07-23
 - [x] Phase 4: MediaAsset model (polymorphic ownerType/ownerId, DECISIONS.md D-011), StorageProvider
       interface + local-filesystem dev implementation, HMAC-signed time-limited read URLs
       (`lib/storage/signed-url.ts`), secure upload endpoint with server-side file-type/size validation and

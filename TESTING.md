@@ -211,6 +211,19 @@ Playwright, covering the 15-step "Version 1 complete" workflow in `MVP_SCOPE.md`
 Facial-verification and telematics providers are mock-only in V1 — no physical hardware test plan exists
 yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 
+## Phase 5A coverage (role realignment, added 2026-07-23)
+- [x] Segregation of duties holds after the 8→9 role remap (DECISIONS.md D-015) —
+      `tests/role-segregation.test.ts` (8 cases): Dispatch and Logistics Officer cannot approve/reject
+      movements; Fleet and GPS Manager cannot create/edit movements (regression check — this permission
+      moved to Dispatch and Logistics Officer); Gate Security Officer cannot resolve/approve exceptions or
+      facial-verification fallbacks it can only create/request; Security Supervisor / Approving Manager
+      cannot create a movement or raise an exception; Accountant / Finance and Compliance Officer cannot
+      edit inspections/capture media/edit compliance documents; External Reviewer has no `user:VIEW` or
+      `auditLog:EXPORT` (more restricted than Internal Investigator / Auditor); Executive Read-Only Viewer
+      has zero media/evidence access; Company Administrator never gets `mediaAsset:CREATE`.
+- [x] Manually verified via curl: Dispatch and Logistics Officer login + 403 on movement approve; Fleet
+      and GPS Manager login + 403 on movement create.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

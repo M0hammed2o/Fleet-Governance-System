@@ -13,9 +13,12 @@ tamper-evident record of who inspected what, what was found, who approved except
 vehicle was cleared or denied — usable as evidence in operational, safety, and compliance reviews.
 
 ## User types
-Platform Administrator, Company Administrator, Security Manager, Gate Security Officer, Fleet Manager,
-Approving Manager, Risk/Compliance Manager, Internal Auditor, Executive Viewer. See
-`PRODUCT_REQUIREMENTS.md` for granular permissions per role.
+Platform-side: Platform Administrator, Platform Support Analyst (Phase 7). Customer-side, six primary
+roles: Company Administrator, Dispatch and Logistics Officer, Gate Security Officer, Security Supervisor /
+Approving Manager, Fleet and GPS Manager, Accountant / Finance and Compliance Officer. Plus three
+additional non-daily profiles: Internal Investigator / Auditor, External Reviewer, Executive Read-Only
+Viewer. See `PRODUCT_REQUIREMENTS.md` "Roles — nine-role structure" and DECISIONS.md D-015 for the full
+mapping and rationale (remapped 2026-07-23 from an earlier 8-role set).
 
 ## High-level product boundaries
 - Multi-tenant SaaS: each tenant is a company; strict data isolation between tenants is a release-blocking
@@ -27,14 +30,19 @@ Approving Manager, Risk/Compliance Manager, Internal Auditor, Executive Viewer. 
   record rather than re-capturing cargo/delivery data.
 
 ## Current project status
-**Phases 1–4 complete; Phase 5 (Reconciliation) not yet started.** Repository was empty (greenfield) as of
-2026-07-19. Foundation (auth/permissions/audit), master data (drivers/vehicles/documents/tyre config/
-movement authorisation), gate operations (GateEvent state machine, guided inspection, exceptions,
-security dashboard), and evidence/media (secure upload, signed-URL-only reads, checksum + idempotency
-protection) are all built and tested — 286/286 automated tests passing as of 2026-07-22. See `WORKLOG.md`
-for the session-by-session log and `TODO.md` for the live task list — those two files are the source of
-truth for "what's actually done" over this document's narrative summary, which is not kept current every
-session.
+**Phases 1–4 complete; Phase 5A (role realignment) complete; Phase 5B (Reconciliation) is next.**
+Repository was empty (greenfield) as of 2026-07-19. Foundation (auth/permissions/audit), master data
+(drivers/vehicles/documents/tyre config/movement authorisation), gate operations (GateEvent state
+machine, guided inspection, exceptions, security dashboard), evidence/media (secure upload, signed-URL-
+only reads, checksum + idempotency protection), and the nine-role structure (DECISIONS.md D-015) are all
+built and tested — 294/294 automated tests passing as of 2026-07-23. First Git checkpoint created
+2026-07-23 (`c5e5d33`, then subsequent commits — see `git log`); the repository had zero commits before
+that session despite four phases of prior work. Target: a controlled real-customer V1 pilot by October
+2026, per the user's 2026-07-23 instruction, which also authorised extending scope with a telematics
+foundation, vehicle-use policies, dispatch enhancements, and a platform support-access view (Phases
+5C/6/7) — see `PRODUCT_REQUIREMENTS.md` and `DECISIONS.md` D-015/D-016. See `WORKLOG.md` for the
+session-by-session log and `TODO.md` for the live task list — those two files are the source of truth for
+"what's actually done" over this document's narrative summary, which is not kept current every session.
 
 ## How a new Claude session should resume work
 1. Read this file, then `TODO.md` (Now/Next/Blocked sections) and the tail of `WORKLOG.md`.

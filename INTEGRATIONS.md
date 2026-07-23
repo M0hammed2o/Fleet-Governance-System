@@ -3,7 +3,7 @@
 | Integration | Status | Mode |
 |---|---|---|
 | Facial verification | **Interface + mock built (2026-07-21)**, no vendor selected | mock only |
-| Telematics (GPS) | Interface planned (Phase 3), no vendor selected | mock only |
+| Telematics (GPS) | Interface planned (Phase 6), no vendor selected. October pilot needs one production provider selected | mock only |
 | Object storage | **Interface + local-filesystem dev implementation built (2026-07-22)**, no production vendor selected | dev mode only |
 | Notifications (email/SMS) | Not started | — |
 | Hardware/device (barrier, ANPR camera, ticket printer) | Not started, deferred item | — |
@@ -31,27 +31,48 @@ contains a `force:<outcome>` marker (`force:not_verified`, `force:liveness_faile
 
 Manual fallback is a separate first-class model, `ManualFacialVerificationFallback`
 (`lib/repositories/facial-verification-repository.ts`): a Gate Security Officer requests one (reason
-required), a Security Manager/Company Administrator resolves it (APPROVED/DENIED); the resolver cannot be
-the same person who requested it (`SelfApprovalNotAllowedError`); every step is audit-logged. Not yet tied
-to a GateEvent (Phase 3 doesn't exist) — `relatedGateEventId` is a forward-compatible nullable field, same
-pattern as `AuditLog`'s.
+required), a Security Supervisor / Approving Manager or Company Administrator resolves it
+(APPROVED/DENIED); the resolver cannot be the same person who requested it
+(`SelfApprovalNotAllowedError`); every step is audit-logged. Now wired into the GateEvent identity step
+(Phase 3) via `relatedGateEventId`.
 
 **Blocked:** production vendor selection is a major decision requiring the user's input before any
 account/credential is created. The interface's shape should not need to change once one is chosen —
 `verifyDriver()` is the only method a real adapter needs to implement.
 
-## TelematicsProvider (planned interface, Phase 3)
-```
+## TelematicsProvider (planned interface, Phase 6 — see PRODUCT_REQUIREMENTS.md GPS-001..006)
+Same adapter pattern as `FacialVerificationProvider`/`StorageProvider`: one interface, a
+`MockTelematicsProvider` for dev, a `ManualGpsConfirmationProvider` fallback (mirrors the manual
+facial-verification fallback — request/resolve, audited, self-approval blocked), and real vendor adapters
+(Netstar/Cartrack/Tracker/MiX/other) built later behind the same interface without changing call sites.
+Provider-neutral by design — must not hardcode the application to one tracking company. No undocumented
+vendor endpoints will be invented or scraped; a real adapter is only built against that vendor's
+published, authorised API documentation and sandbox credentials.
+```ts
 interface TelematicsProvider {
-  getLatestReading(vehicleId): Promise<{
+  testConnection(): Promise<{ ok: boolean; message?: string }>;
+  listVehicles(): Promise<Array<{ providerVehicleId: string; label?: string }>>;
+  getLatestReading(providerVehicleId: string): Promise<{
     lastCommunicationAt: Date | null;
-    gpsActive: boolean;
+    gpsActive: "ACTIVE" | "INACTIVE" | "UNKNOWN";
     location?: { lat: number; lng: number };
-  } | null>
+    ignitionOn?: boolean;
+    odometerKm?: number;
+    speedKmh?: number;
+  } | null>;
+  listGeofences?(): Promise<Array<{ providerGeofenceId: string; name: string }>>;
 }
 ```
-Dev implementation: mock returning static/randomised fixture data. **Blocked:** production vendor
-selection is a major decision.
+For the October pilot scope, one production provider matched to the pilot customer's existing tracker is
+the target — still requires the user's vendor decision, budget approval, and credentials before that adapter
+can be built or tested against a real sandbox. **Blocked** until then; the interface/mock/manual-fallback
+are not blocked and will be built in Phase 6 regardless.
+
+## VehicleUsePolicy (planned model, Phase 6 — see PRODUCT_REQUIREMENTS.md POLICY-001/002)
+Not a provider integration itself, but depends on `TelematicsProvider` data (location, ignition, odometer)
+to evaluate geofence/after-hours/mileage violations. Violations raise an `Exception` through the existing
+Phase 3 workflow — never an automatic fraud/theft/crime conclusion (SECURITY_AND_POPIA.md), always subject
+to human review.
 
 ## StorageProvider (built — `src/lib/storage/provider.ts`)
 ```ts

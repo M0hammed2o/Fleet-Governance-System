@@ -50,26 +50,88 @@ Each requirement should eventually link to the code/tests that satisfy it. Until
 | EVID-003 | Upload retry without duplication | Idempotency key prevents duplicate evidence record | done | `MediaAsset` `@@unique([tenantId, idempotencyKey])`; `uploadMediaAsset` returns the existing row on a genuine retry, `IdempotencyKeyConflictError` (409) on a same-key-different-content retry; `tests/media-asset-repository.test.ts` "upload retry without duplication" describe block (3 cases); manually verified via curl + psql row-count check |
 | EVID-004 | Guided walk-around capture | Covers exterior, lights, tyres, dashboard, odometer, fuel, licence disc, registration | done | The Phase 3 `InspectionTemplate`/`InspectionItem` engine already covers these sections (`EXTERIOR_CONDITION`, `LIGHTS`, `TYRES_WHEELS`, `OPERATIONAL_INFO`, `VEHICLE_IDENTITY` — seeded default template, prisma/seed.ts); Phase 4 adds the real evidence-capture affordance per item — `src/app/gate/events/[id]/page.tsx` file input → `POST /api/media/upload` → `evidenceMediaAssetId` passed into `recordInspectionResult` |
 
-## RECON — Reconciliation (Phase 5)
+## RECON — Reconciliation (Phase 5B)
 | ID | Requirement | Acceptance criteria | Status |
 |---|---|---|---|
-| RECON-001 | Departure vs return comparison | Uses correct paired departure event, not most-recent-by-vehicle | todo |
-| RECON-002 | Discrepancy record + resolution workflow | Discrepancy is reviewed, not auto-accusatory; has reviewer/status/evidence | todo |
+| RECON-001 | Departure vs return comparison | Correctly pairs a return GateEvent to its departure GateEvent for the same movement/vehicle; prevents incorrect or duplicate pairing; compares odometer, fuel, condition/damage, tyre readings where captured, cargo/load/seals/tools/equipment/passengers where configured | todo |
+| RECON-002 | Discrepancy record + resolution workflow | Discrepancy is reviewed, not auto-accusatory; has reviewer/status/explanation/evidence/corrective-action/audit history; significant discrepancies raise an Exception via the existing Phase 3 exception workflow rather than a parallel mechanism | todo |
+| RECON-003 | Reconciliation dashboard/detail page | Real DB-backed, shows open/resolved discrepancies, links to both paired GateEvents and their evidence | todo |
 
-## GOV — Governance (Phase 6)
+## DISPATCH — Dispatch workflow enhancements (Phase 5C)
+Extends `MovementAuthorisation` (Phase 2, done) — does not replace it.
 | ID | Requirement | Acceptance criteria | Status |
 |---|---|---|---|
-| GOV-001 | Risk register (categories, owners, likelihood/impact, rating) | Matches brief 7.12 field list | todo |
-| GOV-002 | Control register + control testing | Preventive/detective, owner, frequency, evidence, effectiveness, findings | todo |
-| GOV-003 | Executive dashboard | Read-only, real DB-backed, no static mock values | todo |
+| DISPATCH-001 | Movement type covers sales visit, service, transfer, authorised private use | `MovementType` enum extended; existing DELIVERY/COLLECTION/ENTRY/EXIT/RETURN/SITE_TRANSFER/MAINTENANCE/OTHER preserved | todo |
+| DISPATCH-002 | Sender/recipient fields | Captured on MovementAuthorisation, validated server-side | todo |
+| DISPATCH-003 | Secure delivery-note/supporting-document upload | Uses the existing MediaAsset architecture (Phase 4) — no public URL; Dispatch and Logistics Officer has `mediaAsset:CREATE` for this purpose (already granted, D-015) | todo |
+| DISPATCH-004 | Movement references an approved geofence/vehicle-use policy | Optional FK to VehicleUsePolicy (Phase 6) — nullable until that model exists, not a hard Phase 5C dependency | todo |
+| DISPATCH-005 | Dispatch-facing UI improvements | Dispatch and Logistics Officer can complete the full workflow above without leaving one connected screen (matches the existing gate check-in UX principle) | todo |
 
-## Roles → permission matrix
-To be populated in `docs/modules/permissions.md` once `Permission` seed data is defined (Phase 1) — kept
-out of this file to avoid duplicated, driftable data.
+## GPS — Telematics foundation and basic geofencing (Phase 6)
+Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvider` adapter pattern.
+| ID | Requirement | Acceptance criteria | Status |
+|---|---|---|---|
+| GPS-001 | `TelematicsProvider` interface + `MockTelematicsProvider` | Same shape as FacialVerificationProvider: test connection, retrieve vehicles, current/last-known position, last communication, ignition, odometer, speed/trip, geofences, location/geofence events, normalised internal models | todo |
+| GPS-002 | `ManualGpsConfirmationProvider` / manual office-confirmation fallback | Mirrors the existing manual facial-verification fallback pattern (request/resolve, audited, self-approval blocked) | todo |
+| GPS-003 | Vehicle-to-tracker mapping | `Vehicle` gains a tracker reference per connected provider; status active/inactive/unknown, last communication time | todo |
+| GPS-004 | Basic geofence monitoring | Approved-destination comparison, after-hours-use detection, mileage-allowance monitoring | todo |
+| GPS-005 | GPS-offline and geofence-deviation exceptions | Reuses the existing Phase 3 Exception model/workflow, not a parallel one; human review required, never an automatic fraud/theft/crime conclusion (SECURITY_AND_POPIA.md) | todo |
+| GPS-006 | Cross-tenant / stale-data / duplicate-alert / provider-failure tests | Provider failure produces a typed error, not a 500; stale data is flagged, not silently trusted | todo |
+| GPS-BLOCKED | Production provider connection (Netstar/Cartrack/Tracker/MiX/other) | One production provider selected for the October pilot | blocked — needs user's vendor decision + credentials |
+
+## POLICY — Vehicle-use policies (Phase 6)
+| ID | Requirement | Acceptance criteria | Status |
+|---|---|---|---|
+| POLICY-001 | `VehicleUsePolicy` model | Named driver/rep, assigned vehicle(s), effective dates, permitted days/hours, approved start/destinations/geofence, km limits (trip/day/week/month), after-hours/weekend/private-use flags, private-use km allowance, expected return time, approving manager, status, override reason | todo |
+| POLICY-002 | Policy violations raise Exceptions, never automatic allegations | Same human-review requirement as GPS-005 | todo |
+
+## SUPPORT — Platform support-access view (Phase 7)
+| ID | Requirement | Acceptance criteria | Status |
+|---|---|---|---|
+| SUPPORT-001 | Platform customer list with health/status summary | Subscription/payment status, sites/gates/vehicle/user counts, open critical exceptions, GPS/facial-verification provider status, storage usage, failed integrations, last activity, onboarding status, support notes — real DB-backed | todo |
+| SUPPORT-002 | `SupportAccessSession` model | Auditable: actor, customer tenant, reason/ticket ref, start, end, time-limited; see DECISIONS.md D-016 | todo |
+| SUPPORT-003 | Controlled support view | Visible "Support view — [Customer]" banner, read-only by default, mandatory reason, immediate exit action, no password/session-cookie exposure, no default biometric/investigation-case access, explicit elevated-access workflow for authorised changes | todo |
+| SUPPORT-004 | Tenant isolation + access-expiry tests | A support session cannot read a tenant it wasn't granted; an expired support session is rejected on next request (same pattern as `evaluateSession()`) | todo |
+
+## GOV — Governance (Phase 6, unchanged scope — risk/control register)
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| GOV-001 | Risk register (categories, owners, likelihood/impact, rating) | Matches brief 7.12 field list | todo | |
+| GOV-002 | Control register + control testing | Preventive/detective, owner, frequency, evidence, effectiveness, findings | todo | |
+| GOV-003 | Executive dashboard | Read-only, real DB-backed, no static mock values | in-progress | Gate-ops metrics already satisfied by the Phase 3 security dashboard (GATE-002); a separate risk/control-specific executive view is still todo |
+
+## Roles — nine-role structure (as of 2026-07-23, see DECISIONS.md D-015)
+Full permission grants live in `prisma/seed.ts` `TENANT_ROLE_DEFINITIONS` (source of truth — do not
+duplicate the grant list here, it drifts). This table records the mapping and responsibilities only.
+
+**Six primary customer roles:**
+| Role | Was (pre-2026-07-23) | Core responsibility |
+|---|---|---|
+| Company Administrator | Company Administrator (unchanged) | Company/site/gate/user config, full oversight, cannot alter immutable evidence |
+| Dispatch and Logistics Officer | *(new — split from Fleet Manager)* | Plans/creates/submits movements; cannot approve |
+| Gate Security Officer | Gate Security Officer (unchanged) | Gate check-in/out, inspection, evidence capture, raises exceptions |
+| Security Supervisor / Approving Manager | Security Manager + Approving Manager (merged) | Approves movements, resolves exceptions, approves facial-verification fallback |
+| Fleet and GPS Manager | Fleet Manager (refocused — loses movement CREATE/EDIT) | Driver/vehicle master data, GPS/tracker mapping (Phase 6) |
+| Accountant / Finance and Compliance Officer | Risk/Compliance Manager (renamed) | Compliance-document review/verification, licence/renewal dates, financial/compliance reporting |
+
+**Three additional non-daily profiles:**
+| Role | Was | Core responsibility |
+|---|---|---|
+| Internal Investigator / Auditor | Internal Auditor (renamed) | Full internal read-only investigation/audit access |
+| External Reviewer | *(new)* | Restricted external read-only access — no internal staff visibility, no audit export |
+| Executive Read-Only Viewer | Executive Viewer (renamed) | Dashboards/reports only, no evidence access |
+
+**Platform-side roles (not customer roles):** Platform Administrator (exists, D-005) and Platform Support
+Analyst (Phase 7, D-016) — both scoped to the system "platform" tenant, never granted standing access to
+customer tenant business data. Customer support access goes through the separate `SupportAccessSession`
+mechanism (SUPPORT-002), not a permission grant.
 
 ## Unresolved questions
 1. Facial-verification vendor — blocked (INTEGRATIONS.md).
-2. Telematics vendor — blocked (INTEGRATIONS.md).
+2. Telematics vendor — blocked (INTEGRATIONS.md); October pilot needs one production provider matched to
+   the pilot customer.
 3. Production hosting target — deferred to Phase 7.
 4. Retention granularity (single tenant-wide `retentionDays` vs per-category) — flagged in
    SECURITY_AND_POPIA.md for legal review; current schema only supports the simpler single value.
+5. Subscription billing and full investigation-case management — explicitly out of scope for Phases 5-7,
+   recorded as next planned work after Phase 7.
