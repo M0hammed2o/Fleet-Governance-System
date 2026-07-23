@@ -611,3 +611,65 @@ comparison using the correct paired departure event, not most-recent-by-vehicle)
 movement-lifecycle wiring (DECISIONS.md D-010) is an explicitly-documented placeholder that Phase 5 is meant
 to replace with the real design; the Phase 4 evidence now available (photos/video per inspection item) is
 available to attach to any discrepancy found.
+
+---
+
+## 2026-07-23 — Session 6 — Recovery checkpoint: Phase 4 independent verification completed, first Git commit
+**Objective:** The prior session's independent re-verification of Phase 4 was interrupted mid-way by a tool
+error on the exact `psql` command that queries `MediaAsset` checksums (used the wrong column name,
+`checksum` instead of `checksumSha256`). Complete that verification, then create the repository's first
+local Git checkpoint (198 tracked files, zero commits existed before this session), before continuing into
+an expanded set of product requirements the user supplied covering role realignment, departure/return
+reconciliation, dispatch workflow enhancements, telematics, and a platform support-access view.
+
+**Verification completed:**
+- Corrected query confirmed: `prisma/schema.prisma` names the field `checksumSha256` (not `checksum`).
+  `SELECT id, "ownerType", "contentType", "fileSizeBytes", "checksumSha256", "storageKey" FROM media_assets;`
+  returned the expected 3 seeded rows (1 `DRIVER_PORTRAIT`, 2 `GATE_EVENT_INSPECTION_ITEM`).
+- Computed `sha256sum` directly against the 3 corresponding files under `.data/media/<tenantId>/...` and
+  confirmed byte-for-byte match against each row's `checksumSha256` column — the stored checksum is
+  genuinely the hash of the stored file, not a placeholder.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (286/286 passing, 22 files), `npm run build` (39 routes) —
+  all re-confirmed clean in this session (in addition to having already passed earlier in the same
+  conversation before the interruption).
+- Did **not** upgrade Prisma despite the CLI's own "7.8.0 -> 7.9.0 update available" notice, per explicit
+  instruction not to upgrade dependencies opportunistically.
+- Confirmed no production credentials or real customer data present: `.gitignore` already excludes
+  `.env*` and `.data` (local media storage); a grep across `src/`, `prisma/`, `scripts/` for common
+  real-secret patterns (AWS keys, OpenAI-style keys, PEM private key headers, Slack tokens) found nothing;
+  all seed accounts use `@example.test` addresses and a single documented fictional dev password
+  (`GateFleet!Dev1`, `prisma/seed.ts`), consistent with every prior session's data-handling.
+
+**Git checkpoint:** First commit created — `c5e5d33`, "chore: checkpoint completed foundation through phase
+4 media", 198 files, 27,525 insertions. Confirmed via `git status --short` after staging that no `.env*` or
+`.data` path was included. No remote is configured (`git remote -v` empty) — retained as local-only per
+instruction; a remote backup is still required before this work exists anywhere but this machine.
+
+**Scope change — new authoritative product requirements received this session (not yet implemented):** the
+user supplied a substantially expanded requirements set: six primary customer roles (Company Administrator,
+Dispatch and Logistics Officer, Gate Security Officer, Security Supervisor/Approving Manager, Fleet and GPS
+Manager, Accountant/Finance and Compliance Officer) to map the existing 8 seeded roles onto; a
+`SupportAccessSession`-style controlled/audited platform support-access design (visible banner, mandatory
+reason, time-limited, read-only by default); a provider-neutral `TelematicsProvider` interface (Netstar/
+Cartrack/Tracker/MiX-agnostic, mock + manual-confirmation fallback only for now); `VehicleUsePolicy` for
+sales-rep vehicle allowances with geofence/after-hours/mileage exception generation; and dispatch-workflow
+enhancements to `MovementAuthorisation` (sender/recipient, secure `MediaAsset`-backed delivery-note
+upload). Full detail preserved in the user's own message this session — not yet transcribed into
+PRODUCT_REQUIREMENTS.md; that transcription is the first task of Phase 5A.
+
+**Revised build order going forward (Phase 5A → 5B → 5C → 6 → 7), per this session's instruction:**
+5A requirement/role alignment, 5B departure/return reconciliation (RECON-001/002 — this replaces the prior
+"exact recommended next action" from the previous session, same underlying work, now with explicit
+discrepancy-comparison and dashboard requirements), 5C dispatch document/movement enhancements, Phase 6
+telematics foundation + basic geofencing, Phase 7 platform support view. Subscription billing and full
+investigation-case management are explicitly out of scope for this run.
+
+**Remaining work:** All of Phase 5A/5B/5C/6/7 as scoped above. Small-checkpoint discipline (doc update →
+implement → test → verify → commit, per phase) applies from here on — this session's commit is the
+baseline every subsequent phase's commit will diff against.
+
+**Exact recommended next action:** Begin Phase 5A — update PRODUCT_REQUIREMENTS.md/ARCHITECTURE.md/
+DATA_MODEL.md/DECISIONS.md with the new role/support-access/telematics/vehicle-use-policy requirements,
+then map the 8 existing seeded roles onto the 6 primary customer roles (preserving segregation of duties
+and the existing Internal Auditor/Executive Viewer profiles), update `prisma/seed.ts`, and add tests
+proving prohibited cross-role actions remain blocked after the remap.
