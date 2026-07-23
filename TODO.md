@@ -1,16 +1,20 @@
 # TODO.md
 
 ## Now
-- [ ] Begin Phase 5C (Dispatch workflow enhancements): DISPATCH-001..005 — extended `MovementType` (sales
-      visit, service, transfer, authorised private use), sender/recipient fields, secure delivery-note
-      upload (existing MediaAsset architecture), optional VehicleUsePolicy/geofence reference (nullable
-      until Phase 6), dispatch-facing UI improvements. | Priority: high | Deps: none — Phase 5B is complete
+- [ ] Begin Phase 6 (Telematics foundation + basic geofencing): GPS-001 (`TelematicsProvider` interface +
+      `MockTelematicsProvider`), GPS-002 (`ManualGpsConfirmationProvider`), GPS-003 (vehicle-to-tracker
+      mapping), GPS-004 (geofence monitoring), GPS-005 (GPS-offline/geofence-deviation exceptions via the
+      existing Phase 3 Exception model), GPS-006 (provider-failure/stale-data tests), POLICY-001/002
+      (`VehicleUsePolicy` model, violations raise Exceptions not automatic allegations). Production
+      provider connection is explicitly blocked (GPS-BLOCKED) — build the interface + mock regardless, per
+      the user's standing instruction for provider-neutral work. | Priority: high | Deps: none — Phase 5C
+      is complete
 
 ## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
 Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Phase 5B (Reconciliation) — **done**, see
-WORKLOG.md Session 9 / DECISIONS.md D-017/D-018. Next: 5C (Dispatch document/movement enhancements —
-DISPATCH-001..005) → Phase 6 (Telematics foundation + basic geofencing — GPS-001..006, POLICY-001/002) →
-Phase 7 (Platform support-access view — SUPPORT-001..004). Subscription billing and full
+WORKLOG.md Session 9 / DECISIONS.md D-017/D-018. Phase 5C (Dispatch workflow enhancements) — **done**, see
+WORKLOG.md Session 10. Next: Phase 6 (Telematics foundation + basic geofencing — GPS-001..006,
+POLICY-001/002) → Phase 7 (Platform support-access view — SUPPORT-001..004). Subscription billing and full
 investigation-case management are explicitly out of scope for this run — next planned work after Phase 7.
 Full requirement detail in PRODUCT_REQUIREMENTS.md.
 
@@ -49,6 +53,13 @@ Full requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 5C: Dispatch workflow enhancements (DISPATCH-001..005) — `MovementType` extended
+      (SALES_VISIT/SERVICE/AUTHORISED_PRIVATE_USE), sender/recipient fields, `MOVEMENT_DOCUMENT` MediaAsset
+      owner type reusing the existing upload/signed-URL routes unchanged, plain nullable
+      `vehicleUsePolicyId` (upgraded to a real FK once VehicleUsePolicy exists in Phase 6), dispatch UI
+      improvements (movements list create form + detail-page document upload/list, no separate screen) —
+      333/333 tests passing (11 new), tsc/lint/build clean, live curl verification incl. the
+      mediaAsset:VIEW visibility boundary (Executive Read-Only Viewer sees zero documents) — 2026-07-24
 - [x] Phase 5B: Reconciliation (RECON-001..003) — `Reconciliation`/`ReconciliationDiscrepancy` models,
       chronological (not hardcoded-direction) departure/return pairing with duplicate/reversed/mismatched
       protection (DECISIONS.md D-017), pure discrepancy-comparison engine generic over the existing

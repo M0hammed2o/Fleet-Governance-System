@@ -364,6 +364,25 @@ way — this is purely an internal wiring choice, invisible to any caller or tes
 **Revisit condition:** If a third repository needs the same "create an Exception without a state
 transition" shape, extract a small shared helper instead of a third copy-paste.
 
+## D-019 — 2026-07-24 — `MovementAuthorisation.vehicleUsePolicyId` is a plain nullable String, not a Prisma relation, until Phase 6
+**Context:** DISPATCH-004 asks for a movement to optionally reference an approved
+`VehicleUsePolicy`/geofence, explicitly scoped as "nullable until that model exists, not a hard Phase 5C
+dependency" — but `VehicleUsePolicy` itself is Phase 6, POLICY-001, not built yet.
+**Decision:** Add the column now as a plain `String?` with no `@relation` and no FK constraint, rather than
+either (a) skipping the field until Phase 6, or (b) creating a stub `VehicleUsePolicy` table early just to
+satisfy the FK. When Phase 6 creates the real `VehicleUsePolicy` model, a follow-up migration adds the
+`@relation` (Prisma allows this without touching existing data — the column stays, a constraint is added).
+**Alternatives considered:** Skipping the field entirely until Phase 6 — rejected, the acceptance criteria
+explicitly calls for it now. Building a placeholder `VehicleUsePolicy` table in this phase just to have
+something to point the FK at — rejected as premature: Phase 6's actual field list (POLICY-001: named
+driver/rep, assigned vehicles, effective dates, permitted days/hours, km limits, etc.) isn't designed yet,
+and a placeholder table would just get dropped and rebuilt, churn with no benefit.
+**Consequences:** Until Phase 6, `vehicleUsePolicyId` accepts any string, including one that doesn't
+correspond to anything — acceptable because nothing reads or enforces it yet; the moment Phase 6 adds the
+real relation and any enforcement logic, existing values will need validating/backfilling as part of that
+migration.
+**Revisit condition:** Phase 6, when `VehicleUsePolicy` is actually created.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected. Interface + mock built regardless. October pilot

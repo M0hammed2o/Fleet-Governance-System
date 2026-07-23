@@ -245,6 +245,20 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
       same-gate-event-both-legs 409 → nonexistent-movement 404 → suspended user 401 on
       `/api/reconciliations`, reactivated and confirmed working again. No 500s observed at any step.
 
+## Phase 5C coverage (dispatch workflow enhancements, added 2026-07-24)
+- [x] `tests/dispatch-enhancements.test.ts` (11 cases): every new `MovementType` value accepted
+      (parameterised) plus every pre-existing value still accepted; sender/recipient fields captured and
+      independently optional; `vehicleUsePolicyId` accepted as a plain string with no FK validation (target
+      model doesn't exist yet) and defaults null; document upload against a real movement succeeds,
+      rejected against a cross-tenant movement id (`MediaOwnerNotFoundError`), and multiple documents per
+      movement are allowed (no unique-per-owner constraint).
+- [x] Manually verified via curl: created a movement with `movementType: SALES_VISIT`, sender/recipient
+      fields and `expectedDistanceKm` all round-tripped correctly; uploaded a document via the existing
+      `POST /api/media/upload` (no new endpoint) and confirmed it appears in `GET /api/movements/[id]`'s
+      `documents` array for a role with `mediaAsset:VIEW`, and as an empty array for Executive Read-Only
+      Viewer (no `mediaAsset` grant at all); minted a signed view URL successfully; both the movements list
+      and detail admin pages render with the new fields/upload UI.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

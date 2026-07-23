@@ -16,6 +16,10 @@ export const movementTypeSchema = z.enum([
   "SITE_TRANSFER",
   "MAINTENANCE",
   "OTHER",
+  // Phase 5C (DISPATCH-001).
+  "SALES_VISIT",
+  "SERVICE",
+  "AUTHORISED_PRIVATE_USE",
 ]);
 
 export const createMovementSchema = z.object({
@@ -28,11 +32,21 @@ export const createMovementSchema = z.object({
   destination: z.string().trim().max(500).optional(),
   expectedDepartureAt: isoDateTimeToDate.optional(),
   expectedReturnAt: isoDateTimeToDate.optional(),
+  expectedDistanceKm: z.coerce.number().positive().max(100000).optional(),
   customerProjectJobReference: z.string().trim().max(100).optional(),
   deliveryOrCollectionReference: z.string().trim().max(100).optional(),
   purchaseOrderReference: z.string().trim().max(100).optional(),
   approvedCargoSummary: z.string().trim().max(1000).optional(),
   sealOrContainerReference: z.string().trim().max(100).optional(),
+  // Phase 5C (DISPATCH-002) — free text, not FKs; a sender/recipient is very
+  // often an external party with no account in this system.
+  senderName: z.string().trim().max(200).optional(),
+  senderContact: z.string().trim().max(200).optional(),
+  recipientName: z.string().trim().max(200).optional(),
+  recipientContact: z.string().trim().max(200).optional(),
+  // Phase 5C (DISPATCH-004) — plain optional reference, no FK yet (target
+  // model VehicleUsePolicy doesn't exist until Phase 6).
+  vehicleUsePolicyId: z.string().trim().max(200).optional(),
 });
 export type CreateMovementInput = z.infer<typeof createMovementSchema>;
 

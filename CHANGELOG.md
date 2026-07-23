@@ -2,6 +2,11 @@
 
 ## 2026-07-24
 ### Added
+- Phase 5C — dispatch workflow enhancements (DISPATCH-001..005): three new `MovementType` values (sales
+  visit, service, authorised private use), sender/recipient fields, and an optional (not-yet-FK)
+  vehicle-use-policy reference on `MovementAuthorisation`; secure delivery-note/supporting-document upload
+  reusing the existing Phase 4 MediaAsset architecture with zero new routes; movements admin UI extended
+  with the new fields and an inline document upload/list. 11 new tests (333/333 total).
 - Phase 5B — departure/return reconciliation (RECON-001..003): `Reconciliation`/`ReconciliationDiscrepancy`
   models, automatic pairing of a movement's departure and return gate events (by chronological order, not
   a hardcoded direction — works for both a fleet vehicle leaving-then-returning and a visitor

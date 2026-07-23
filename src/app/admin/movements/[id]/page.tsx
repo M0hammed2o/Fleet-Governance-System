@@ -16,6 +16,10 @@ interface Movement {
   sealOrContainerReference: string | null;
   approvalComments: string | null;
   cancelledReason: string | null;
+  senderName: string | null;
+  senderContact: string | null;
+  recipientName: string | null;
+  recipientContact: string | null;
   vehicle: { registrationNumber: string; fleetNumber: string | null };
   driver: { name: string };
   trailerVehicle: { registrationNumber: string } | null;
@@ -24,12 +28,21 @@ interface Movement {
   approver: { name: string } | null;
 }
 
+interface MovementDocument {
+  id: string;
+  fileName: string;
+  contentType: string;
+  capturedAt: string;
+}
+
 export default function MovementDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [movement, setMovement] = useState<Movement | null>(null);
+  const [documents, setDocuments] = useState<MovementDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [comments, setComments] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,6 +52,7 @@ export default function MovementDetailPage({ params }: { params: Promise<{ id: s
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load movement");
       setMovement(data.movement);
+      setDocuments(data.documents ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -49,6 +63,41 @@ export default function MovementDetailPage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     queueMicrotask(load);
   }, [load]);
+
+  async function uploadDocument(file: File) {
+    setError(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("ownerType", "MOVEMENT_DOCUMENT");
+      form.append("ownerId", id);
+      // Stable per (movement, file) so re-submitting the same document over a
+      // flaky connection never creates a duplicate MediaAsset row (EVID-003).
+      form.append("idempotencyKey", `${id}:${file.name}:${file.size}`);
+
+      const res = await fetch("/api/media/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Document upload failed");
+        return;
+      }
+      await load();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function viewDocument(documentId: string) {
+    setError(null);
+    const res = await fetch(`/api/media/${documentId}`);
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Failed to open document");
+      return;
+    }
+    window.open(data.url, "_blank", "noopener,noreferrer");
+  }
 
   async function callAction(action: "submit" | "approve" | "reject" | "cancel", body?: object) {
     setError(null);
@@ -101,6 +150,10 @@ export default function MovementDetailPage({ params }: { params: Promise<{ id: s
             <dd>{movement.approvedCargoSummary ?? "—"}</dd>
             <dt className="text-slate-500">Seal/container ref</dt>
             <dd>{movement.sealOrContainerReference ?? "—"}</dd>
+            <dt className="text-slate-500">Sender</dt>
+            <dd>{movement.senderName ?? "—"}{movement.senderContact ? ` (${movement.senderContact})` : ""}</dd>
+            <dt className="text-slate-500">Recipient</dt>
+            <dd>{movement.recipientName ?? "—"}{movement.recipientContact ? ` (${movement.recipientContact})` : ""}</dd>
             <dt className="text-slate-500">Requested by</dt>
             <dd>{movement.requester.name}</dd>
             <dt className="text-slate-500">Approved by</dt>
@@ -158,6 +211,32 @@ export default function MovementDetailPage({ params }: { params: Promise<{ id: s
               </button>
             )}
           </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">Documents (delivery notes, supporting files)</h2>
+          <ul className="mb-3 space-y-1 text-sm">
+            {documents.map((doc) => (
+              <li key={doc.id} className="flex items-center justify-between border-b border-slate-100 py-1">
+                <span className="text-slate-700">{doc.fileName}</span>
+                <button onClick={() => viewDocument(doc.id)} className="text-xs text-slate-900 underline">
+                  View
+                </button>
+              </li>
+            ))}
+            {documents.length === 0 && <li className="text-slate-400">No documents uploaded yet</li>}
+          </ul>
+          <input
+            type="file"
+            disabled={uploading}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void uploadDocument(file);
+              e.target.value = "";
+            }}
+            className="text-sm"
+          />
+          {uploading && <p className="mt-1 text-xs text-slate-500">Uploading…</p>}
         </div>
       </div>
     </main>

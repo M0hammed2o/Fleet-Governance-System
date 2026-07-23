@@ -19,7 +19,19 @@ interface Option {
 }
 
 const STATUS_FILTERS = ["ALL", "DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED", "IN_PROGRESS", "COMPLETED"];
-const MOVEMENT_TYPES = ["ENTRY", "EXIT", "DELIVERY", "COLLECTION", "RETURN", "SITE_TRANSFER", "MAINTENANCE", "OTHER"];
+const MOVEMENT_TYPES = [
+  "ENTRY",
+  "EXIT",
+  "DELIVERY",
+  "COLLECTION",
+  "RETURN",
+  "SITE_TRANSFER",
+  "MAINTENANCE",
+  "OTHER",
+  "SALES_VISIT",
+  "SERVICE",
+  "AUTHORISED_PRIVATE_USE",
+];
 
 export default function MovementsPage() {
   const [movements, setMovements] = useState<MovementRow[]>([]);
@@ -38,6 +50,8 @@ export default function MovementsPage() {
     movementType: "DELIVERY",
     destination: "",
     deliveryOrCollectionReference: "",
+    senderName: "",
+    recipientName: "",
   });
   const [creating, setCreating] = useState(false);
 
@@ -99,6 +113,8 @@ export default function MovementsPage() {
           ...form,
           destination: form.destination || undefined,
           deliveryOrCollectionReference: form.deliveryOrCollectionReference || undefined,
+          senderName: form.senderName || undefined,
+          recipientName: form.recipientName || undefined,
         }),
       });
       const data = await res.json();
@@ -106,7 +122,7 @@ export default function MovementsPage() {
         setError(data.error ?? "Failed to create movement");
         return;
       }
-      setForm((f) => ({ ...f, destination: "", deliveryOrCollectionReference: "" }));
+      setForm((f) => ({ ...f, destination: "", deliveryOrCollectionReference: "", senderName: "", recipientName: "" }));
       await load();
     } finally {
       setCreating(false);
@@ -151,6 +167,18 @@ export default function MovementsPage() {
               value={form.deliveryOrCollectionReference}
               onChange={(e) => setForm((f) => ({ ...f, deliveryOrCollectionReference: e.target.value }))}
               placeholder="Delivery/collection note #"
+              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+            <input
+              value={form.senderName}
+              onChange={(e) => setForm((f) => ({ ...f, senderName: e.target.value }))}
+              placeholder="Sender name"
+              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+            <input
+              value={form.recipientName}
+              onChange={(e) => setForm((f) => ({ ...f, recipientName: e.target.value }))}
+              placeholder="Recipient name"
               className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             />
             <button

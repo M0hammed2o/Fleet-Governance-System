@@ -143,6 +143,9 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "COMPLIANCE_DOCUMENT":
       found = await prisma.complianceDocument.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
+    case "MOVEMENT_DOCUMENT":
+      found = await prisma.movementAuthorisation.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
+      break;
   }
   if (!found) throw new MediaOwnerNotFoundError(ownerType, ownerId);
 }
@@ -247,6 +250,19 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: S
 
 export async function getMediaAssetInTenant(tenantId: string, mediaAssetId: string) {
   return prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId }) });
+}
+
+/**
+ * Lists every MediaAsset recorded against one polymorphic (ownerType,
+ * ownerId) pair — e.g. every delivery-note document uploaded against a
+ * movement (DISPATCH-003). Never returns a usable URL itself; callers still
+ * go through `mintSignedUrlForMediaAsset()` per asset (EVID-002).
+ */
+export async function listMediaAssetsForOwner(tenantId: string, ownerType: MediaAssetOwnerType, ownerId: string) {
+  return prisma.mediaAsset.findMany({
+    where: tenantWhere(tenantId, { ownerType, ownerId }),
+    orderBy: { capturedAt: "desc" },
+  });
 }
 
 export interface MintSignedUrlResult {

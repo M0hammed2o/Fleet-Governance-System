@@ -6,6 +6,7 @@ export const mediaAssetOwnerTypeSchema = z.enum([
   "MANUAL_FACIAL_VERIFICATION_FALLBACK",
   "DRIVER_PORTRAIT",
   "COMPLIANCE_DOCUMENT",
+  "MOVEMENT_DOCUMENT",
 ]);
 
 // The `file` field itself isn't part of this schema — it's a File pulled

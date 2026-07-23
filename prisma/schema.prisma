@@ -736,6 +736,12 @@ enum MovementType {
   SITE_TRANSFER
   MAINTENANCE
   OTHER
+  // Phase 5C additions (DISPATCH-001) — "transfer" is already covered by the
+  // existing SITE_TRANSFER, so only the three genuinely new categories were
+  // added.
+  SALES_VISIT
+  SERVICE
+  AUTHORISED_PRIVATE_USE
 }
 
 enum MovementStatus {
@@ -785,6 +791,23 @@ model MovementAuthorisation {
   purchaseOrderReference        String?
   approvedCargoSummary          String?
   sealOrContainerReference      String?
+
+  // Phase 5C (DISPATCH-002) — who's sending/receiving, for movement types
+  // where that's meaningful (delivery, collection, sales visit, service).
+  // Free text, not FKs to Driver/User — a sender/recipient is very often an
+  // external party (customer contact, site foreman) with no account in this
+  // system at all.
+  senderName       String?
+  senderContact    String?
+  recipientName    String?
+  recipientContact String?
+
+  // Phase 5C (DISPATCH-004) — plain nullable reference, deliberately not yet
+  // a Prisma relation: VehicleUsePolicy doesn't exist until Phase 6. Adding
+  // the real `@relation` FK is a Phase 6 migration, not this one — see
+  // PRODUCT_REQUIREMENTS.md DISPATCH-004 ("nullable until that model exists,
+  // not a hard Phase 5C dependency") and DECISIONS.md.
+  vehicleUsePolicyId String?
 
   // Short human-friendly code for gate-facing lookup (QR/reference-code search).
   referenceCode String @unique
@@ -1150,6 +1173,11 @@ enum MediaAssetOwnerType {
   MANUAL_FACIAL_VERIFICATION_FALLBACK
   DRIVER_PORTRAIT
   COMPLIANCE_DOCUMENT
+  // Phase 5C (DISPATCH-003) — delivery notes / supporting movement documents.
+  // Many-to-one with MovementAuthorisation (a movement can have several
+  // documents), unlike DRIVER_PORTRAIT's implicit 1:1 — no unique constraint
+  // needed, same (ownerType, ownerId) polymorphic pattern as GATE_EVENT.
+  MOVEMENT_DOCUMENT
 }
 
 enum MediaDataClassification {

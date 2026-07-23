@@ -59,13 +59,13 @@ Each requirement should eventually link to the code/tests that satisfy it. Until
 
 ## DISPATCH — Dispatch workflow enhancements (Phase 5C)
 Extends `MovementAuthorisation` (Phase 2, done) — does not replace it.
-| ID | Requirement | Acceptance criteria | Status |
-|---|---|---|---|
-| DISPATCH-001 | Movement type covers sales visit, service, transfer, authorised private use | `MovementType` enum extended; existing DELIVERY/COLLECTION/ENTRY/EXIT/RETURN/SITE_TRANSFER/MAINTENANCE/OTHER preserved | todo |
-| DISPATCH-002 | Sender/recipient fields | Captured on MovementAuthorisation, validated server-side | todo |
-| DISPATCH-003 | Secure delivery-note/supporting-document upload | Uses the existing MediaAsset architecture (Phase 4) — no public URL; Dispatch and Logistics Officer has `mediaAsset:CREATE` for this purpose (already granted, D-015) | todo |
-| DISPATCH-004 | Movement references an approved geofence/vehicle-use policy | Optional FK to VehicleUsePolicy (Phase 6) — nullable until that model exists, not a hard Phase 5C dependency | todo |
-| DISPATCH-005 | Dispatch-facing UI improvements | Dispatch and Logistics Officer can complete the full workflow above without leaving one connected screen (matches the existing gate check-in UX principle) | todo |
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| DISPATCH-001 | Movement type covers sales visit, service, transfer, authorised private use | `MovementType` enum extended; existing DELIVERY/COLLECTION/ENTRY/EXIT/RETURN/SITE_TRANSFER/MAINTENANCE/OTHER preserved | done | `SALES_VISIT`/`SERVICE`/`AUTHORISED_PRIVATE_USE` added to the `MovementType` enum ("transfer" already covered by the existing `SITE_TRANSFER`); `tests/dispatch-enhancements.test.ts` |
+| DISPATCH-002 | Sender/recipient fields | Captured on MovementAuthorisation, validated server-side | done | `MovementAuthorisation.senderName/senderContact/recipientName/recipientContact` (free text, not FKs — a sender/recipient is very often an external party with no account in this system); `src/lib/validation/movement.ts`; admin movements create form + detail page |
+| DISPATCH-003 | Secure delivery-note/supporting-document upload | Uses the existing MediaAsset architecture (Phase 4) — no public URL; Dispatch and Logistics Officer has `mediaAsset:CREATE` for this purpose (already granted, D-015) | done | New `MediaAssetOwnerType.MOVEMENT_DOCUMENT` (many-to-one with a movement, unlike `DRIVER_PORTRAIT`'s 1:1); `assertOwnerExistsInTenant()` extended; reuses the existing `POST /api/media/upload`/`GET /api/media/[id]` routes unchanged — no new upload endpoint needed; new `listMediaAssetsForOwner()` wired into `GET /api/movements/[id]` (omitted for a role with no `mediaAsset:VIEW`); admin movement detail page upload/list UI |
+| DISPATCH-004 | Movement references an approved geofence/vehicle-use policy | Optional FK to VehicleUsePolicy (Phase 6) — nullable until that model exists, not a hard Phase 5C dependency | done | `MovementAuthorisation.vehicleUsePolicyId` — plain nullable String, deliberately not yet a Prisma relation (target model doesn't exist); upgrade to a real `@relation` is a Phase 6 migration |
+| DISPATCH-005 | Dispatch-facing UI improvements | Dispatch and Logistics Officer can complete the full workflow above without leaving one connected screen (matches the existing gate check-in UX principle) | done | `src/app/admin/movements/page.tsx` (extended create form: new movement types, sender/recipient); `src/app/admin/movements/[id]/page.tsx` (sender/recipient display, inline document upload/list/view — no separate screen) |
 
 ## GPS — Telematics foundation and basic geofencing (Phase 6)
 Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvider` adapter pattern.

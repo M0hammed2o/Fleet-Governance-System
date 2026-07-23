@@ -884,3 +884,74 @@ autonomously without a stop-and-ask checkpoint between phases.
 **Exact recommended next action:** Begin Phase 5C — DISPATCH-001..005 (extended MovementType, sender/
 recipient fields, secure delivery-note upload via the existing MediaAsset architecture, optional
 VehicleUsePolicy/geofence reference nullable until Phase 6, dispatch-facing UI improvements).
+
+---
+
+## 2026-07-24 — Session 10 — Phase 5C: dispatch workflow enhancements (DISPATCH-001..005)
+**Objective:** Continue the user's instructed autonomous sequential run (Phase 5B done in Session 9) into
+Phase 5C, with the same full checkpoint discipline.
+
+**Design (see DECISIONS.md D-019 for the one non-obvious call):**
+- `MovementType` extended with `SALES_VISIT`/`SERVICE`/`AUTHORISED_PRIVATE_USE` — "transfer" was already
+  covered by the existing `SITE_TRANSFER`, so no fourth new value was added for it.
+- `MovementAuthorisation` gained `senderName`/`senderContact`/`recipientName`/`recipientContact` as plain
+  free-text fields, not FKs to Driver/User — a sender/recipient is very often an external party with no
+  account in this system (a customer contact, a site foreman).
+- `MovementAuthorisation.vehicleUsePolicyId` added as a plain nullable `String` with no Prisma relation —
+  `VehicleUsePolicy` doesn't exist until Phase 6 (POLICY-001); the real `@relation` FK lands as a Phase 6
+  migration once that model's actual field list is designed, not a placeholder table built early just to
+  satisfy a constraint (D-019).
+- DISPATCH-003's "secure delivery-note upload" reused the existing Phase 4 MediaAsset architecture
+  end-to-end with zero new routes: added `MediaAssetOwnerType.MOVEMENT_DOCUMENT` (many-to-one with a
+  movement, unlike `DRIVER_PORTRAIT`'s implicit 1:1 — no unique constraint needed), one new `case` in
+  `assertOwnerExistsInTenant()`, and a new `listMediaAssetsForOwner()` read helper wired into
+  `GET /api/movements/[id]` (gated behind the caller having `mediaAsset:VIEW` at all, same evidence-
+  visibility boundary every other media surface already respects — Executive Read-Only Viewer, which has
+  no mediaAsset grant, gets an empty `documents` array rather than a 403, matching how the rest of that
+  response degrades).
+
+**Files changed:**
+- `prisma/schema.prisma` — `MovementType` extended; `MovementAuthorisation` gained
+  senderName/senderContact/recipientName/recipientContact/vehicleUsePolicyId; `MediaAssetOwnerType` gained
+  `MOVEMENT_DOCUMENT`; migration `20260723230119_phase5c_dispatch_enhancements`.
+- `src/lib/validation/movement.ts` — `movementTypeSchema` extended; `createMovementSchema` gained the new
+  fields (`expectedDistanceKm` was already a DB column from Phase 5B but had never been exposed through
+  validation — added here too).
+- `src/lib/repositories/movement-repository.ts` — `CreateMovementInput` interface extended (the function
+  body already spread `...input`, so no logic change needed).
+- `src/lib/repositories/media-asset-repository.ts` — `assertOwnerExistsInTenant()` gained the
+  `MOVEMENT_DOCUMENT` case; new `listMediaAssetsForOwner()`.
+- `src/lib/validation/media.ts` — `mediaAssetOwnerTypeSchema` gained `MOVEMENT_DOCUMENT`.
+- `src/app/api/movements/[id]/route.ts` — GET now also returns `documents` (visibility-gated as above).
+- `src/app/admin/movements/page.tsx` — create form gained the three new movement types and sender/
+  recipient inputs.
+- `src/app/admin/movements/[id]/page.tsx` — sender/recipient display; new Documents section (upload input,
+  list, "View" opening a freshly-minted signed URL) — same connected screen, no new page (DISPATCH-005).
+- `tests/dispatch-enhancements.test.ts` (new, 11 cases).
+- Docs: `PRODUCT_REQUIREMENTS.md` (DISPATCH-001..005 → done, Implementation column added),
+  `DATA_MODEL.md` (MovementAuthorisation/MediaAsset entity notes, migration history entry),
+  `DECISIONS.md` (D-019), `TESTING.md` (Phase 5C coverage section), `TODO.md` (Phase 5C moved to Completed,
+  Now/build-order updated to Phase 6).
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean.
+- `npm test` — **333/333 passing** (26 files; 322 baseline + 11 new Phase 5C cases).
+- `npm run build` — clean (no new routes — DISPATCH-003 deliberately reused the existing `/api/media/*`
+  routes unchanged).
+- Manual curl verification: created a movement with `movementType: SALES_VISIT` + sender/recipient +
+  `expectedDistanceKm: 75`, all round-tripped correctly; uploaded a document via the unmodified
+  `POST /api/media/upload` (201); confirmed it appears in `GET /api/movements/[id]`'s new `documents` field
+  for the Dispatch and Logistics Officer (has `mediaAsset:VIEW`) and as an empty array for Executive
+  Read-Only Viewer (no `mediaAsset` grant); minted a signed view URL successfully (200); both the
+  movements list and detail admin pages render with the new fields/upload UI (200).
+
+**Bugs found this session:** none.
+
+**Remaining work:** Phase 6 (Telematics foundation + basic geofencing + vehicle-use policies) next, per the
+user's instruction to proceed autonomously.
+
+**Exact recommended next action:** Begin Phase 6 — GPS-001 (`TelematicsProvider` interface +
+`MockTelematicsProvider`, same adapter pattern as `FacialVerificationProvider`) first, since GPS-002..006
+and POLICY-001/002 all build on it; GPS-BLOCKED (production provider) stays blocked pending the user's
+vendor decision, per standing instruction to build the interface + mock regardless and record the blocker.

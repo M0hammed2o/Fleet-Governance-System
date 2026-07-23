@@ -75,11 +75,17 @@ export interface CreateMovementInput {
   destination?: string | null;
   expectedDepartureAt?: Date | null;
   expectedReturnAt?: Date | null;
+  expectedDistanceKm?: number | null;
   customerProjectJobReference?: string | null;
   deliveryOrCollectionReference?: string | null;
   purchaseOrderReference?: string | null;
   approvedCargoSummary?: string | null;
   sealOrContainerReference?: string | null;
+  senderName?: string | null;
+  senderContact?: string | null;
+  recipientName?: string | null;
+  recipientContact?: string | null;
+  vehicleUsePolicyId?: string | null;
   requesterUserId: string;
 }
 

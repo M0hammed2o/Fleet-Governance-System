@@ -80,7 +80,11 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   kept distinct rather than one generic "reference" so the gate-facing search can match any of them),
   approvedCargoSummary, sealOrContainerReference, referenceCode (unique, short human-typeable code for
   gate lookup — `lib/movements/reference-code.ts`), requesterUserId, approverUserId, status (state
-  machine — see ARCHITECTURE.md), approvalComments, cancelledAt/Reason.
+  machine — see ARCHITECTURE.md), approvalComments, cancelledAt/Reason. Phase 5C (DISPATCH-002) added
+  senderName/senderContact/recipientName/recipientContact (free text, not FKs). Phase 5C (DISPATCH-004)
+  added vehicleUsePolicyId — a plain nullable String, deliberately not yet a Prisma relation since
+  `VehicleUsePolicy` doesn't exist until Phase 6; upgrading it to a real `@relation` FK is a Phase 6
+  migration, not a Phase 5C one.
 - **ManualFacialVerificationFallback** — driverId, reason, requestedByUserId, approvedByUserId (nullable
   until resolved), status (pending/approved/denied), evidenceMediaAssetId (nullable, `@unique` FK to
   `MediaAsset` — replaced the old dev-mode `evidenceRef` string in Phase 4, DECISIONS.md D-012; attached in
@@ -131,9 +135,11 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 ## Phase 4 entities (evidence/media — implemented)
 - **MediaAsset** — one reusable, polymorphic model for every kind of uploaded evidence in the system
   (DECISIONS.md D-011). tenantId, `ownerType` (`GATE_EVENT` | `GATE_EVENT_INSPECTION_ITEM` |
-  `MANUAL_FACIAL_VERIFICATION_FALLBACK` | `DRIVER_PORTRAIT` | `COMPLIANCE_DOCUMENT`) + `ownerId` (a plain
+  `MANUAL_FACIAL_VERIFICATION_FALLBACK` | `DRIVER_PORTRAIT` | `COMPLIANCE_DOCUMENT` | `MOVEMENT_DOCUMENT`,
+  the last added Phase 5C for DISPATCH-003 delivery notes — many-to-one with a movement, unlike
+  `DRIVER_PORTRAIT`'s implicit 1:1, so no unique constraint on the pair) + `ownerId` (a plain
   string, not an FK — same shape as `AuditLog.entityType`/`entityId`, chosen over
-  `ComplianceDocument`'s N-nullable-FK-columns pattern since there are 5 owner kinds here, not 2; owner
+  `ComplianceDocument`'s N-nullable-FK-columns pattern since there are 6 owner kinds here, not 2; owner
   existence-in-tenant is checked in application code, `assertOwnerExistsInTenant()`, not a DB constraint),
   capturedByUserId/capturedAt, fileName, contentType, fileSizeBytes, `storageKey` (opaque,
   tenant-namespaced, `@unique`, never exposed directly to a client), `checksumSha256` (computed
@@ -207,8 +213,11 @@ each is actually migrated, not in advance.
 - `20260723222721_phase5b_reconciliation` (applied): `Reconciliation`, `ReconciliationDiscrepancy`, and
   their back-relations on Tenant/User/MovementAuthorisation/GateEvent/InspectionItem/Exception; added
   `MovementAuthorisation.expectedDistanceKm`.
+- `20260723230119_phase5c_dispatch_enhancements` (applied): extended `MovementType` with `SALES_VISIT`/
+  `SERVICE`/`AUTHORISED_PRIVATE_USE`; added `MovementAuthorisation.senderName/senderContact/recipientName/
+  recipientContact/vehicleUsePolicyId`; extended `MediaAssetOwnerType` with `MOVEMENT_DOCUMENT`.
 
-All eight migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All nine migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases.
 
 **Note for future schema changes:** `npx prisma migrate dev --name <name>` works normally in this
