@@ -224,6 +224,27 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] Manually verified via curl: Dispatch and Logistics Officer login + 403 on movement approve; Fleet
       and GPS Manager login + 403 on movement create.
 
+## Phase 5B coverage (reconciliation, added 2026-07-24)
+- [x] `tests/reconciliation-repository.test.ts` (24 cases): valid pairing through two different gates;
+      auto-build via `completeGateEvent`; return-without-departure; duplicate return; incorrect
+      movement/vehicle pairing (constructed data-integrity edge cases); reversed pairing; same-event
+      pairing; same-direction pairing; not-yet-completed leg; idempotent retry (no duplicate row); every
+      discrepancy category (odometer regression, excess mileage vs `expectedDistanceKm`, fuel increase,
+      new vehicle damage + its linked Exception, tyre-tread drop, cargo/seal fail); no-discrepancy case;
+      audit events on build and on resolve; resolve requires an explanation; already-resolved rejection;
+      reconciliation stays OPEN while any discrepancy is unresolved.
+- [x] `tests/reconciliation-authorization.test.ts` (4 cases): VIEW-only role cannot build/explain/resolve;
+      officer-style role (VIEW+CREATE) cannot resolve; supervisor-style role (VIEW+EDIT+APPROVE) can; a
+      role with no grant at all cannot even view.
+- [x] Manually verified end-to-end via curl: full movement → approve → departure gate event (Main Gate,
+      odometer 5000/fuel 70%) → return gate event (Yard Gate, odometer 5120/fuel 65%, deliberate new-damage
+      FAIL) → auto-built reconciliation (kmTravelled 120, fuel delta -5%, one HIGH `VEHICLE_CONDITION`
+      discrepancy with a linked `Exception` against the return GateEvent) → gate officer 403 on resolve →
+      missing-explanation 400 → supervisor resolve 200 (reconciliation flips to RESOLVED) →
+      already-resolved 409 → manual idempotent retry via `POST /api/reconciliations` 200 (same row) →
+      same-gate-event-both-legs 409 → nonexistent-movement 404 → suspended user 401 on
+      `/api/reconciliations`, reactivated and confirmed working again. No 500s observed at any step.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

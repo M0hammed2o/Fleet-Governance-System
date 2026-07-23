@@ -53,6 +53,8 @@ model Tenant {
   exceptionTypes                    ExceptionType[]
   exceptions                        Exception[]
   mediaAssets                       MediaAsset[]
+  reconciliations                   Reconciliation[]
+  reconciliationDiscrepancies       ReconciliationDiscrepancy[]
 
   @@map("tenants")
 }
@@ -143,23 +145,25 @@ model User {
   updatedAt   DateTime  @updatedAt
   lastLoginAt DateTime?
 
-  sessions                 Session[]
-  permissionOverrides      UserPermissionOverride[]
-  delegationsGiven         ApprovalDelegation[]               @relation("DelegationDelegator")
-  delegationsReceived      ApprovalDelegation[]               @relation("DelegationDelegate")
-  auditLogs                AuditLog[]
-  invitation               UserInvitation?                    @relation("InvitationForUser")
-  invitationsSent          UserInvitation[]                   @relation("InvitationsSentBy")
-  movementRequests         MovementAuthorisation[]            @relation("MovementRequester")
-  movementApprovals        MovementAuthorisation[]            @relation("MovementApprover")
-  manualFallbacksRequested ManualFacialVerificationFallback[] @relation("ManualFallbackRequestedBy")
-  manualFallbacksApproved  ManualFacialVerificationFallback[] @relation("ManualFallbackApprovedBy")
-  gateEventsAsOfficer      GateEvent[]                        @relation("GateEventOfficer")
-  gateEventDecisions       GateEvent[]                        @relation("GateEventDecisionBy")
-  inspectionResultsRecorded GateEventInspectionItem[]         @relation("InspectionResultRecordedBy")
-  exceptionsRaised         Exception[]                        @relation("ExceptionRaisedBy")
-  exceptionsResolved       Exception[]                        @relation("ExceptionResolvedBy")
-  mediaAssetsCaptured      MediaAsset[]                       @relation("MediaAssetCapturedBy")
+  sessions                            Session[]
+  permissionOverrides                 UserPermissionOverride[]
+  delegationsGiven                    ApprovalDelegation[]               @relation("DelegationDelegator")
+  delegationsReceived                 ApprovalDelegation[]               @relation("DelegationDelegate")
+  auditLogs                           AuditLog[]
+  invitation                          UserInvitation?                    @relation("InvitationForUser")
+  invitationsSent                     UserInvitation[]                   @relation("InvitationsSentBy")
+  movementRequests                    MovementAuthorisation[]            @relation("MovementRequester")
+  movementApprovals                   MovementAuthorisation[]            @relation("MovementApprover")
+  manualFallbacksRequested            ManualFacialVerificationFallback[] @relation("ManualFallbackRequestedBy")
+  manualFallbacksApproved             ManualFacialVerificationFallback[] @relation("ManualFallbackApprovedBy")
+  gateEventsAsOfficer                 GateEvent[]                        @relation("GateEventOfficer")
+  gateEventDecisions                  GateEvent[]                        @relation("GateEventDecisionBy")
+  inspectionResultsRecorded           GateEventInspectionItem[]          @relation("InspectionResultRecordedBy")
+  exceptionsRaised                    Exception[]                        @relation("ExceptionRaisedBy")
+  exceptionsResolved                  Exception[]                        @relation("ExceptionResolvedBy")
+  mediaAssetsCaptured                 MediaAsset[]                       @relation("MediaAssetCapturedBy")
+  reconciliationsBuilt                Reconciliation[]                   @relation("ReconciliationBuiltBy")
+  reconciliationDiscrepanciesResolved ReconciliationDiscrepancy[]        @relation("DiscrepancyResolvedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -379,17 +383,17 @@ model Driver {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  employeeNumber String?
-  name           String
-  contactPhone   String?
-  contactEmail   String?
+  employeeNumber       String?
+  name                 String
+  contactPhone         String?
+  contactEmail         String?
   // Real secure upload (Phase 4) — was a dev-mode pasted-URL placeholder
   // before this migration, see DECISIONS.md D-012. One MediaAsset can back at
   // most one driver's portrait (@unique), enforced the same way as the other
   // MediaAsset-backed single-owner fields below.
   portraitMediaAssetId String?     @unique
   portraitMediaAsset   MediaAsset? @relation("DriverPortrait", fields: [portraitMediaAssetId], references: [id], onDelete: SetNull)
-  department     String?
+  department           String?
 
   status DriverStatus @default(ACTIVE)
 
@@ -450,11 +454,11 @@ model ManualFacialVerificationFallback {
   approvedByUserId  String?
   approvedBy        User?   @relation("ManualFallbackApprovedBy", fields: [approvedByUserId], references: [id])
 
-  status      ManualFallbackStatus @default(PENDING)
+  status               ManualFallbackStatus @default(PENDING)
   // Real secure upload (Phase 4) — was a dev-mode placeholder string before
   // this migration, see DECISIONS.md D-012.
-  evidenceMediaAssetId String?     @unique
-  evidenceMediaAsset   MediaAsset? @relation("ManualFallbackEvidence", fields: [evidenceMediaAssetId], references: [id], onDelete: SetNull)
+  evidenceMediaAssetId String?              @unique
+  evidenceMediaAsset   MediaAsset?          @relation("ManualFallbackEvidence", fields: [evidenceMediaAssetId], references: [id], onDelete: SetNull)
 
   relatedGateEventId String?
 
@@ -770,6 +774,11 @@ model MovementAuthorisation {
 
   expectedDepartureAt DateTime?
   expectedReturnAt    DateTime?
+  // Planned/estimated round-trip distance, set at dispatch time — optional
+  // baseline the Phase 5B reconciliation engine compares actual departure/
+  // return odometer delta against to flag "excess mileage" (RECON-001). Null
+  // means that check is simply skipped for this movement, not treated as 0.
+  expectedDistanceKm  Float?
 
   customerProjectJobReference   String?
   deliveryOrCollectionReference String?
@@ -793,7 +802,8 @@ model MovementAuthorisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  gateEvents GateEvent[]
+  gateEvents     GateEvent[]
+  reconciliation Reconciliation?
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -850,8 +860,8 @@ model InspectionTemplate {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name        String
-  description String?
+  name            String
+  description     String?
   // Null = applies to every vehicle category (a generic fallback template).
   vehicleCategory VehicleCategory?
   version         Int              @default(1)
@@ -919,7 +929,8 @@ model InspectionItem {
   defaultExceptionSeverity         ExceptionSeverity?
   requiresSupervisorApprovalOnFail Boolean            @default(false)
 
-  results GateEventInspectionItem[]
+  results                     GateEventInspectionItem[]
+  reconciliationDiscrepancies ReconciliationDiscrepancy[]
 
   @@index([templateId])
   @@map("inspection_items")
@@ -974,17 +985,19 @@ model GateEvent {
   startedAt   DateTime?
   completedAt DateTime?
 
-  decision       GateEventDecision?
-  decisionReason String?
+  decision         GateEventDecision?
+  decisionReason   String?
   decisionByUserId String?
-  decisionBy       User?    @relation("GateEventDecisionBy", fields: [decisionByUserId], references: [id])
+  decisionBy       User?              @relation("GateEventDecisionBy", fields: [decisionByUserId], references: [id])
   decisionAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  inspectionResults GateEventInspectionItem[]
-  exceptions        Exception[]
+  inspectionResults         GateEventInspectionItem[]
+  exceptions                Exception[]
+  reconciliationAsDeparture Reconciliation?           @relation("ReconciliationDeparture")
+  reconciliationAsReturn    Reconciliation?           @relation("ReconciliationReturn")
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1017,7 +1030,7 @@ model GateEventInspectionItem {
   inspectionItemId String
   inspectionItem   InspectionItem @relation(fields: [inspectionItemId], references: [id])
 
-  outcome     InspectionOutcome
+  outcome      InspectionOutcome
   readingValue String?
   readingUnit  String?
   comment      String?
@@ -1032,7 +1045,7 @@ model GateEventInspectionItem {
 
   recordedByUserId String
   recordedBy       User     @relation("InspectionResultRecordedBy", fields: [recordedByUserId], references: [id])
-  recordedAt        DateTime @default(now())
+  recordedAt       DateTime @default(now())
 
   exceptions Exception[]
 
@@ -1068,10 +1081,10 @@ model ExceptionType {
   label       String
   description String?
 
-  defaultSeverity          ExceptionSeverity      @default(MEDIUM)
-  defaultOutcomeAction     ExceptionOutcomeAction @default(MANUAL_REVIEW)
-  requiresSupervisorApproval Boolean              @default(false)
-  isSystem                   Boolean              @default(false)
+  defaultSeverity            ExceptionSeverity      @default(MEDIUM)
+  defaultOutcomeAction       ExceptionOutcomeAction @default(MANUAL_REVIEW)
+  requiresSupervisorApproval Boolean                @default(false)
+  isSystem                   Boolean                @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1106,17 +1119,19 @@ model Exception {
   // Hard rule (not tenant-configurable — see DECISIONS.md): if true, the
   // officer who raised this exception cannot be the one who resolves it,
   // enforced in gate-event-repository.ts regardless of role/permission.
-  requiresSupervisorApproval Boolean @default(false)
+  requiresSupervisorApproval Boolean                 @default(false)
   outcomeAction              ExceptionOutcomeAction?
 
   raisedByUserId String
-  raisedBy       User   @relation("ExceptionRaisedBy", fields: [raisedByUserId], references: [id])
+  raisedBy       User     @relation("ExceptionRaisedBy", fields: [raisedByUserId], references: [id])
   raisedAt       DateTime @default(now())
 
   resolvedByUserId String?
   resolvedBy       User?     @relation("ExceptionResolvedBy", fields: [resolvedByUserId], references: [id])
-  resolvedAt        DateTime?
-  resolutionNotes   String?
+  resolvedAt       DateTime?
+  resolutionNotes  String?
+
+  reconciliationDiscrepancy ReconciliationDiscrepancy?
 
   @@index([tenantId])
   @@index([gateEventId])
@@ -1171,9 +1186,9 @@ model MediaAsset {
   capturedBy       User     @relation("MediaAssetCapturedBy", fields: [capturedByUserId], references: [id])
   capturedAt       DateTime @default(now())
 
-  fileName      String
-  contentType   String
-  fileSizeBytes Int
+  fileName       String
+  contentType    String
+  fileSizeBytes  Int
   // Opaque, tenant-namespaced storage location used only server-side by the
   // StorageProvider — never returned directly to a client, never a public path.
   storageKey     String @unique
@@ -1195,10 +1210,145 @@ model MediaAsset {
   inspectionItemEvidenceFor       GateEventInspectionItem?          @relation("InspectionItemEvidence")
   manualFallbackEvidenceFor       ManualFacialVerificationFallback? @relation("ManualFallbackEvidence")
   driverPortraitFor               Driver?                           @relation("DriverPortrait")
-  complianceDocumentAttachmentFor ComplianceDocument?                @relation("ComplianceDocumentAttachment")
+  complianceDocumentAttachmentFor ComplianceDocument?               @relation("ComplianceDocumentAttachment")
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
   @@index([tenantId, ownerType, ownerId])
   @@map("media_assets")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5B — Reconciliation. See PRODUCT_REQUIREMENTS.md RECON-001..003 and
+// ARCHITECTURE.md "Reconciliation architecture". Pairs the departure and
+// return GateEvent for one round-trip MovementAuthorisation and compares
+// their recorded readings; never a parallel exception mechanism — significant
+// discrepancies raise an ordinary Phase 3 Exception against the return
+// GateEvent (lib/repositories/reconciliation-repository.ts).
+// ---------------------------------------------------------------------------
+
+enum ReconciliationStatus {
+  // Built, compared, and found nothing worth a human's attention.
+  NO_DISCREPANCIES
+  // At least one discrepancy is still OPEN.
+  OPEN
+  // Had discrepancies; every one has since been reviewed and RESOLVED.
+  RESOLVED
+}
+
+enum DiscrepancyCategory {
+  ODOMETER
+  FUEL
+  VEHICLE_CONDITION
+  TYRE_CONDITION
+  CARGO_AND_LOAD
+}
+
+enum DiscrepancyStatus {
+  OPEN
+  RESOLVED
+}
+
+// One reconciliation per round-trip MovementAuthorisation — created once both
+// its departure and return GateEvent are COMPLETED/CLEARED
+// (buildReconciliation(), auto-triggered from completeGateEvent() and also
+// callable directly/idempotently for a manual retry). "Departure" and
+// "return" are assigned by chronological order (earlier completedAt =
+// departure), not by a hardcoded ENTRY/EXIT assumption, so this works
+// equally for a fleet vehicle leaving-then-returning (EXIT then ENTRY) and a
+// visiting vehicle entering-then-leaving (ENTRY then EXIT) — see
+// DECISIONS.md.
+model Reconciliation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  movementAuthorisationId String                @unique
+  movementAuthorisation   MovementAuthorisation @relation(fields: [movementAuthorisationId], references: [id])
+
+  // @unique on both — a GateEvent can be the departure or return leg of at
+  // most one Reconciliation, ever (RECON-001 "prevents ... duplicate
+  // pairing"), enforced at the DB level, not just in application code.
+  departureGateEventId String    @unique
+  departureGateEvent   GateEvent @relation("ReconciliationDeparture", fields: [departureGateEventId], references: [id])
+  returnGateEventId    String    @unique
+  returnGateEvent      GateEvent @relation("ReconciliationReturn", fields: [returnGateEventId], references: [id])
+
+  departureOdometer Int?
+  returnOdometer    Int?
+  kmTravelled       Int?
+
+  departureFuelPercent Float?
+  returnFuelPercent    Float?
+  fuelDeltaPercent     Float?
+
+  status ReconciliationStatus @default(NO_DISCREPANCIES)
+
+  // Null when built automatically by the system (the common path, from
+  // completeGateEvent) rather than via an explicit manual retry.
+  builtByUserId String?
+  builtBy       User?   @relation("ReconciliationBuiltBy", fields: [builtByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  discrepancies ReconciliationDiscrepancy[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("reconciliations")
+}
+
+// A single structured, reviewable comparison finding (RECON-002) — never an
+// automatic accusation, only a factual departure-vs-return comparison plus a
+// severity, awaiting human review/explanation/resolution. `severity` reuses
+// the existing ExceptionSeverity scale for consistency with the rest of the
+// gate-operations domain; the auto-engine never assigns CRITICAL itself
+// (reserved for a human reviewer to escalate to).
+model ReconciliationDiscrepancy {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  reconciliationId String
+  reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  category    DiscrepancyCategory
+  severity    ExceptionSeverity
+  description String
+
+  departureValue String?
+  returnValue    String?
+  deltaValue     Float?
+
+  // Set when this discrepancy came from comparing a specific configured
+  // inspection item (TYRES_WHEELS/EXTERIOR_CONDITION/LOAD_VERIFICATION) —
+  // null for the odometer/fuel comparisons, which read directly off the
+  // OPERATIONAL_INFO reading items but are surfaced as their own
+  // ODOMETER/FUEL categories rather than a generic inspection-item diff.
+  inspectionItemId String?
+  inspectionItem   InspectionItem? @relation(fields: [inspectionItemId], references: [id])
+
+  // Significant (HIGH) discrepancies raise a real Phase 3 Exception against
+  // the return GateEvent — RECON-002 "via the existing Phase 3 exception
+  // workflow rather than a parallel mechanism" — recorded here only as a
+  // pointer for the detail page, never a second source of truth.
+  linkedExceptionId String?    @unique
+  linkedException   Exception? @relation(fields: [linkedExceptionId], references: [id], onDelete: SetNull)
+
+  status DiscrepancyStatus @default(OPEN)
+
+  resolvedByUserId String?
+  resolvedBy       User?     @relation("DiscrepancyResolvedBy", fields: [resolvedByUserId], references: [id])
+  resolvedAt       DateTime?
+  resolutionNotes  String?
+  correctiveAction String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([reconciliationId])
+  @@index([tenantId, status])
+  @@map("reconciliation_discrepancies")
 }

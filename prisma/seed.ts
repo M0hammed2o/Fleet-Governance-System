@@ -100,6 +100,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Oversight visibility only — Company Administrator doesn't personally
       // capture gate/driver/document evidence.
       { resource: "mediaAsset", action: "VIEW" },
+      { resource: "reconciliation", action: "VIEW" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -116,6 +117,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Uploads delivery notes / supporting movement documents directly
       // (Phase 5C — MediaAsset-backed, not a public URL).
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
+      { resource: "reconciliation", action: "VIEW" },
     ],
   },
   // --- Primary role 3/6 — unchanged from the original 8-role set. ---
@@ -137,6 +139,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Captures walk-around/inspection-item evidence during their own gate
       // event (build brief EVID item 3).
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
+      // Can manually retry pairing (reconciliation:CREATE) if the automatic
+      // completeGateEvent build didn't fire yet; resolution is the
+      // supervisor's job (see "Security Supervisor / Approving Manager").
+      { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "CREATE" },
     ],
   },
   // --- Primary role 4/6 — merge of the old "Security Manager" (gate
@@ -160,6 +166,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "inspectionTemplate", action: "VIEW" }, { resource: "inspectionTemplate", action: "CREATE" }, { resource: "inspectionTemplate", action: "EDIT" }, { resource: "inspectionTemplate", action: "CONFIGURE" },
       { resource: "exception", action: "VIEW" }, { resource: "exception", action: "APPROVE" }, { resource: "exception", action: "CONFIGURE" },
       { resource: "mediaAsset", action: "VIEW" },
+      // Primary owner of reconciliation review/resolution (RECON-002),
+      // mirroring their exception:APPROVE ownership.
+      { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "EDIT" }, { resource: "reconciliation", action: "APPROVE" },
     ],
   },
   // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
@@ -183,6 +192,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // document attachments — needs upload rights for those, not just
       // gate-side evidence (build brief EVID item 3).
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
+      // Reviews vehicle-condition-related discrepancies from a master-data
+      // perspective (e.g. confirming pre-existing damage on file); final
+      // sign-off stays with the supervisor (no reconciliation:APPROVE here).
+      { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "EDIT" },
     ],
   },
   // --- Primary role 6/6 — renamed/refocused "Risk/Compliance Manager".
@@ -201,6 +214,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "inspectionTemplate", action: "VIEW" },
       { resource: "exception", action: "VIEW" },
       { resource: "mediaAsset", action: "VIEW" },
+      // Reviews fuel/odometer information directly — reconciliation is
+      // exactly that comparison, view-only per this role's review-only remit.
+      { resource: "reconciliation", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
@@ -221,6 +237,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // facial or video evidence" (this role is deliberately authorised,
       // exercising the allowed side of that boundary).
       { resource: "mediaAsset", action: "VIEW" },
+      { resource: "reconciliation", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the
@@ -239,6 +256,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "gateEvent", action: "VIEW" },
       { resource: "exception", action: "VIEW" },
       { resource: "mediaAsset", action: "VIEW" },
+      { resource: "reconciliation", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 3/3 — renamed "Executive Viewer". ---
@@ -249,6 +267,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "gate", action: "VIEW" },
       { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
       { resource: "gateEvent", action: "VIEW" },
+      { resource: "reconciliation", action: "VIEW" },
       // Deliberately no mediaAsset permission at all — dashboards/aggregate
       // reporting only (SECURITY_AND_POPIA.md "Internal" classification),
       // never raw evidence, mirroring their existing lack of

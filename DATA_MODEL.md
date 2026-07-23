@@ -146,9 +146,30 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   `serveRawMediaAsset()` (signature+expiry+tenant re-verified). See ARCHITECTURE.md "Media/video
   architecture" for the full read path and `lib/storage/provider.ts` for the storage adapter interface.
 
+## Phase 5B entities (reconciliation — implemented)
+- **Reconciliation** — pairs one movement's departure and return `GateEvent` (see ARCHITECTURE.md
+  "Reconciliation architecture" for how "departure"/"return" are assigned). tenantId,
+  `movementAuthorisationId` (`@unique` — one reconciliation per movement),
+  `departureGateEventId`/`returnGateEventId` (each `@unique` — a `GateEvent` can be a leg of at most one
+  reconciliation ever, DB-enforced), snapshotted `departureOdometer`/`returnOdometer`/`kmTravelled`,
+  `departureFuelPercent`/`returnFuelPercent`/`fuelDeltaPercent`, `status`
+  (`NO_DISCREPANCIES`|`OPEN`|`RESOLVED`, derived from its discrepancies, never set directly),
+  `builtByUserId` (null when built automatically rather than via manual retry).
+- **ReconciliationDiscrepancy** — one structured, reviewable finding. tenantId, reconciliationId,
+  `category` (`ODOMETER`|`FUEL`|`VEHICLE_CONDITION`|`TYRE_CONDITION`|`CARGO_AND_LOAD`), `severity`
+  (reuses `ExceptionSeverity` — the auto-engine never assigns `CRITICAL`), `description`,
+  `departureValue`/`returnValue`/`deltaValue`, optional `inspectionItemId` (null for the odometer/fuel
+  comparisons, set for a specific configured inspection-item diff), optional `linkedExceptionId`
+  (`@unique` — set when a `HIGH` discrepancy raised a real `Exception` against the return `GateEvent`,
+  RECON-002), `status` (`OPEN`|`RESOLVED`), `resolvedByUserId`/`resolvedAt`/`resolutionNotes`
+  (resolution explanation is mandatory)/`correctiveAction` (optional).
+- Added `MovementAuthorisation.expectedDistanceKm` (nullable `Float`) — optional planned-trip-distance
+  baseline the reconciliation engine compares actual `kmTravelled` against for the "excess mileage" check;
+  null skips that check rather than treating it as zero.
+
 ## Phase 4+ entities (planned, not yet built)
-TyreReading (history), Discrepancy, RiskRegisterEntry, ControlRegisterEntry, ControlTestResult —
-documented here as each is actually migrated, not in advance.
+TyreReading (history), RiskRegisterEntry, ControlRegisterEntry, ControlTestResult — documented here as
+each is actually migrated, not in advance.
 
 ## Record lifecycle notes
 - `AuditLog`: insert-only, never updated or deleted by application code.
@@ -183,10 +204,14 @@ documented here as each is actually migrated, not in advance.
   `ManualFacialVerificationFallback.evidenceRef` → added
   `ManualFacialVerificationFallback.evidenceMediaAssetId` (all four new columns nullable, `@unique`,
   FK → `MediaAsset.id` `ON DELETE SET NULL`). See DECISIONS.md D-011/D-012.
+- `20260723222721_phase5b_reconciliation` (applied): `Reconciliation`, `ReconciliationDiscrepancy`, and
+  their back-relations on Tenant/User/MovementAuthorisation/GateEvent/InspectionItem/Exception; added
+  `MovementAuthorisation.expectedDistanceKm`.
 
-All seven migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All eight migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases.
 
-**Note for future schema changes:** `prisma migrate dev` does not work in this environment's
-non-interactive shell — hand-author the migration SQL file and apply with `prisma migrate deploy`. See
-WORKLOG.md 2026-07-19 entry for the full explanation.
+**Note for future schema changes:** `npx prisma migrate dev --name <name>` works normally in this
+environment's shell as of the Phase 5B session (2026-07-23/24) — the earlier note that it didn't was
+specific to whatever shell an earlier session was using and no longer applies; it ran cleanly here in both
+the Bash tool and PowerShell.

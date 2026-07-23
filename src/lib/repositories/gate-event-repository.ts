@@ -11,6 +11,7 @@ import { isDriverAvailableForMovement } from "@/lib/repositories/driver-reposito
 import { isVehicleAvailableForMovement } from "@/lib/repositories/vehicle-repository";
 import { getActiveTemplateForCategory } from "@/lib/repositories/inspection-template-repository";
 import { startMovement, completeMovement } from "@/lib/repositories/movement-repository";
+import { buildReconciliation, ReconciliationNotReadyError } from "@/lib/repositories/reconciliation-repository";
 import type { FacialVerificationProvider } from "@/lib/facial-verification/provider";
 import { MockFacialVerificationProvider } from "@/lib/facial-verification/mock-provider";
 import type {
@@ -618,6 +619,22 @@ export async function completeGateEvent(tenantId: string, gateEventId: string, a
     const movement = await prisma.movementAuthorisation.findUnique({ where: { id: gateEvent.movementAuthorisationId } });
     if (movement?.status === "IN_PROGRESS") {
       await completeMovement(tenantId, movement.id, actorUserId);
+    }
+  }
+
+  // Best-effort wiring into Phase 5B reconciliation: every time a gate event
+  // completes CLEARED, try to pair it with an earlier completed leg of the
+  // same movement. Not fatal if the other leg doesn't exist yet (the common
+  // case — this fires on the departure leg too, when there's nothing to pair
+  // against yet) or if reconciliation is otherwise not ready; a genuinely
+  // unexpected failure is logged, not swallowed silently, but never blocks
+  // gate event completion itself (same "not fatal" pattern as the movement
+  // wiring above).
+  if (gateEvent.decision === "CLEARED") {
+    try {
+      await buildReconciliation({ tenantId, movementAuthorisationId: gateEvent.movementAuthorisationId, actorUserId });
+    } catch (err) {
+      if (!(err instanceof ReconciliationNotReadyError)) console.error("Reconciliation auto-build failed:", err);
     }
   }
 

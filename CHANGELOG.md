@@ -1,5 +1,19 @@
 # CHANGELOG.md
 
+## 2026-07-24
+### Added
+- Phase 5B — departure/return reconciliation (RECON-001..003): `Reconciliation`/`ReconciliationDiscrepancy`
+  models, automatic pairing of a movement's departure and return gate events (by chronological order, not
+  a hardcoded direction — works for both a fleet vehicle leaving-then-returning and a visitor
+  entering-then-leaving), a pure comparison engine covering odometer/fuel/tyre/condition/cargo discrepancies
+  generically off the existing configurable inspection-item taxonomy, mandatory-explanation human
+  resolution workflow, and a reconciliation list/detail admin UI. Significant discrepancies raise a real
+  Exception through the existing Phase 3 workflow rather than a parallel mechanism.
+- 28 new tests (322/322 total) covering valid/duplicate/reversed/mismatched pairing, cross-tenant isolation,
+  every discrepancy category, resolution and its audit trail, and role-based authorization; full live curl
+  verification of the end-to-end flow including departure/return through two different gates and every
+  4xx error path (no raw 500s).
+
 ## 2026-07-23
 ### Added
 - First Git checkpoints for the repository (`c5e5d33`, `7e2a455`) — 198 tracked files, previously

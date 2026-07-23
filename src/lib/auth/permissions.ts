@@ -80,6 +80,15 @@ const EXCEPTION_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE"] as const;
 // DATA_MODEL.md "Record lifecycle notes" — out of scope this phase).
 const MEDIA_ASSET_ACTIONS = ["VIEW", "CREATE"] as const;
 
+// Phase 5B — reconciliation (PRODUCT_REQUIREMENTS.md RECON-001..003). CREATE
+// covers manually (re)triggering the pairing/build step — the common path is
+// automatic (completeGateEvent), this is only for a manual retry. EDIT covers
+// adding an explanation/corrective-action note; APPROVE covers resolving a
+// discrepancy — kept as two separate grantable actions the same way
+// exception:CREATE vs exception:APPROVE are, so "who reviews" and "who signs
+// off" can be different roles.
+const RECONCILIATION_ACTIONS = ["VIEW", "CREATE", "EDIT", "APPROVE"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -98,6 +107,7 @@ export const PERMISSION_CATALOGUE = {
   inspectionTemplate: INSPECTION_TEMPLATE_ACTIONS,
   exception: EXCEPTION_ACTIONS,
   mediaAsset: MEDIA_ASSET_ACTIONS,
+  reconciliation: RECONCILIATION_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

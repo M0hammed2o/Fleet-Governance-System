@@ -323,6 +323,47 @@ This is additive — existing `hasPermission()` callers are unaffected — but i
 not a permission-catalogue extension.
 **Revisit condition:** Design this fully when Phase 7 starts; not blocking Phases 5B/5C/6.
 
+## D-017 — 2026-07-24 — Reconciliation pairs "departure"/"return" by chronological order, not a hardcoded ENTRY/EXIT assumption
+**Context:** RECON-001 needs to pair a movement's departure and return `GateEvent`. The seeded demo data
+uses `GateEventDirection: ENTRY` for a `movementType: ENTRY` (a visitor driving onto site) and — by the
+existing `clearGateEvent()` comment ("an ENTRY clearance moves movement APPROVED → IN_PROGRESS") — the
+codebase's Phase 3 wiring was already written with visitor-entry movements as the primary case in mind.
+But most of Phase 2's actual movement types (DELIVERY, COLLECTION, SITE_TRANSFER, MAINTENANCE, RETURN,
+OTHER) model the *opposite* real-world shape: the tenant's own vehicle leaving the site first (`EXIT`) and
+coming back later (`ENTRY`).
+**Decision:** `buildReconciliation()` never assumes which direction is "departure" — it takes whichever of
+the two legs has the earlier `completedAt` as departure and requires the other leg to be the *opposite*
+direction (never hardcoding EXIT-then-ENTRY or ENTRY-then-EXIT). This makes reconciliation correct for
+both real-world shapes without needing to know or care which `MovementType` produced the trip.
+**Alternatives considered:** Hardcoding EXIT=departure/ENTRY=return — rejected, would silently
+mis-reconcile (or simply never pair) every `movementType: ENTRY` visitor movement, and there was no
+evidence either shape is more "correct" than the other at the schema level.
+**Consequences:** A same-direction pair (two EXITs, two ENTRYs) is always rejected
+(`SameDirectionPairingError`), regardless of which one arrived first.
+**Revisit condition:** If Phase 5C's dispatch-workflow expansion adds an explicit trip-direction field to
+`MovementAuthorisation`, prefer that as the authoritative signal over chronological inference.
+
+## D-018 — 2026-07-24 — Reconciliation's auto-raised Exception writes directly to the Exception table, bypassing `raiseException()`
+**Context:** RECON-002 requires significant discrepancies to raise a real Phase 3 `Exception`, not a
+parallel mechanism. `gate-event-repository.ts` already exports `raiseException()` for exactly this.
+**Decision:** `reconciliation-repository.ts` creates the `Exception` row (and its audit entry) directly via
+`prisma.exception.create()` rather than importing `raiseException()`. Two reasons: (1) `raiseException()`
+also attempts a `GateEvent` state transition to `EXCEPTION_RAISED`, which is meaningless here — both legs
+are already `COMPLETED`, a terminal state with no valid outbound transition — so the call would be doing
+unnecessary/misleading work; (2) `reconciliation-repository.ts` has no dependency on
+`gate-event-repository.ts` today, and `gate-event-repository.ts` needs to call *into*
+`reconciliation-repository.ts` (from `completeGateEvent()`'s auto-build hook) — importing `raiseException`
+the other way would create a circular module dependency between the two files.
+**Alternatives considered:** Making `raiseException()` tolerate a terminal `GateEvent` status and skip the
+transition attempt — would work, but couples gate-event-repository's exception-raising code to a
+reconciliation-specific caller pattern for no real benefit, and doesn't solve the circular-import direction
+problem regardless.
+**Consequences:** The row shape and the `gateEvent.exceptionRaised` audit action name are identical either
+way — this is purely an internal wiring choice, invisible to any caller or test asserting on the
+`Exception` table.
+**Revisit condition:** If a third repository needs the same "create an Exception without a state
+transition" shape, extract a small shared helper instead of a third copy-paste.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected. Interface + mock built regardless. October pilot

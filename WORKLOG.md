@@ -748,3 +748,139 @@ GateEvent pairing), RECON-002 (Discrepancy model + resolution workflow), RECON-0
 dashboard). Small-checkpoint discipline continues: docs → repository layer → routes/validation → UI →
 tests → deliberate invalid-order/wrong-role/cross-tenant/duplicate-submission tests → tsc/lint/test/build
 → docs update → Git commit, before moving to 5C.
+
+---
+
+## 2026-07-23 — Session 8 — Re-verification against a resumed, out-of-date chat context
+**Objective:** A resumed conversation pasted an old mid-session transcript (Session 3's Phase 2
+movement-repository refactor + new test files + a 96/96 test run + live curl checks) and asked to
+"continue from where you left off." Before continuing, confirmed how current that context actually was
+against the real repository state.
+
+**Findings:** The pasted transcript pre-dated Sessions 4-7. All of it was already superseded: the
+movement-repository refactor and its five new test files are already on `master` (part of Phase 2, folded
+into the 294-test baseline), and Session 7 had since remapped all 9 roles (D-015), dropping and reseeding
+the dev DB with new role-derived emails (e.g. `fleet.manager@example.test` →
+`fleet.and.gps.manager@example.test`). Attempting to resume the pasted transcript's live-check step
+literally (`npm run dev` + curl login as `fleet.manager@example.test`) produced 401s that looked like a
+regression; direct inspection of the dev Postgres (`users`/`roles`/`tenants` tables) confirmed it was
+stale credentials from the old context, not a bug — matches the already-documented, already-authorised DB
+drop/reseed from Session 7.
+
+**Files changed:** none (WORKLOG.md, this entry, only).
+
+**Tests run:**
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` — clean (unchanged from Session 7).
+- `npm test` — **294/294 passing** (23 files) — re-run fresh this session to confirm Session 7's own
+  claim is still accurate, not stale.
+- Manual curl re-verification with the *current* role emails: eligibility blocks (workshop-locked vehicle
+  → 409), full movement lifecycle (draft → submit → self-approval blocked 403 → different-approver
+  approve → 200), gate-officer search by reference/registration (200, results scoped correctly) and
+  gate-officer approve attempt (403), document-expiry `BLOCK_CLEARANCE` rule surfacing `isExpired: true`
+  on an expired driver licence, and facial-verification manual-fallback (request → self-resolve blocked
+  403 → different-supervisor resolve → APPROVED) — all still behave as documented.
+
+**Bugs found this session:** none — the 401s during re-verification were caused by reusing stale
+demo-account emails from an old pasted context, not a defect in the app.
+
+**Remaining work:** unchanged from Session 7 — Phase 5B is next.
+
+**Exact recommended next action:** Begin Phase 5B (Reconciliation) as specified above. If a future session
+resumes from a pasted transcript, cross-check its dates/details against the tail of this file and the
+`git log` before treating anything in it as the current state.
+
+---
+
+## 2026-07-24 — Session 9 — Phase 5B: reconciliation (RECON-001..003)
+**Objective:** User instructed autonomous, sequential execution of Phase 5B → 5C → 6 → 7 without
+stopping between phases for confirmation, with full checkpoint discipline (typecheck/lint/test/build/live
+verification/docs/commit) after each. This entry covers Phase 5B only.
+
+**Design (see DECISIONS.md D-017/D-018 for the two genuinely non-obvious calls):**
+- `Reconciliation` pairs a movement's departure/return `GateEvent` by chronological `completedAt` order,
+  not a hardcoded `ENTRY`=departure assumption — the existing Phase 3 wiring (`clearGateEvent()`'s comment
+  "an ENTRY clearance moves movement APPROVED → IN_PROGRESS") only really fits visitor-entry movements;
+  most Phase 2 movement types are the opposite shape (own vehicle leaves first). Both legs must be in
+  opposite directions, one earlier than the other — never assumed which is which.
+- `lib/reconciliation/discrepancy-engine.ts` (pure, DB-free) compares departure/return
+  `GateEventInspectionItem` answers keyed by `inspectionItemId`, categorised purely off the existing
+  `InspectionSection`/`unit` taxonomy (OPERATIONAL_INFO+km → odometer, +% → fuel, TYRES_WHEELS → tyre,
+  EXTERIOR_CONDITION → condition, LOAD_VERIFICATION → cargo/seals/load) — a tenant's own custom inspection
+  items get compared automatically, no engine change needed, satisfying RECON-001's "where configured".
+- Added `MovementAuthorisation.expectedDistanceKm` (nullable) as the optional baseline for the
+  "excess mileage" check; null skips it rather than treating it as zero.
+- `ReconciliationDiscrepancy.severity` reuses `ExceptionSeverity`; the auto-engine only ever assigns up to
+  `HIGH`, never `CRITICAL` (reserved for human escalation) — consistent with "never automatically accuse of
+  fraud/theft/criminal conduct."  HIGH discrepancies write directly to the existing `Exception` table
+  against the *return* GateEvent (not via `gate-event-repository.ts`'s `raiseException()` — would attempt a
+  meaningless state transition on an already-terminal GateEvent, and importing it would create a circular
+  module dependency the other direction, since `completeGateEvent()` calls into
+  `reconciliation-repository.ts`'s `buildReconciliation()` for the auto-build hook).
+- `resolveDiscrepancy()` requires a non-empty `resolutionNotes` explanation (validated by zod at the route
+  layer) plus an optional `correctiveAction` — one combined review/explain/resolve step, `reconciliation:
+  APPROVE`-gated, separate from `reconciliation:EDIT`.
+- New `reconciliation` permission resource (`VIEW`/`CREATE`/`EDIT`/`APPROVE`) granted across all 9 roles per
+  their existing responsibility split: Security Supervisor gets full EDIT+APPROVE (primary reviewer,
+  mirrors `exception:APPROVE`); Gate Security Officer gets CREATE (manual retry) but not APPROVE; Fleet and
+  GPS Manager gets EDIT but not APPROVE (can explain, not close out); everyone else VIEW-only per their
+  existing read-only remit.
+
+**Files changed:**
+- `prisma/schema.prisma` — `Reconciliation`, `ReconciliationDiscrepancy` models +
+  `ReconciliationStatus`/`DiscrepancyCategory`/`DiscrepancyStatus` enums, back-relations on
+  Tenant/User/MovementAuthorisation/GateEvent/InspectionItem/Exception, new
+  `MovementAuthorisation.expectedDistanceKm`; migration `20260723222721_phase5b_reconciliation`.
+- `src/lib/reconciliation/discrepancy-engine.ts` (new) — pure comparison engine.
+- `src/lib/repositories/reconciliation-repository.ts` (new) — `buildReconciliation` (idempotent pairing +
+  validation + discrepancy computation + auto-exception-raising), `resolveDiscrepancy`,
+  `listReconciliationsInTenant`, `getReconciliationInTenant`, 11 typed error classes.
+- `src/lib/repositories/gate-event-repository.ts` — `completeGateEvent()` now best-effort auto-triggers
+  `buildReconciliation()` on any CLEARED completion (swallows `ReconciliationNotReadyError`, logs anything
+  else, never blocks the gate event's own completion).
+- `src/lib/auth/permissions.ts` — new `reconciliation` resource.
+- `prisma/seed.ts` — `reconciliation` grants added to all 9 `TENANT_ROLE_DEFINITIONS`.
+- `src/lib/validation/reconciliation.ts` (new) — zod schemas.
+- `src/app/api/reconciliations/route.ts`, `.../[id]/route.ts`,
+  `.../discrepancies/[discrepancyId]/resolve/route.ts` (new) — list/build, detail, resolve.
+- `src/app/admin/reconciliations/page.tsx`, `.../[id]/page.tsx` (new) — list + detail (departure/return
+  side-by-side panels, inline discrepancy resolve form).
+- `tests/reconciliation-repository.test.ts` (new, 24 cases), `tests/reconciliation-authorization.test.ts`
+  (new, 4 cases).
+- Docs: `PRODUCT_REQUIREMENTS.md` (RECON-001..003 → done, Implementation column added), `ARCHITECTURE.md`
+  (new "Reconciliation architecture" section), `DATA_MODEL.md` (new Phase 5B entities section, migration
+  history entry, corrected a stale note that `prisma migrate dev` doesn't work in this shell — it does),
+  `DECISIONS.md` (D-017, D-018), `TESTING.md` (Phase 5B coverage section), `TODO.md` (Phase 5B moved to
+  Completed, Now/build-order updated to Phase 5C).
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean.
+- `npm test` — **322/322 passing** (25 files; 294 baseline + 28 new Phase 5B cases).
+- `npm run build` — clean (new routes: `/admin/reconciliations`, `/admin/reconciliations/[id]`,
+  `/api/reconciliations`, `/api/reconciliations/[id]`,
+  `/api/reconciliations/discrepancies/[discrepancyId]/resolve`).
+- Manual curl verification, full lifecycle: dispatch officer creates a movement → supervisor approves →
+  gate officer runs the departure leg through Main Gate (odometer 5000, fuel 70%, all PASS) → gate officer
+  runs the return leg through Yard Gate — a *different* gate, proving RECON-001's "different authorised
+  gates" requirement (odometer 5120, fuel 65%, deliberate FAIL on "No new visible body damage") →
+  reconciliation auto-built on gate-event completion with no explicit trigger call: `kmTravelled: 120`,
+  `fuelDeltaPercent: -5` (normal, no false-positive fuel discrepancy), one `VEHICLE_CONDITION` `HIGH`
+  discrepancy with a real linked `Exception` against the return GateEvent → gate officer resolve attempt
+  403 (wrong role) → resolve without notes 400 → supervisor resolve 200 (reconciliation flips OPEN →
+  RESOLVED) → resolve again 409 (already resolved) → manual idempotent retry via `POST
+  /api/reconciliations` 200 (returns the same row) → same-gate-event-both-legs 409 → nonexistent-movement
+  404 → suspended gate officer 401 on `/api/reconciliations`, reactivated and confirmed working again — no
+  raw 500s observed at any step.
+
+**Bugs found this session:** none in the implementation. One test-authoring mistake caught and fixed before
+it masked a real bug: the initial "reject pairing the same gate event with itself" test hit
+`DuplicateReconciliationPairingError` instead of `SameGateEventPairingError` because the idempotency lookup
+ran before the same-event check — reordered `buildReconciliation()` so the same-event check runs first
+(now documented as the validation order in ARCHITECTURE.md).
+
+**Remaining work:** Phase 5C (Dispatch workflow enhancements) next, per the user's instruction to proceed
+autonomously without a stop-and-ask checkpoint between phases.
+
+**Exact recommended next action:** Begin Phase 5C — DISPATCH-001..005 (extended MovementType, sender/
+recipient fields, secure delivery-note upload via the existing MediaAsset architecture, optional
+VehicleUsePolicy/geofence reference nullable until Phase 6, dispatch-facing UI improvements).

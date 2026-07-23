@@ -186,6 +186,51 @@ single place the dashboard's numbers are computed — real DB aggregate queries 
 no static/mock values. It reuses `evaluateDocumentExpiry()` (Phase 2) for the expiring-documents panel,
 closing the "no dedicated dashboard yet" gap flagged in TODO.md since MD-004.
 
+## Reconciliation architecture (Phase 5B, see PRODUCT_REQUIREMENTS.md RECON-001..003)
+`Reconciliation` pairs one movement's departure and return `GateEvent` and compares what each recorded.
+"Departure" and "return" are assigned by chronological `completedAt` order, not a hardcoded
+`ENTRY`/`EXIT` assumption — this works identically for a fleet vehicle leaving-then-returning (`EXIT`
+then `ENTRY`) and a visiting vehicle entering-then-leaving (`ENTRY` then `EXIT`); the two legs are only
+required to be in *opposite* directions, never the same one.
+
+**Pairing (`reconciliation-repository.ts` `buildReconciliation()`).** Idempotent by construction, same
+pattern as `startGateEvent()`: a repeat call for an already-paired movement (or an already-paired explicit
+gate-event pair) returns the existing row unchanged. Validation order: same-event check (a malformed
+request can't be masked by the idempotency lookup) → idempotency lookup → duplicate-pairing check (a
+`GateEvent` can be the departure or return leg of at most one `Reconciliation`, ever — enforced by a DB
+`@unique` constraint on each column, not just application code) → both legs `COMPLETED`/`CLEARED` → same
+movement → same vehicle (defense in depth — always true given the first check, kept anyway) → opposite
+directions → departure not completed after return. Auto-triggered best-effort from
+`completeGateEvent()` (not fatal if the other leg doesn't exist yet — the common case, since this fires on
+the departure leg too); also exposed as `POST /api/reconciliations` for a manual retry
+(`reconciliation:CREATE`).
+
+**Comparison (`lib/reconciliation/discrepancy-engine.ts`).** Pure, DB-free, unit-tested in isolation (same
+family as `lib/gate-events/state-machine.ts` and `lib/documents/expiry-rules.ts`). Reads the departure and
+return `GateEventInspectionItem` answers keyed by `inspectionItemId` and categorises purely off the
+existing tenant-configurable `InspectionSection`/`unit` taxonomy — `OPERATIONAL_INFO`+`km` → odometer,
+`OPERATIONAL_INFO`+`%` → fuel, `TYRES_WHEELS` → tyre, `EXTERIOR_CONDITION` → vehicle condition,
+`LOAD_VERIFICATION` → cargo/seals/tools/equipment/passengers. A tenant's own custom inspection items are
+compared automatically with no engine change ("where configured" in RECON-001) since nothing is keyed off
+a specific item label. `MovementAuthorisation.expectedDistanceKm` (optional) is the only reconciliation-
+specific input outside the inspection answers — set at dispatch time, compared against actual
+`kmTravelled` for the "excess mileage" check; null skips that one check rather than treating it as zero.
+
+**Discrepancies (RECON-002).** `ReconciliationDiscrepancy` never concludes fraud/theft/criminal conduct —
+only a factual departure-vs-return delta plus a severity (`LOW`/`MEDIUM`/`HIGH`, reusing
+`ExceptionSeverity`; the auto-engine never assigns `CRITICAL` itself). A `HIGH` discrepancy raises a real
+`Exception` against the *return* `GateEvent` directly (not via `gate-event-repository.ts`'s
+`raiseException()` — that would also attempt a `GateEvent` state transition, meaningless once both legs
+are terminal/`COMPLETED`, and importing it would create a circular dependency between the two repository
+modules) — RECON-002's "via the existing Phase 3 exception workflow rather than a parallel mechanism",
+satisfied by writing to the same `Exception` table gate operations already use, not a second one. Human
+review/explanation/resolution is one step (`resolveDiscrepancy()`): a mandatory `resolutionNotes`
+explanation plus an optional `correctiveAction`, `reconciliation:APPROVE`-gated, separate from
+`reconciliation:EDIT` (adding notes without the authority to close it out) the same way `exception:CREATE`
+and `exception:APPROVE` are split. `Reconciliation.status` is derived, not independently settable:
+`NO_DISCREPANCIES` at build time if none were found, `OPEN` while any discrepancy remains `OPEN`,
+`RESOLVED` once every discrepancy on it reaches `RESOLVED`.
+
 ## Integration boundaries
 `FacialVerificationProvider` (`lib/facial-verification/provider.ts`) has a deterministic mock
 implementation (`mock-provider.ts`, driven by `force:<outcome>` markers in the capture reference — see its
