@@ -1,0 +1,1204 @@
+// Gate Fleet Governance — Phase 1 foundation schema.
+// See DATA_MODEL.md for the narrative explanation of relationships and lifecycle.
+// Every tenant-owned model carries a required tenantId — see ARCHITECTURE.md "tenant-isolation strategy".
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tenant / organisation structure
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id                       String       @id @default(cuid())
+  name                     String
+  slug                     String       @unique
+  timezone                 String       @default("Africa/Johannesburg")
+  currency                 String       @default("ZAR")
+  retentionDays            Int          @default(365)
+  status                   TenantStatus @default(ACTIVE)
+  // Movement-approval policy (build brief 7.5/7.7: "must not approve their own
+  // movement request where tenant policy prohibits self-approval"). Default is
+  // the safer option — self-approval disabled — tenants opt in explicitly.
+  allowSelfApproveMovement Boolean      @default(false)
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  sites                             Site[]
+  gates                             Gate[]
+  users                             User[]
+  roles                             Role[]
+  sessions                          Session[]
+  approvalDelegations               ApprovalDelegation[]
+  auditLogs                         AuditLog[]
+  userPermissionOverrides           UserPermissionOverride[]
+  userInvitations                   UserInvitation[]
+  drivers                           Driver[]
+  vehicles                          Vehicle[]
+  complianceDocuments               ComplianceDocument[]
+  documentExpiryRules               DocumentExpiryRule[]
+  tyrePositionConfigs               TyrePositionConfig[]
+  vehicleTyres                      VehicleTyre[]
+  movementAuthorisations            MovementAuthorisation[]
+  manualFacialVerificationFallbacks ManualFacialVerificationFallback[]
+  inspectionTemplates               InspectionTemplate[]
+  gateEvents                        GateEvent[]
+  gateEventInspectionItems          GateEventInspectionItem[]
+  exceptionTypes                    ExceptionType[]
+  exceptions                        Exception[]
+  mediaAssets                       MediaAsset[]
+
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Site {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name             String
+  address          String?
+  timezoneOverride String?
+  archivedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gates                  Gate[]
+  movementAuthorisations MovementAuthorisation[]
+  gateEvents             GateEvent[]
+
+  @@index([tenantId])
+  @@map("sites")
+}
+
+enum GateDirection {
+  ENTRY
+  EXIT
+  BOTH
+}
+
+model Gate {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  siteId   String
+  site     Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  name       String
+  direction  GateDirection @default(BOTH)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gateEvents GateEvent[]
+
+  @@index([tenantId])
+  @@index([siteId])
+  @@map("gates")
+}
+
+// ---------------------------------------------------------------------------
+// Users, roles, permissions
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+model User {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email        String
+  // Null until the user accepts their invitation and sets a password — see
+  // UserInvitation. A null passwordHash must never be treated as "any
+  // password accepted"; login explicitly rejects it (lib/auth/password.ts).
+  passwordHash String?
+  name         String
+  status       UserStatus @default(INVITED)
+
+  mfaEnabled Boolean @default(false)
+  mfaSecret  String?
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  sessions                 Session[]
+  permissionOverrides      UserPermissionOverride[]
+  delegationsGiven         ApprovalDelegation[]               @relation("DelegationDelegator")
+  delegationsReceived      ApprovalDelegation[]               @relation("DelegationDelegate")
+  auditLogs                AuditLog[]
+  invitation               UserInvitation?                    @relation("InvitationForUser")
+  invitationsSent          UserInvitation[]                   @relation("InvitationsSentBy")
+  movementRequests         MovementAuthorisation[]            @relation("MovementRequester")
+  movementApprovals        MovementAuthorisation[]            @relation("MovementApprover")
+  manualFallbacksRequested ManualFacialVerificationFallback[] @relation("ManualFallbackRequestedBy")
+  manualFallbacksApproved  ManualFacialVerificationFallback[] @relation("ManualFallbackApprovedBy")
+  gateEventsAsOfficer      GateEvent[]                        @relation("GateEventOfficer")
+  gateEventDecisions       GateEvent[]                        @relation("GateEventDecisionBy")
+  inspectionResultsRecorded GateEventInspectionItem[]         @relation("InspectionResultRecordedBy")
+  exceptionsRaised         Exception[]                        @relation("ExceptionRaisedBy")
+  exceptionsResolved       Exception[]                        @relation("ExceptionResolvedBy")
+  mediaAssetsCaptured      MediaAsset[]                       @relation("MediaAssetCapturedBy")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// One invitation per invited user. Created together with the User row
+// (status INVITED, passwordHash null) when an admin invites someone; accepting
+// sets passwordHash and status ACTIVE. See lib/auth/invitation.ts.
+model UserInvitation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String @unique
+  user   User   @relation("InvitationForUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hex digest of the opaque invitation token — same pattern as
+  // Session.tokenHash, the raw token is never persisted.
+  tokenHash String @unique
+
+  invitedById String
+  invitedBy   User   @relation("InvitationsSentBy", fields: [invitedById], references: [id])
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("user_invitations")
+}
+
+model Role {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  isSystem    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+enum PermissionAction {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  APPROVE
+  REJECT
+  EXPORT
+  AUDIT
+  CONFIGURE
+}
+
+// Global permission catalogue — not tenant-scoped. Seeded once; tenants compose
+// roles from this fixed set rather than defining arbitrary new permissions.
+model Permission {
+  id          String           @id @default(cuid())
+  resource    String
+  action      PermissionAction
+  description String?
+
+  rolePermissions RolePermission[]
+  overrides       UserPermissionOverride[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@map("role_permissions")
+}
+
+enum OverrideEffect {
+  GRANT
+  REVOKE
+}
+
+model UserPermissionOverride {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  effect    OverrideEffect
+  reason    String
+  grantedBy String
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, permissionId])
+  @@index([tenantId])
+  @@map("user_permission_overrides")
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+model Session {
+  id        String @id @default(cuid())
+  // SHA-256 hex digest of the opaque bearer token stored in the client's cookie.
+  // The raw token is never persisted, so a DB leak alone does not yield valid
+  // sessions. See lib/auth/session.ts.
+  tokenHash String @unique
+  tenantId  String
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  revokedAt DateTime?
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Approval delegation
+// ---------------------------------------------------------------------------
+
+model ApprovalDelegation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  delegatorId String
+  delegator   User   @relation("DelegationDelegator", fields: [delegatorId], references: [id], onDelete: Cascade)
+  delegateId  String
+  delegate    User   @relation("DelegationDelegate", fields: [delegateId], references: [id], onDelete: Cascade)
+
+  // resource+action scope this delegation covers, e.g. "movement:approve"
+  permissionScope String
+
+  startAt   DateTime
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([delegateId])
+  @@map("approval_delegations")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — append-only. Application code must never expose update/delete
+// on this model. See lib/audit/record-audit.ts (Phase 1 auth foundation).
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id       String  @id @default(cuid())
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  timestamp     DateTime @default(now())
+  ip            String?
+  sessionId     String?
+  action        String
+  entityType    String
+  entityId      String
+  beforeValue   Json?
+  afterValue    Json?
+  reason        String?
+  correlationId String?
+
+  relatedGateEventId String?
+
+  @@index([tenantId])
+  @@index([entityType, entityId])
+  @@index([tenantId, timestamp])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Master data: drivers, vehicles, compliance documents, tyre
+// configuration, movement authorisation. See PRODUCT_REQUIREMENTS.md MD-001..006.
+// ---------------------------------------------------------------------------
+
+enum DriverStatus {
+  ACTIVE
+  SUSPENDED
+  BLACKLISTED
+}
+
+model Driver {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  employeeNumber String?
+  name           String
+  contactPhone   String?
+  contactEmail   String?
+  // Real secure upload (Phase 4) — was a dev-mode pasted-URL placeholder
+  // before this migration, see DECISIONS.md D-012. One MediaAsset can back at
+  // most one driver's portrait (@unique), enforced the same way as the other
+  // MediaAsset-backed single-owner fields below.
+  portraitMediaAssetId String?     @unique
+  portraitMediaAsset   MediaAsset? @relation("DriverPortrait", fields: [portraitMediaAssetId], references: [id], onDelete: SetNull)
+  department     String?
+
+  status DriverStatus @default(ACTIVE)
+
+  licenceNumber String?
+  licenceClass  String?
+  licenceExpiry DateTime?
+  pdpNumber     String?
+  pdpExpiry     DateTime?
+
+  authorisedVehicleClasses String[] @default([])
+  restrictions             String?
+
+  // Facial-verification enrolment status — see FacialVerificationProvider
+  // interface, INTEGRATIONS.md. No production provider selected yet; this
+  // only tracks whether a driver has been enrolled with whichever provider
+  // (mock, in dev) is configured.
+  facialVerificationEnrolled   Boolean   @default(false)
+  facialVerificationProvider   String?
+  facialVerificationEnrolledAt DateTime?
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  assignedVehicles                  Vehicle[]
+  complianceDocuments               ComplianceDocument[]
+  movementAuthorisations            MovementAuthorisation[]
+  manualFacialVerificationFallbacks ManualFacialVerificationFallback[]
+  gateEvents                        GateEvent[]
+
+  @@index([tenantId])
+  @@map("drivers")
+}
+
+enum ManualFallbackStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+// Records a manual facial-verification fallback decision — build brief 7.3:
+// "Manual fallback must record: Reason, Security officer, Approving
+// supervisor, Timestamp, Evidence where applicable, Audit event." Not tied to
+// a GateEvent yet (Phase 3 doesn't exist here) — relatedGateEventId is a
+// forward-compatible nullable field, same pattern as AuditLog's.
+model ManualFacialVerificationFallback {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  driverId String
+  driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  reason String
+
+  requestedByUserId String
+  requestedBy       User    @relation("ManualFallbackRequestedBy", fields: [requestedByUserId], references: [id])
+  approvedByUserId  String?
+  approvedBy        User?   @relation("ManualFallbackApprovedBy", fields: [approvedByUserId], references: [id])
+
+  status      ManualFallbackStatus @default(PENDING)
+  // Real secure upload (Phase 4) — was a dev-mode placeholder string before
+  // this migration, see DECISIONS.md D-012.
+  evidenceMediaAssetId String?     @unique
+  evidenceMediaAsset   MediaAsset? @relation("ManualFallbackEvidence", fields: [evidenceMediaAssetId], references: [id], onDelete: SetNull)
+
+  relatedGateEventId String?
+
+  requestedAt DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([tenantId])
+  @@index([driverId])
+  @@map("manual_facial_verification_fallbacks")
+}
+
+enum VehicleCategory {
+  PASSENGER
+  LIGHT_COMMERCIAL
+  TRUCK
+  TRUCK_DUAL_REAR_WHEEL
+  TRAILER
+  CUSTOM
+}
+
+enum VehicleOwnership {
+  OWNED
+  LEASED
+  CONTRACTOR
+  THIRD_PARTY
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  ELECTRIC
+  HYBRID
+  OTHER
+}
+
+enum GpsStatus {
+  ACTIVE
+  INACTIVE
+  UNKNOWN
+}
+
+enum VehicleOperationalStatus {
+  OPERATIONAL
+  WORKSHOP_LOCKOUT
+  SECURITY_LOCKOUT
+  DECOMMISSIONED
+}
+
+model Vehicle {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  fleetNumber        String?
+  registrationNumber String
+  vin                String?
+  engineNumber       String?
+
+  make   String?
+  model  String?
+  year   Int?
+  colour String?
+
+  category  VehicleCategory  @default(CUSTOM)
+  ownership VehicleOwnership @default(OWNED)
+  fuelType  FuelType?
+
+  tankCapacityLitres Float?
+  odometerReading    Int?
+  fuelLevelPercent   Float?
+
+  assignedDriverId String?
+  assignedDriver   Driver? @relation(fields: [assignedDriverId], references: [id], onDelete: SetNull)
+
+  // Quick-access expiry fields for authorisation checks/dashboards, deliberately
+  // duplicated alongside the full ComplianceDocument record (which carries the
+  // attachment/issuer/verification detail) — see DATA_MODEL.md.
+  licenceDiscExpiry DateTime?
+  roadworthyExpiry  DateTime?
+  insuranceExpiry   DateTime?
+
+  gpsProvider            String?
+  gpsDeviceReference     String?
+  gpsStatus              GpsStatus @default(UNKNOWN)
+  gpsLastCommunicationAt DateTime?
+
+  baselineConditionNotes String?
+
+  operationalStatus VehicleOperationalStatus @default(OPERATIONAL)
+
+  tyrePositionConfigId String?
+  tyrePositionConfig   TyrePositionConfig? @relation(fields: [tyrePositionConfigId], references: [id], onDelete: SetNull)
+
+  // A trailer's default towing vehicle, or a truck's default attached trailer —
+  // one level of self-relation, not a general graph. Per-movement trailer
+  // choice (which may differ) lives on MovementAuthorisation.trailerVehicleId.
+  attachedToVehicleId String?
+  attachedToVehicle   Vehicle?  @relation("VehicleAttachment", fields: [attachedToVehicleId], references: [id], onDelete: SetNull)
+  attachedAssets      Vehicle[] @relation("VehicleAttachment")
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  complianceDocuments    ComplianceDocument[]
+  tyres                  VehicleTyre[]
+  movementAuthorisations MovementAuthorisation[] @relation("MovementVehicle")
+  trailerForMovements    MovementAuthorisation[] @relation("MovementTrailer")
+  gateEvents             GateEvent[]             @relation("GateEventVehicle")
+  trailerForGateEvents   GateEvent[]             @relation("GateEventTrailer")
+
+  @@unique([tenantId, registrationNumber])
+  @@unique([tenantId, vin])
+  @@index([tenantId])
+  @@map("vehicles")
+}
+
+enum ComplianceDocumentOwnerType {
+  DRIVER
+  VEHICLE
+}
+
+enum ComplianceDocumentType {
+  DRIVER_LICENCE
+  PDP
+  VEHICLE_LICENCE
+  ROADWORTHY_CERTIFICATE
+  INSURANCE
+  OTHER
+}
+
+enum DocumentVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  REJECTED
+}
+
+// Reusable document/compliance record — one table for both driver and vehicle
+// documents (build brief 7.3 Driver "Supporting documents", 7.4 Vehicle
+// "Vehicle documents", and the dedicated "Document and compliance records"
+// section). Exactly one of driverId/vehicleId is set, matching ownerType.
+model ComplianceDocument {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  ownerType ComplianceDocumentOwnerType
+  driverId  String?
+  driver    Driver?                     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vehicleId String?
+  vehicle   Vehicle?                    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  documentType   ComplianceDocumentType
+  documentNumber String?
+  issueDate      DateTime?
+  expiryDate     DateTime?
+  issuer         String?
+  notes          String?
+
+  // Real secure upload (Phase 4) — was a dev-mode placeholder string before
+  // this migration, see DECISIONS.md D-012.
+  attachmentMediaAssetId String?     @unique
+  attachmentMediaAsset   MediaAsset? @relation("ComplianceDocumentAttachment", fields: [attachmentMediaAssetId], references: [id], onDelete: SetNull)
+
+  verificationStatus DocumentVerificationStatus @default(UNVERIFIED)
+  verifiedById       String?
+  verifiedAt         DateTime?
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([driverId])
+  @@index([vehicleId])
+  @@map("compliance_documents")
+}
+
+enum ExpiryRuleAction {
+  WARN
+  REQUIRE_SUPERVISOR_APPROVAL
+  BLOCK_CLEARANCE
+}
+
+// Tenant-configurable consequence of a document being expired. Build brief:
+// "Expired documents must not automatically deny every movement." Enforcement
+// (actually blocking a gate clearance) is Phase 3 — this phase only stores and
+// exposes the configured rule and flags expired documents against it.
+model DocumentExpiryRule {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  documentType ComplianceDocumentType
+  action       ExpiryRuleAction
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, documentType])
+  @@index([tenantId])
+  @@map("document_expiry_rules")
+}
+
+// A named, reusable wheel-position layout (e.g. "Standard Passenger 4-wheel").
+// Category mirrors Vehicle.category so a sensible default can be suggested.
+model TyrePositionConfig {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name     String
+  category VehicleCategory
+  isSystem Boolean         @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  positions TyrePositionDefinition[]
+  vehicles  Vehicle[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tyre_position_configs")
+}
+
+model TyrePositionDefinition {
+  id       String             @id @default(cuid())
+  configId String
+  config   TyrePositionConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  code      String
+  label     String
+  sortOrder Int    @default(0)
+
+  vehicleTyres VehicleTyre[]
+
+  @@unique([configId, code])
+  @@map("tyre_position_definitions")
+}
+
+// Current tyre reference data per fitted position — brief: "This phase only
+// needs the vehicle tyre-position configuration and current tyre reference
+// data." Reading history/inspection comparison is Phase 3/4.
+model VehicleTyre {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  positionDefinitionId String
+  positionDefinition   TyrePositionDefinition @relation(fields: [positionDefinitionId], references: [id], onDelete: Cascade)
+
+  brand String?
+  size  String?
+  notes String?
+
+  fittedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([vehicleId, positionDefinitionId])
+  @@index([tenantId])
+  @@map("vehicle_tyres")
+}
+
+enum MovementType {
+  ENTRY
+  EXIT
+  DELIVERY
+  COLLECTION
+  RETURN
+  SITE_TRANSFER
+  MAINTENANCE
+  OTHER
+}
+
+enum MovementStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Created and approved before the vehicle reaches the gate — build brief 7.5.
+// Gate security (Phase 3) reads this record; it must never be edited from the
+// gate-facing lookup, only referenced (see gate-facing lookup API — read-only).
+model MovementAuthorisation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id])
+
+  vehicleId String
+  vehicle   Vehicle @relation("MovementVehicle", fields: [vehicleId], references: [id])
+  driverId  String
+  driver    Driver  @relation(fields: [driverId], references: [id])
+
+  trailerVehicleId String?
+  trailerVehicle   Vehicle? @relation("MovementTrailer", fields: [trailerVehicleId], references: [id])
+
+  movementType MovementType
+  purpose      String?
+  destination  String?
+
+  expectedDepartureAt DateTime?
+  expectedReturnAt    DateTime?
+
+  customerProjectJobReference   String?
+  deliveryOrCollectionReference String?
+  purchaseOrderReference        String?
+  approvedCargoSummary          String?
+  sealOrContainerReference      String?
+
+  // Short human-friendly code for gate-facing lookup (QR/reference-code search).
+  referenceCode String @unique
+
+  requesterUserId String
+  requester       User    @relation("MovementRequester", fields: [requesterUserId], references: [id])
+  approverUserId  String?
+  approver        User?   @relation("MovementApprover", fields: [approverUserId], references: [id])
+
+  status           MovementStatus @default(DRAFT)
+  approvalComments String?
+  cancelledAt      DateTime?
+  cancelledReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gateEvents GateEvent[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([vehicleId])
+  @@index([driverId])
+  @@map("movement_authorisations")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Gate operations: GateEvent state machine, configurable guided
+// inspection engine, tenant-configurable exceptions/approvals, security
+// dashboard. See PRODUCT_REQUIREMENTS.md GATE-001..006 and ARCHITECTURE.md
+// "Gate operations architecture".
+// ---------------------------------------------------------------------------
+
+enum GateEventDirection {
+  ENTRY
+  EXIT
+}
+
+// Presence/processing state of a vehicle actually at the gate — distinct from
+// MovementAuthorisation.status (its own pre-gate approval state machine,
+// already complete by the time a GateEvent exists). Pure transition table
+// lives in lib/gate-events/state-machine.ts, mirroring
+// lib/movements/state-machine.ts exactly.
+enum GateEventStatus {
+  EXPECTED
+  INSPECTION_STARTED
+  IDENTITY_PENDING
+  IDENTITY_VERIFIED
+  VEHICLE_CHECKS_IN_PROGRESS
+  EXCEPTION_RAISED
+  SUPERVISOR_REVIEW
+  CLEARED
+  DENIED
+  CANCELLED
+  COMPLETED
+}
+
+enum GateEventDecision {
+  CLEARED
+  DENIED
+}
+
+// A named, versioned, vehicle-category-aware checklist (build brief 7.6:
+// "configurable inspection templates ... not hardcoded to one component").
+// Editing an existing template creates a new row with an incremented version
+// rather than mutating in place, so a GateEvent recorded against version 2
+// keeps pointing at the exact questions that were actually asked, even after
+// version 3 is published — same "don't rewrite history" principle as
+// AuditLog's append-only guarantee.
+model InspectionTemplate {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  // Null = applies to every vehicle category (a generic fallback template).
+  vehicleCategory VehicleCategory?
+  version         Int              @default(1)
+  isActive        Boolean          @default(true)
+  isSystem        Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items      InspectionItem[]
+  gateEvents GateEvent[]
+
+  @@unique([tenantId, name, version])
+  @@index([tenantId])
+  @@index([tenantId, vehicleCategory, isActive])
+  @@map("inspection_templates")
+}
+
+enum InspectionSection {
+  DRIVER_AUTHORISATION
+  VEHICLE_IDENTITY
+  EXTERIOR_CONDITION
+  LIGHTS
+  TYRES_WHEELS
+  OPERATIONAL_INFO
+  LOAD_VERIFICATION
+}
+
+enum InspectionResponseType {
+  CHECK
+  READING
+  TEXT
+}
+
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// One ordered question within a template — grouped by section, matching the
+// categories already implied by the Vehicle/Driver/Tyre models (build brief
+// 7.6). responseType CHECK yields a GateEventInspectionItem.outcome of
+// pass/fail/not-applicable/unable-to-verify; READING additionally expects a
+// readingValue + readingUnit (e.g. tyre tread depth in mm); TEXT is freeform.
+model InspectionItem {
+  id         String             @id @default(cuid())
+  templateId String
+  template   InspectionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  section     InspectionSection
+  label       String
+  description String?
+  sortOrder   Int               @default(0)
+
+  responseType InspectionResponseType @default(CHECK)
+  unit         String?
+
+  isRequired Boolean @default(true)
+
+  // What a FAIL outcome on this item should default to — feeds
+  // gate-event-repository.ts's automatic exception raising. Null means a FAIL
+  // here doesn't automatically raise a formal exception (still recorded).
+  defaultExceptionSeverity         ExceptionSeverity?
+  requiresSupervisorApprovalOnFail Boolean            @default(false)
+
+  results GateEventInspectionItem[]
+
+  @@index([templateId])
+  @@map("inspection_items")
+}
+
+// The actual gate-side record of a vehicle's presence and processing at a
+// gate for one entry or exit, linked back to the MovementAuthorisation it
+// corresponds to (build brief 7.6/7.7). One MovementAuthorisation should only
+// ever have one *open* (non-terminal) GateEvent at a time — enforced in
+// gate-event-repository.ts's startGateEvent (idempotent: a duplicate "start"
+// call returns the existing open GateEvent rather than creating a second one)
+// since there's no clean partial-unique-index for "one non-terminal row per
+// movementAuthorisationId" in Postgres without a generated column.
+model GateEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id])
+  gateId String
+  gate   Gate   @relation(fields: [gateId], references: [id])
+
+  direction GateEventDirection
+
+  vehicleId        String
+  vehicle          Vehicle  @relation("GateEventVehicle", fields: [vehicleId], references: [id])
+  trailerVehicleId String?
+  trailerVehicle   Vehicle? @relation("GateEventTrailer", fields: [trailerVehicleId], references: [id])
+  driverId         String
+  driver           Driver   @relation(fields: [driverId], references: [id])
+
+  movementAuthorisationId String
+  movementAuthorisation   MovementAuthorisation @relation(fields: [movementAuthorisationId], references: [id])
+
+  securityOfficerUserId String
+  securityOfficer       User   @relation("GateEventOfficer", fields: [securityOfficerUserId], references: [id])
+
+  inspectionTemplateId String?
+  inspectionTemplate   InspectionTemplate? @relation(fields: [inspectionTemplateId], references: [id])
+
+  status GateEventStatus @default(EXPECTED)
+
+  // Driver verification result for this gate event — wires the existing
+  // FacialVerificationProvider (mock) / ManualFacialVerificationFallback into
+  // the gate check-in flow (build brief 7.6, GATE item 5). Not a new
+  // verification mechanism; this only records the outcome against this event.
+  identityVerificationResult String?
+  identityVerificationRef    String?
+  identityVerifiedAt         DateTime?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  decision       GateEventDecision?
+  decisionReason String?
+  decisionByUserId String?
+  decisionBy       User?    @relation("GateEventDecisionBy", fields: [decisionByUserId], references: [id])
+  decisionAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inspectionResults GateEventInspectionItem[]
+  exceptions        Exception[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([movementAuthorisationId])
+  @@index([vehicleId])
+  @@index([tenantId, createdAt])
+  @@map("gate_events")
+}
+
+enum InspectionOutcome {
+  PASS
+  FAIL
+  NOT_APPLICABLE
+  UNABLE_TO_VERIFY
+}
+
+// One answer against one InspectionItem for one GateEvent (build brief 7.6:
+// "record actual answers against a template for one GateEvent"). Evidence
+// capture is a dev-mode placeholder URL string only — real upload is Phase 4
+// (ARCHITECTURE.md "Media/video architecture"), same pattern as
+// Driver.portraitUrl / ComplianceDocument.attachmentUrl.
+model GateEventInspectionItem {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  gateEventId String
+  gateEvent   GateEvent @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+
+  inspectionItemId String
+  inspectionItem   InspectionItem @relation(fields: [inspectionItemId], references: [id])
+
+  outcome     InspectionOutcome
+  readingValue String?
+  readingUnit  String?
+  comment      String?
+
+  exceptionSeverity          ExceptionSeverity?
+  supervisorApprovalRequired Boolean            @default(false)
+
+  // Real secure upload (Phase 4) — was a dev-mode placeholder string before
+  // this migration, see DECISIONS.md D-012.
+  evidenceMediaAssetId String?     @unique
+  evidenceMediaAsset   MediaAsset? @relation("InspectionItemEvidence", fields: [evidenceMediaAssetId], references: [id], onDelete: SetNull)
+
+  recordedByUserId String
+  recordedBy       User     @relation("InspectionResultRecordedBy", fields: [recordedByUserId], references: [id])
+  recordedAt        DateTime @default(now())
+
+  exceptions Exception[]
+
+  @@unique([gateEventId, inspectionItemId])
+  @@index([tenantId])
+  @@index([gateEventId])
+  @@map("gate_event_inspection_items")
+}
+
+enum ExceptionOutcomeAction {
+  WARNING
+  MANUAL_REVIEW
+  SUPERVISOR_APPROVAL
+  WORKSHOP_LOCKOUT
+  SECURITY_HOLD
+  DENIED
+  CLEARED_WITH_OBSERVATION
+}
+
+// Tenant-configurable exception category — same pattern as
+// DocumentExpiryRule: a tenant defines what kind of exceptions it recognises
+// and what should typically happen (build brief GATE item 3: "configurable
+// per tenant"). requiresSupervisorApproval drives the hard self-approval rule
+// in gate-event-repository.ts (see DECISIONS.md) — deliberately NOT a
+// tenant-toggleable flag like Tenant.allowSelfApproveMovement; identity/safety
+// exception integrity is not made optional.
+model ExceptionType {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code        String
+  label       String
+  description String?
+
+  defaultSeverity          ExceptionSeverity      @default(MEDIUM)
+  defaultOutcomeAction     ExceptionOutcomeAction @default(MANUAL_REVIEW)
+  requiresSupervisorApproval Boolean              @default(false)
+  isSystem                   Boolean              @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exceptions Exception[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("exception_types")
+}
+
+// An actual exception instance raised against a GateEvent — optionally tied
+// to the specific inspection answer that triggered it (auto-raised on a FAIL
+// outcome by gate-event-repository.ts) or raised ad hoc by the officer.
+model Exception {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  gateEventId String
+  gateEvent   GateEvent @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+
+  inspectionResultId String?
+  inspectionResult   GateEventInspectionItem? @relation(fields: [inspectionResultId], references: [id], onDelete: SetNull)
+
+  exceptionTypeId String?
+  exceptionType   ExceptionType? @relation(fields: [exceptionTypeId], references: [id])
+
+  description String
+  severity    ExceptionSeverity @default(MEDIUM)
+
+  // Hard rule (not tenant-configurable — see DECISIONS.md): if true, the
+  // officer who raised this exception cannot be the one who resolves it,
+  // enforced in gate-event-repository.ts regardless of role/permission.
+  requiresSupervisorApproval Boolean @default(false)
+  outcomeAction              ExceptionOutcomeAction?
+
+  raisedByUserId String
+  raisedBy       User   @relation("ExceptionRaisedBy", fields: [raisedByUserId], references: [id])
+  raisedAt       DateTime @default(now())
+
+  resolvedByUserId String?
+  resolvedBy       User?     @relation("ExceptionResolvedBy", fields: [resolvedByUserId], references: [id])
+  resolvedAt        DateTime?
+  resolutionNotes   String?
+
+  @@index([tenantId])
+  @@index([gateEventId])
+  @@index([tenantId, resolvedAt])
+  @@map("exceptions")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Evidence and media. See PRODUCT_REQUIREMENTS.md EVID-001..004 and
+// ARCHITECTURE.md "Media/video architecture".
+// ---------------------------------------------------------------------------
+
+enum MediaAssetOwnerType {
+  GATE_EVENT
+  GATE_EVENT_INSPECTION_ITEM
+  MANUAL_FACIAL_VERIFICATION_FALLBACK
+  DRIVER_PORTRAIT
+  COMPLIANCE_DOCUMENT
+}
+
+enum MediaDataClassification {
+  RESTRICTED
+  CONFIDENTIAL
+  INTERNAL
+}
+
+// One reusable, polymorphic model for every kind of uploaded evidence in the
+// system — gate-event walk-around photos/video, a single inspection item's
+// evidence, manual facial-verification fallback evidence, driver portraits,
+// and compliance document attachments — following the same "one reusable
+// model with an ownerType discriminator" principle as ComplianceDocument
+// (Phase 2), but using a plain (ownerType, ownerId) pair rather than N
+// nullable FK columns since there are 5 owner kinds here, not 2 — the same
+// shape AuditLog already uses for (entityType, entityId). See DECISIONS.md
+// D-011.
+//
+// No public/permanent URL is ever exposed: all reads go through
+// mintSignedUrlForMediaAsset() (lib/repositories/media-asset-repository.ts),
+// which mints a short-lived signed URL after a permission check, verified
+// server-side by lib/storage/signed-url.ts. Files live under the gitignored
+// `.data/media/` directory in dev (lib/storage/local-filesystem-provider.ts)
+// and are never served through Next's static file handling.
+model MediaAsset {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  ownerType MediaAssetOwnerType
+  ownerId   String
+
+  capturedByUserId String
+  capturedBy       User     @relation("MediaAssetCapturedBy", fields: [capturedByUserId], references: [id])
+  capturedAt       DateTime @default(now())
+
+  fileName      String
+  contentType   String
+  fileSizeBytes Int
+  // Opaque, tenant-namespaced storage location used only server-side by the
+  // StorageProvider — never returned directly to a client, never a public path.
+  storageKey     String @unique
+  // SHA-256 hex digest computed server-side on receipt — never trusts a
+  // client-supplied checksum. A client-supplied checksum, if present, is only
+  // used as an optional integrity cross-check (see ChecksumMismatchError).
+  checksumSha256 String
+
+  classification MediaDataClassification @default(RESTRICTED)
+
+  // Client-generated idempotency key so retrying an upload over flaky gate
+  // connectivity never creates a duplicate evidence record — see
+  // uploadMediaAsset() / IdempotencyKeyConflictError in
+  // lib/repositories/media-asset-repository.ts.
+  idempotencyKey String
+
+  createdAt DateTime @default(now())
+
+  inspectionItemEvidenceFor       GateEventInspectionItem?          @relation("InspectionItemEvidence")
+  manualFallbackEvidenceFor       ManualFacialVerificationFallback? @relation("ManualFallbackEvidence")
+  driverPortraitFor               Driver?                           @relation("DriverPortrait")
+  complianceDocumentAttachmentFor ComplianceDocument?                @relation("ComplianceDocumentAttachment")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId])
+  @@index([tenantId, ownerType, ownerId])
+  @@map("media_assets")
+}

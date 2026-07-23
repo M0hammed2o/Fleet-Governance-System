@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gate-fleet-governance-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gatefleet
+      POSTGRES_PASSWORD: gatefleet_dev_only
+      POSTGRES_DB: gate_fleet_governance
+    ports:
+      # Host port 55490 chosen to avoid colliding with other local Postgres containers
+      # already running on this machine (5432, 55432, 5434 observed in use).
+      - "55490:5432"
+    volumes:
+      - gate-fleet-governance-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gatefleet -d gate_fleet_governance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gate-fleet-governance-pgdata:
