@@ -69,21 +69,21 @@ Extends `MovementAuthorisation` (Phase 2, done) — does not replace it.
 
 ## GPS — Telematics foundation and basic geofencing (Phase 6)
 Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvider` adapter pattern.
-| ID | Requirement | Acceptance criteria | Status |
-|---|---|---|---|
-| GPS-001 | `TelematicsProvider` interface + `MockTelematicsProvider` | Same shape as FacialVerificationProvider: test connection, retrieve vehicles, current/last-known position, last communication, ignition, odometer, speed/trip, geofences, location/geofence events, normalised internal models | todo |
-| GPS-002 | `ManualGpsConfirmationProvider` / manual office-confirmation fallback | Mirrors the existing manual facial-verification fallback pattern (request/resolve, audited, self-approval blocked) | todo |
-| GPS-003 | Vehicle-to-tracker mapping | `Vehicle` gains a tracker reference per connected provider; status active/inactive/unknown, last communication time | todo |
-| GPS-004 | Basic geofence monitoring | Approved-destination comparison, after-hours-use detection, mileage-allowance monitoring | todo |
-| GPS-005 | GPS-offline and geofence-deviation exceptions | Reuses the existing Phase 3 Exception model/workflow, not a parallel one; human review required, never an automatic fraud/theft/crime conclusion (SECURITY_AND_POPIA.md) | todo |
-| GPS-006 | Cross-tenant / stale-data / duplicate-alert / provider-failure tests | Provider failure produces a typed error, not a 500; stale data is flagged, not silently trusted | todo |
-| GPS-BLOCKED | Production provider connection (Netstar/Cartrack/Tracker/MiX/other) | One production provider selected for the October pilot | blocked — needs user's vendor decision + credentials |
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| GPS-001 | `TelematicsProvider` interface + `MockTelematicsProvider` | Same shape as FacialVerificationProvider: test connection, retrieve vehicles, current/last-known position, last communication, ignition, odometer, speed/trip, geofences, location/geofence events, normalised internal models | done | `src/lib/telematics/provider.ts` (interface), `mock-provider.ts` (deterministic, `force:<outcome>` markers). Geofence/location-event retrieval is folded into `getSnapshot()`'s normalised return rather than separate methods — no real vendor to validate a richer shape against yet; extend when a production provider is selected |
+| GPS-002 | `ManualGpsConfirmationProvider` / manual office-confirmation fallback | Mirrors the existing manual facial-verification fallback pattern (request/resolve, audited, self-approval blocked) | done | `ManualGpsConfirmation` model; `requestManualGpsConfirmation`/`resolveManualGpsConfirmation` (`telematics-repository.ts`) — line-for-line mirror of `facial-verification-repository.ts`; `tests/telematics-repository.test.ts` |
+| GPS-003 | Vehicle-to-tracker mapping | `Vehicle` gains a tracker reference per connected provider; status active/inactive/unknown, last communication time | done | `Vehicle.gpsProvider`/`gpsDeviceReference` already existed (Phase 2) and are editable via the existing `updateVehicle`; Phase 6 adds the actual sync that writes `gpsStatus`/`gpsLastCommunicationAt` from a real (mock) reading — `syncVehicleTelematics()` |
+| GPS-004 | Basic geofence monitoring | Approved-destination comparison, after-hours-use detection, mileage-allowance monitoring | done | `Geofence` (simple circle, not a polygon tool — deliberate "basic" scope) + `lib/telematics/geofence-engine.ts` (`isWithinGeofence`, `evaluatePolicyCompliance` — geofence/day/hour/distance checks) |
+| GPS-005 | GPS-offline and geofence-deviation exceptions | Reuses the existing Phase 3 Exception model/workflow, not a parallel one; human review required, never an automatic fraud/theft/crime conclusion (SECURITY_AND_POPIA.md) | done | `Exception.gateEventId` made nullable + `Exception.vehicleId` added (DECISIONS.md D-020) — same table, same severity scale, auto-engine never assigns CRITICAL; `evaluateVehiclePolicyCompliance()` |
+| GPS-006 | Cross-tenant / stale-data / duplicate-alert / provider-failure tests | Provider failure produces a typed error, not a 500; stale data is flagged, not silently trusted | done | `TelematicsProviderUnavailableError` (typed, mapped to 503 in the route); 30-minute staleness threshold marks `gpsStatus: INACTIVE` and skips policy evaluation rather than trusting an old position; `tests/telematics-repository.test.ts` (tenant isolation, stale/offline, provider-unavailable cases) |
+| GPS-BLOCKED | Production provider connection (Netstar/Cartrack/Tracker/MiX/other) | One production provider selected for the October pilot | blocked — needs user's vendor decision + credentials | Interface + mock built regardless, per standing instruction |
 
 ## POLICY — Vehicle-use policies (Phase 6)
-| ID | Requirement | Acceptance criteria | Status |
-|---|---|---|---|
-| POLICY-001 | `VehicleUsePolicy` model | Named driver/rep, assigned vehicle(s), effective dates, permitted days/hours, approved start/destinations/geofence, km limits (trip/day/week/month), after-hours/weekend/private-use flags, private-use km allowance, expected return time, approving manager, status, override reason | todo |
-| POLICY-002 | Policy violations raise Exceptions, never automatic allegations | Same human-review requirement as GPS-005 | todo |
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| POLICY-001 | `VehicleUsePolicy` model | Named driver/rep, assigned vehicle(s), effective dates, permitted days/hours, approved start/destinations/geofence, km limits (trip/day/week/month), after-hours/weekend/private-use flags, private-use km allowance, expected return time, approving manager, status, override reason | done | `VehicleUsePolicy` + `VehicleUsePolicyVehicle` join table; full field list per the acceptance criteria; `createVehicleUsePolicy`/`approveVehicleUsePolicy`/`listVehicleUsePoliciesInTenant`/`getVehicleUsePolicyInTenant`; `src/app/admin/vehicle-use-policies` list/detail UI |
+| POLICY-002 | Policy violations raise Exceptions, never automatic allegations | Same human-review requirement as GPS-005 | done | Same `evaluateVehiclePolicyCompliance()` path as GPS-005 — one engine, one Exception table, for both GPS and policy violations |
 
 ## SUPPORT — Platform support-access view (Phase 7)
 | ID | Requirement | Acceptance criteria | Status |

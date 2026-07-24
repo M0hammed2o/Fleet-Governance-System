@@ -259,6 +259,30 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
       Viewer (no `mediaAsset` grant at all); minted a signed view URL successfully; both the movements list
       and detail admin pages render with the new fields/upload UI.
 
+## Phase 6 coverage (telematics/geofencing/vehicle-use policies, added 2026-07-24)
+- [x] `tests/telematics-repository.test.ts` (37 cases): `MockTelematicsProvider` every forced outcome
+      (normal, offline/stale, unavailable, forced position, ignition-off); `geofence-engine` pure functions
+      (haversine distance, geofence membership, every policy-violation type incl. the allow-flag bypasses);
+      `syncVehicleTelematics` (vehicle-not-found, normal sync, stale/offline marks INACTIVE with zero
+      violations evaluated, provider failure is a typed error and marks INACTIVE, a real geofence violation
+      raises a HIGH vehicle-linked Exception with `gateEventId: null`, no violations when no active policy
+      is assigned); manual GPS confirmation (request, self-approval blocked, different-user
+      approve/deny, vehicle-not-found); Geofence CRUD + tenant isolation; VehicleUsePolicy (creation with
+      driver/vehicle/geofence validation, only the named approving manager can approve, rejects approving a
+      non-DRAFT policy, audit events on create/approve, tenant isolation).
+- [x] `tests/telematics-authorization.test.ts` (4 cases): VIEW-only role cannot sync/configure/approve;
+      officer-style role (VIEW+CREATE) cannot approve; no-grant role sees nothing; a policy-drafting role
+      (VIEW+CREATE+EDIT) cannot approve.
+- [x] Manually verified end-to-end via curl: synced a vehicle with no policy assigned (ACTIVE status, no
+      violations) → created a geofence far from the mock provider's default position → created and approved
+      a `VehicleUsePolicy` referencing it → re-synced the same vehicle → confirmed a HIGH
+      `OUTSIDE_APPROVED_GEOFENCE` violation and a real linked `Exception` (`vehicleId` set, `gateEventId`
+      null) → requested a manual GPS confirmation as a gate officer → confirmed self-approve blocked (403),
+      wrong-role blocked (403, Dispatch and Logistics Officer has no `telematics:APPROVE`), supervisor
+      resolve succeeded (200) → confirmed a `force:unavailable` device reference produces 503, not a raw
+      500, and marks the vehicle INACTIVE → confirmed the geofences and vehicle-use-policies admin pages
+      render (200).
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

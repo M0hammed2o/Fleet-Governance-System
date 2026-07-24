@@ -383,12 +383,41 @@ real relation and any enforcement logic, existing values will need validating/ba
 migration.
 **Revisit condition:** Phase 6, when `VehicleUsePolicy` is actually created.
 
+## D-020 — 2026-07-24 — `Exception.gateEventId` is now nullable; a telematics/policy exception carries `vehicleId` instead
+**Context:** GPS-005/POLICY-002 require geofence-deviation and vehicle-use-policy violations to raise a
+real Phase 3 `Exception`, explicitly "not a parallel one." But `Exception.gateEventId` was a required,
+non-nullable FK — every existing exception is raised *during* a gate event (an inspection FAIL, an officer
+ad hoc report). A telematics/policy violation is detected mid-trip, with no GateEvent in context at all.
+**Decision:** Made `Exception.gateEventId` nullable and added a nullable `Exception.vehicleId` — a
+telematics/policy exception sets `vehicleId` and leaves `gateEventId` null; every existing Phase 3/5B
+caller (`gate-event-repository.ts`'s `raiseException()`, `reconciliation-repository.ts`'s direct
+`prisma.exception.create()`) is unaffected and continues to always set `gateEventId`.
+`gate-event-repository.ts`'s `resolveException()` — the gate-tied resolution workflow (escalation,
+self-approval, GateEvent state transition) — now explicitly rejects an exception with no `gateEventId`
+(`NotAGateEventExceptionError`) rather than crashing on a null dereference; telematics exceptions are
+created directly in `telematics-repository.ts` (see also: this file doesn't import `raiseException()`, same
+circular-dependency reasoning as D-018) and aren't resolved through a dedicated function yet in this phase
+(no UI/route calls for it — a documented gap, not a silent one; see TODO.md).
+**Alternatives considered:** A second, parallel `TelematicsException` table — rejected outright, directly
+contradicts GPS-005's explicit wording. Requiring a synthetic/placeholder `GateEventId` for telematics
+exceptions — rejected as actively misleading (an exception would appear tied to a specific gate crossing
+that never happened, corrupting any report that joins Exception → GateEvent).
+**Consequences:** Any code reading `Exception.gateEventId` must now null-check (TypeScript already enforces
+this everywhere `@generated/prisma` types are used, so this is compiler-enforced, not just a convention).
+Existing test data/queries assuming `gateEventId` is always present must be checked — verified via the full
+test suite (374/374 passing) that no other call site broke.
+**Revisit condition:** If Phase 7's investigation-case-management work needs to resolve a telematics
+exception through its own approval workflow (beyond the simple audit-logged creation this phase does), that
+resolution function should live in `telematics-repository.ts`, not be bolted onto `gate-event-repository.ts`'s
+`resolveException()`.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
-- **Telematics provider** — blocked, no vendor selected. Interface + mock built regardless. October pilot
-  scope (per the user's latest instruction) targets one production provider matched to the pilot
-  customer's existing tracker — still requires the user's vendor decision + credentials before that can
-  start; Phase 6 builds only the provider-neutral interface, mock, and manual-confirmation fallback.
+- **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +
+  `MockTelematicsProvider` + `ManualGpsConfirmation` fallback are built and tested (Phase 6, done — see
+  WORKLOG.md Session 11); only the actual vendor connection (Netstar/Cartrack/Tracker/MiX/other) remains
+  blocked pending the user's vendor decision + credentials. October pilot scope (per the user's latest
+  instruction) targets one production provider matched to the pilot customer's existing tracker.
 - **Production hosting (Supabase vs self-managed Postgres, storage provider, deploy target)** — deferred
   to Phase 7; will be raised as a major decision (paid third-party service) before any account is created.
 - **Subscription billing** — explicitly out of scope for this run (Phases 5-7 only); next planned work

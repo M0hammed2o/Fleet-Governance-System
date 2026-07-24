@@ -85,18 +85,23 @@ describe("DISPATCH-002 — sender/recipient fields", () => {
 });
 
 describe("DISPATCH-004 — optional vehicle-use-policy reference", () => {
-  it("accepts a plain vehicleUsePolicyId string with no FK validation (VehicleUsePolicy doesn't exist until Phase 6)", async () => {
+  // As of Phase 6, VehicleUsePolicy exists and vehicleUsePolicyId is a real
+  // FK (DECISIONS.md D-019's revisit condition) — a plain unvalidated string
+  // is no longer accepted; see tests/telematics-repository.test.ts for the
+  // full VehicleUsePolicy behaviour this now enforces.
+  it("rejects a vehicleUsePolicyId that doesn't reference a real policy", async () => {
     const { tenant, user, site, driver, vehicle } = await baseSetup();
-    const movement = await createMovement({
-      tenantId: tenant.id,
-      siteId: site.id,
-      vehicleId: vehicle.id,
-      driverId: driver.id,
-      movementType: "AUTHORISED_PRIVATE_USE",
-      requesterUserId: user.id,
-      vehicleUsePolicyId: "not-yet-a-real-policy-id",
-    });
-    expect(movement.vehicleUsePolicyId).toBe("not-yet-a-real-policy-id");
+    await expect(
+      createMovement({
+        tenantId: tenant.id,
+        siteId: site.id,
+        vehicleId: vehicle.id,
+        driverId: driver.id,
+        movementType: "AUTHORISED_PRIVATE_USE",
+        requesterUserId: user.id,
+        vehicleUsePolicyId: "not-a-real-policy-id",
+      }),
+    ).rejects.toThrow();
   });
 
   it("leaves vehicleUsePolicyId null when not provided", async () => {

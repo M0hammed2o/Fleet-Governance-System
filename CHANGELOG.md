@@ -2,6 +2,15 @@
 
 ## 2026-07-24
 ### Added
+- Phase 6 — telematics foundation, basic geofencing, and vehicle-use policies (GPS-001..006/GPS-BLOCKED,
+  POLICY-001/002): a provider-neutral `TelematicsProvider` interface with a deterministic mock (production
+  vendor connection explicitly blocked pending the user's decision), a manual GPS confirmation fallback
+  mirroring the existing facial-verification pattern, simple circular geofences, and a full
+  `VehicleUsePolicy` model (named driver, assigned vehicles, permitted days/hours, approved geofence, km
+  limits, after-hours/weekend/private-use flags, named approving manager). Geofence and policy violations
+  raise a real Exception through the existing Phase 3 workflow — `Exception.gateEventId` is now nullable
+  and a `vehicleId` was added so a violation with no gate event in context can still use the same table,
+  never a parallel one. 41 new tests (374/374 total).
 - Phase 5C — dispatch workflow enhancements (DISPATCH-001..005): three new `MovementType` values (sales
   visit, service, authorised private use), sender/recipient fields, and an optional (not-yet-FK)
   vehicle-use-policy reference on `MovementAuthorisation`; secure delivery-note/supporting-document upload

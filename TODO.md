@@ -1,22 +1,25 @@
 # TODO.md
 
 ## Now
-- [ ] Begin Phase 6 (Telematics foundation + basic geofencing): GPS-001 (`TelematicsProvider` interface +
-      `MockTelematicsProvider`), GPS-002 (`ManualGpsConfirmationProvider`), GPS-003 (vehicle-to-tracker
-      mapping), GPS-004 (geofence monitoring), GPS-005 (GPS-offline/geofence-deviation exceptions via the
-      existing Phase 3 Exception model), GPS-006 (provider-failure/stale-data tests), POLICY-001/002
-      (`VehicleUsePolicy` model, violations raise Exceptions not automatic allegations). Production
-      provider connection is explicitly blocked (GPS-BLOCKED) — build the interface + mock regardless, per
-      the user's standing instruction for provider-neutral work. | Priority: high | Deps: none — Phase 5C
-      is complete
+- [ ] Begin Phase 7 (Platform support-access view): SUPPORT-001 (platform customer list with health/status
+      summary — subscription/payment status, sites/gates/vehicle/user counts, open critical exceptions,
+      GPS/facial-verification provider status, storage usage, failed integrations, last activity,
+      onboarding status, support notes, real DB-backed), SUPPORT-002 (`SupportAccessSession` model —
+      auditable actor/customer tenant/reason/ticket ref/start/end, time-limited, see DECISIONS.md D-016),
+      SUPPORT-003 (controlled support view — banner, read-only by default, mandatory reason, immediate
+      exit, no credential/session exposure, no default biometric/investigation-case access), SUPPORT-004
+      (tenant isolation + access-expiry tests). This is the last phase in the current run — subscription
+      billing and full investigation-case management are explicitly out of scope, next planned work after
+      this. | Priority: high | Deps: none — Phase 6 is complete
 
 ## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
 Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Phase 5B (Reconciliation) — **done**, see
 WORKLOG.md Session 9 / DECISIONS.md D-017/D-018. Phase 5C (Dispatch workflow enhancements) — **done**, see
-WORKLOG.md Session 10. Next: Phase 6 (Telematics foundation + basic geofencing — GPS-001..006,
-POLICY-001/002) → Phase 7 (Platform support-access view — SUPPORT-001..004). Subscription billing and full
-investigation-case management are explicitly out of scope for this run — next planned work after Phase 7.
-Full requirement detail in PRODUCT_REQUIREMENTS.md.
+WORKLOG.md Session 10. Phase 6 (Telematics foundation + basic geofencing) — **done**, see WORKLOG.md
+Session 11 / DECISIONS.md D-019/D-020. Next and final phase of this run: Phase 7 (Platform support-access
+view — SUPPORT-001..004). Subscription billing and full investigation-case management are explicitly out
+of scope for this run — next planned work after Phase 7. Full requirement detail in
+PRODUCT_REQUIREMENTS.md.
 
 ## Next
 - [ ] Driver-portrait and compliance-document-attachment upload UI — both are fully wired end-to-end at the
@@ -30,6 +33,8 @@ Full requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Gate check-in UI polish: the guided-inspection page (`/gate/events/[id]`) is functionally complete (every state, every action, including Phase 4's per-item evidence upload) but has no dedicated Playwright e2e spec yet — `playwright.config.ts` has been wired since Phase 1 for exactly this and still has zero specs; worth adding one full-lifecycle spec now that a stable UI exists to drive | Priority: medium | Deps: none
 - [ ] Inspection template admin UI — API routes exist and are tested (`/api/admin/inspection-templates`, `.../new-version`) but there's no admin page yet to create/version templates or manage the `ExceptionType` catalogue (`/api/admin/exception-types`); currently only usable via curl/API or the one seeded default template | Priority: medium | Deps: none
 - [ ] Vehicle create/edit UI: tyrePositionConfigId picker and inline tyre (VehicleTyre) editing on the vehicle detail page — API routes already exist and are tested (`POST /api/vehicles/[id]/tyres`), just no UI affordance yet | Priority: low | Deps: none
+- [ ] Per-trip distance accumulation for the vehicle-use-policy km-limit check — `evaluateVehiclePolicyCompliance()` currently passes `tripKmSoFar: null` (no trip-boundary tracking wired up yet), so `kmLimitPerTrip` never actually fires; needs a trip-start reference (likely the vehicle's last EXIT GateEvent or last policy-reset point) to compute a real running total — see ARCHITECTURE.md "Telematics architecture" and DECISIONS.md D-020's revisit condition | Priority: medium | Deps: none
+- [ ] Manual GPS confirmation and geofences UI affordance on the vehicle detail page itself (currently reachable via `/admin/geofences`, `/admin/vehicle-use-policies`, and the API directly, but not from the vehicle detail page where a Fleet/GPS Manager would naturally look) | Priority: low | Deps: none
 - [ ] MediaAsset retention-purge / hard-delete mechanism (POPIA erasure) — no delete path exists yet for any owner kind; `StorageProvider.delete()` is implemented but unwired to any route | Priority: low | Deps: legal review of retention granularity (see existing "Retention-purge scheduled job" item below)
 - [ ] FOUND-003 — Password reset flow | Priority: medium | Deps: none to build (dev-mode token-in-response, same pattern as invite), email provider only needed for production delivery | Design: SECURITY_AND_POPIA.md
 - [ ] FOUND-010 — Reauthentication requirement for defined sensitive actions | Priority: low | Deps: first genuinely sensitive Phase 3+ action to attach it to (e.g. high-severity exception override) | Design: SECURITY_AND_POPIA.md
@@ -53,6 +58,15 @@ Full requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 6: Telematics foundation, basic geofencing, vehicle-use policies (GPS-001..006/GPS-BLOCKED,
+      POLICY-001/002) — `TelematicsProvider`/`MockTelematicsProvider` (provider-neutral, GPS-BLOCKED
+      recorded), `ManualGpsConfirmation` (mirrors facial-verification fallback), `Geofence` (simple
+      circle), `VehicleUsePolicy`/`VehicleUsePolicyVehicle` (full POLICY-001 field list), pure
+      `geofence-engine.ts` compliance evaluation, `Exception.gateEventId` made nullable +
+      `Exception.vehicleId` added so telematics/policy violations reuse the same Exception table/workflow
+      (D-020) — 374/374 tests passing (41 new), tsc/lint/build clean, live curl verification incl. a real
+      geofence-violation Exception raised end-to-end and a provider-unavailable 503 (not a raw 500) —
+      2026-07-24
 - [x] Phase 5C: Dispatch workflow enhancements (DISPATCH-001..005) — `MovementType` extended
       (SALES_VISIT/SERVICE/AUTHORISED_PRIVATE_USE), sender/recipient fields, `MOVEMENT_DOCUMENT` MediaAsset
       owner type reusing the existing upload/signed-URL routes unchanged, plain nullable

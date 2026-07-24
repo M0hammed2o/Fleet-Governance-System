@@ -231,6 +231,57 @@ and `exception:APPROVE` are split. `Reconciliation.status` is derived, not indep
 `NO_DISCREPANCIES` at build time if none were found, `OPEN` while any discrepancy remains `OPEN`,
 `RESOLVED` once every discrepancy on it reaches `RESOLVED`.
 
+## Telematics architecture (Phase 6, see PRODUCT_REQUIREMENTS.md GPS-001..006/GPS-BLOCKED, POLICY-001/002)
+`TelematicsProvider` (`lib/telematics/provider.ts`) is the adapter boundary a real GPS vendor plugs into —
+same shape and purpose as `FacialVerificationProvider`/`StorageProvider`. Only `MockTelematicsProvider`
+exists (deterministic, `force:<outcome>` markers in the provider vehicle id — `force:unavailable`,
+`force:offline`, `force:ignition-off`, `force:at:<lat>,<lng>`); production connection is blocked
+(GPS-BLOCKED, INTEGRATIONS.md).
+
+**Sync (GPS-001/003, `telematics-repository.ts` `syncVehicleTelematics()`).** Pulls one snapshot from the
+provider for a vehicle already carrying `gpsDeviceReference` (the tracker mapping itself was already
+possible via Phase 2's generic `updateVehicle`), records a `TelematicsEvent`, and updates
+`Vehicle.gpsStatus`/`gpsLastCommunicationAt`. A snapshot older than 30 minutes (`lastCommunicationAt`) is
+never trusted as current — `gpsStatus` goes `INACTIVE` and geofence/policy compliance is not evaluated
+against it (GPS-006 "stale data is flagged, not silently trusted" — an unreliable position must not
+generate a false violation). A provider failure (`TelematicsProviderUnavailableError`) is caught, marks the
+vehicle `INACTIVE`, and re-thrown as a typed error the calling route maps to 503, never a raw 500.
+
+**Manual GPS confirmation (GPS-002, `ManualGpsConfirmation`).** A direct mirror of
+`ManualFacialVerificationFallback`/`facial-verification-repository.ts` — office staff record a manual
+confirmation of a vehicle's whereabouts by phone/radio when the (mock) provider is offline; a different
+user resolves it (hard, unconditional self-approval block, same as facial verification's equivalent — see
+D-008's reasoning, applied here without a tenant-configurable opt-out for the same "integrity isn't
+optional" principle).
+
+**Geofencing and policy compliance (GPS-004, POLICY-001/002,
+`lib/telematics/geofence-engine.ts` + `evaluateVehiclePolicyCompliance()`).** `Geofence` is deliberately a
+simple circle (center + radius), not a polygon/map-drawing tool — "basic geofence monitoring" is the
+explicit GPS-004 scope. `VehicleUsePolicy` (POLICY-001's full field list: named driver, one-or-more
+assigned vehicles via the `VehicleUsePolicyVehicle` join table, effective dates, permitted days/hours,
+approved destination/geofence, km limits per trip/day/week/month, after-hours/weekend/private-use flags,
+expected return time, a named approving manager, status, override reason) starts `DRAFT` and only the named
+`approvingManagerUserId` can move it to `ACTIVE` (`approveVehicleUsePolicy()` — if no manager was named at
+creation, the first `vehicleUsePolicy:APPROVE`-holder to approve becomes the manager of record).
+Every non-stale `TelematicsEvent` for a vehicle with an `ACTIVE` policy assignment is compared against it
+via the pure `evaluatePolicyCompliance()` — geofence deviation, day/hour restrictions, distance-limit
+breaches — never concluding fraud/theft/criminal conduct (POLICY-002/GPS-005), only naming which configured
+rule a reading fell outside of. Per-trip distance accumulation isn't wired up in this phase (no
+trip-boundary tracking yet — see TODO.md); the per-trip km-limit check simply doesn't fire rather than
+guessing at a distance, a documented gap rather than a silently wrong one.
+
+**Reusing (not parallelling) the Exception model (GPS-005/POLICY-002, see DECISIONS.md D-020).**
+`Exception.gateEventId` became nullable and a new `Exception.vehicleId` was added — a telematics/policy
+exception is created directly against the vehicle, with no GateEvent involved (unlike every Phase 3/5B
+exception, which always sets `gateEventId`). Written directly via `prisma.exception.create()` in
+`telematics-repository.ts` rather than through `gate-event-repository.ts`'s `raiseException()`, for the
+same reason as D-018's reconciliation exceptions: that function also attempts a meaningless GateEvent state
+transition, and importing it would create a circular dependency risk given how tightly the two repository
+modules would otherwise couple. Unlike reconciliation, telematics sync is *not* currently auto-triggered
+from any GateEvent lifecycle hook — it's triggered by an explicit `POST /api/vehicles/[id]/telematics/sync`
+call, matching how a real GPS vendor would push/poll independently of gate activity, not tied to a vehicle
+physically being at a gate.
+
 ## Integration boundaries
 `FacialVerificationProvider` (`lib/facial-verification/provider.ts`) has a deterministic mock
 implementation (`mock-provider.ts`, driven by `force:<outcome>` markers in the capture reference — see its

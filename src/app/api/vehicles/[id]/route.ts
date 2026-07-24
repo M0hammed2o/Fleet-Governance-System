@@ -6,6 +6,7 @@ import { tenantWhere } from "@/lib/db/tenant-scope";
 import { updateVehicleSchema } from "@/lib/validation/vehicle";
 import { recordAudit } from "@/lib/audit/record-audit";
 import { evaluateDocumentExpiry } from "@/lib/documents/expiry-rules";
+import { hasPermission } from "@/lib/auth/authorize";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -22,7 +23,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       isExpired: doc.expiryDate ? evaluateDocumentExpiry(doc.expiryDate, null).isExpired : false,
     }));
 
-    return NextResponse.json({ vehicle, documents });
+    // Recent telematics activity (GPS-001..006) — omitted for a role with no
+    // telematics:VIEW at all, same gating pattern used for movement documents.
+    let recentTelematicsEvents: unknown[] = [];
+    let manualGpsConfirmations: unknown[] = [];
+    if (await hasPermission(session, "telematics", "VIEW")) {
+      [recentTelematicsEvents, manualGpsConfirmations] = await Promise.all([
+        prisma.telematicsEvent.findMany({ where: tenantWhere(session.tenantId, { vehicleId: id }), orderBy: { recordedAt: "desc" }, take: 20 }),
+        prisma.manualGpsConfirmation.findMany({ where: tenantWhere(session.tenantId, { vehicleId: id }), orderBy: { requestedAt: "desc" }, take: 20 }),
+      ]);
+    }
+
+    return NextResponse.json({ vehicle, documents, recentTelematicsEvents, manualGpsConfirmations });
   } catch (err) {
     return apiErrorResponse(err);
   }

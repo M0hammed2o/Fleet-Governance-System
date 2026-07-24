@@ -955,3 +955,114 @@ user's instruction to proceed autonomously.
 `MockTelematicsProvider`, same adapter pattern as `FacialVerificationProvider`) first, since GPS-002..006
 and POLICY-001/002 all build on it; GPS-BLOCKED (production provider) stays blocked pending the user's
 vendor decision, per standing instruction to build the interface + mock regardless and record the blocker.
+
+---
+
+## 2026-07-24 — Session 11 — Phase 6: telematics foundation, basic geofencing, vehicle-use policies (GPS-001..006/GPS-BLOCKED, POLICY-001/002)
+**Objective:** Continue the user's instructed autonomous sequential run (5B, 5C done) into Phase 6, same
+full checkpoint discipline.
+
+**Design (see DECISIONS.md D-019's revisit condition, and new D-020 for the one genuinely non-obvious
+schema call this session):**
+- `TelematicsProvider`/`MockTelematicsProvider` mirror `FacialVerificationProvider`/its mock exactly:
+  `force:<outcome>` markers in the provider vehicle id (`force:unavailable`, `force:offline`,
+  `force:ignition-off`, `force:at:<lat>,<lng>`). `ManualGpsConfirmation` is a line-for-line mirror of
+  `ManualFacialVerificationFallback` (same hard unconditional self-approval block).
+- **The one real design fork this session:** GPS-005/POLICY-002 require geofence/policy violations to
+  raise a real Phase 3 `Exception`, "not a parallel one" — but `Exception.gateEventId` was required, and a
+  telematics violation has no GateEvent at all (detected mid-trip, not at a gate). Made `gateEventId`
+  nullable and added a nullable `vehicleId`; every existing Phase 3/5B caller is unaffected (verified via
+  the full test suite) since none of them ever passed null. `gate-event-repository.ts`'s
+  `resolveException()` — specifically the gate-tied resolution workflow — now explicitly rejects a
+  gateEventId-less exception (`NotAGateEventExceptionError`) rather than null-dereferencing (D-020).
+- `Geofence` is a simple circle (center + radius), deliberately not a polygon/map tool — GPS-004 explicitly
+  scopes this as "basic." `lib/telematics/geofence-engine.ts` is pure/DB-free (haversine distance,
+  geofence membership, day/hour/distance policy checks) — same "pure module" family as
+  `gate-events/state-machine.ts` and `reconciliation/discrepancy-engine.ts`.
+- `VehicleUsePolicy` carries POLICY-001's full field list. `approveVehicleUsePolicy()` only lets the named
+  `approvingManagerUserId` approve — if none was named at creation, the first `vehicleUsePolicy:APPROVE`
+  holder to approve becomes the manager of record (avoids a policy being permanently unapprovable if no
+  manager was picked upfront, without weakening the "named approver" intent once one exists).
+- Per-trip distance accumulation is **not** wired up this session (no trip-boundary tracking exists yet) —
+  `kmLimitPerTrip` violations simply don't fire rather than guessing at a distance; documented in TODO.md
+  and ARCHITECTURE.md as a known gap, not silently assumed correct.
+
+**A blocking issue this session, resolved with the user's explicit consent (hard rule 2):** upgrading
+`MovementAuthorisation.vehicleUsePolicyId` to a real FK (per D-019's revisit condition) failed against the
+test database — an earlier Phase 5C test run (`tests/dispatch-enhancements.test.ts`) had inserted a row
+with a fake placeholder value in that column, now violating the new constraint. Fixed the migration itself
+(added a data-migration step nulling out any pre-existing value before adding the FK — nothing could have
+referenced a real policy before this migration, since the table didn't exist), but the test database's
+migration history was left in a partially-failed state requiring a reset to recover. Per Prisma's own
+AI-agent safety gate (which explicitly blocked the command pending confirmation) and this project's hard
+rule 2, stopped and asked the user before running `prisma migrate reset --force` against
+`gate_fleet_governance_test` — explicit consent obtained, confirmed the target was the disposable test-only
+database (separate from dev, no production database exists in this project), then proceeded. Updated the
+one Phase 5C test that asserted the old (now-superseded) unvalidated-string behaviour.
+
+**Files changed:**
+- `prisma/schema.prisma` — `TelematicsEvent`, `Geofence`, `ManualGpsConfirmation`, `VehicleUsePolicy`,
+  `VehicleUsePolicyVehicle`; `Exception.gateEventId` nullable + `Exception.vehicleId` added;
+  `MovementAuthorisation.vehicleUsePolicyId` upgraded to a real relation; back-relations on
+  Tenant/User/Driver/Vehicle; migration `20260723232024_phase6_telematics_geofencing_policies` (hand-edited
+  after generation to add the vehicleUsePolicyId data-migration step described above).
+- `src/lib/telematics/provider.ts`, `mock-provider.ts` (new) — `TelematicsProvider` interface + mock.
+- `src/lib/telematics/geofence-engine.ts` (new) — pure geofence/policy-compliance engine.
+- `src/lib/repositories/telematics-repository.ts` (new) — `syncVehicleTelematics`,
+  `evaluateVehiclePolicyCompliance`, `requestManualGpsConfirmation`/`resolveManualGpsConfirmation`,
+  Geofence CRUD, VehicleUsePolicy CRUD + `approveVehicleUsePolicy`.
+- `src/lib/repositories/gate-event-repository.ts` — `resolveException()` guards against a null
+  `gateEventId` (`NotAGateEventExceptionError`).
+- `src/lib/auth/permissions.ts` — new `telematics`, `vehicleUsePolicy` resources.
+- `prisma/seed.ts` — grants added to all 9 `TENANT_ROLE_DEFINITIONS`.
+- `src/lib/validation/telematics.ts` (new) — zod schemas.
+- `src/app/api/vehicles/[id]/telematics/sync`, `src/app/api/telematics/manual-confirmation` (+
+  `[id]/resolve`), `src/app/api/admin/geofences`, `src/app/api/vehicle-use-policies` (+ `[id]`,
+  `[id]/approve`) (new routes); `src/app/api/vehicles/[id]/route.ts` GET extended with recent
+  telematics/confirmations (visibility-gated on `telematics:VIEW`, same pattern as Phase 5C's movement
+  documents).
+- `src/app/admin/geofences/page.tsx`, `src/app/admin/vehicle-use-policies/page.tsx` +
+  `src/app/admin/vehicle-use-policies/[id]/page.tsx` (new) — list/create/approve UI.
+- `tests/telematics-repository.test.ts` (new, 37 cases), `tests/telematics-authorization.test.ts` (new, 4
+  cases); `tests/dispatch-enhancements.test.ts` updated (one test now asserts the FK rejects an invalid
+  `vehicleUsePolicyId` instead of accepting it unvalidated).
+- Docs: `PRODUCT_REQUIREMENTS.md` (GPS-001..006/POLICY-001/002 → done, Implementation column added),
+  `ARCHITECTURE.md` (new "Telematics architecture" section), `DATA_MODEL.md` (new Phase 6 entities section,
+  Exception model note, migration history entry), `DECISIONS.md` (D-020, updated the "Telematics provider"
+  open-question bullet to reflect the interface/mock now being done), `TESTING.md` (Phase 6 coverage
+  section), `TODO.md` (Phase 6 moved to Completed, two new documented-gap items, Now/build-order updated to
+  Phase 7).
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean.
+- `npm test` — **374/374 passing** (28 files; 333 baseline + 41 new Phase 6 cases), against the freshly
+  reset test database.
+- `npm run build` — clean (7 new routes).
+- Manual curl verification, full lifecycle: synced a vehicle with no policy (ACTIVE, no violations) →
+  created a geofence far from the mock provider's default (fixed) position → created and approved a
+  `VehicleUsePolicy` referencing it (approver auto-assigned since none was named) → re-synced the vehicle →
+  confirmed a HIGH `OUTSIDE_APPROVED_GEOFENCE` violation and a real linked `Exception`
+  (`vehicleId` set, `gateEventId` null, `requiresSupervisorApproval: true`) → requested a manual GPS
+  confirmation as a gate officer → confirmed self-approve blocked (403) and a different unauthorised role
+  blocked (403, Dispatch and Logistics Officer has no `telematics:APPROVE`) → supervisor resolve succeeded
+  (200) → confirmed `force:unavailable` produces a 503 (not a raw 500) and marks the vehicle INACTIVE →
+  confirmed the geofences and vehicle-use-policies admin pages render (200) — no raw 500s observed at any
+  step.
+
+**Bugs found this session:** none in the implementation logic. The test-database migration failure
+described above was caused by stale test data interacting with a newly-added constraint, not a defect in
+the Phase 6 code itself, and required user consent to resolve (see above) rather than being silently
+worked around.
+
+**Remaining work:** Phase 7 (Platform support-access view) next — the last phase in this run per the user's
+instruction. Two documented, non-blocking gaps carried forward in TODO.md: per-trip distance accumulation
+for `kmLimitPerTrip` (no trip-boundary tracking yet), and a vehicle-detail-page UI affordance for manual GPS
+confirmation/geofences (currently reachable via dedicated pages and the API, not from the vehicle detail
+page itself).
+
+**Exact recommended next action:** Begin Phase 7 — SUPPORT-001 (platform customer list, real DB-backed)
+first, since SUPPORT-002/003/004 (SupportAccessSession, controlled view, isolation/expiry tests) all
+depend on knowing which tenants exist and having a session model to scope access through; the existing
+`platform-tenant-repository.ts`/`platformTenant` permission resource (D-005) is the direct precedent to
+extend, not replace.

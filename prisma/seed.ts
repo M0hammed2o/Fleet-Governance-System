@@ -101,6 +101,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // capture gate/driver/document evidence.
       { resource: "mediaAsset", action: "VIEW" },
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -118,6 +120,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // (Phase 5C — MediaAsset-backed, not a public URL).
       { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Primary role 3/6 — unchanged from the original 8-role set. ---
@@ -143,6 +147,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // completeGateEvent build didn't fire yet; resolution is the
       // supervisor's job (see "Security Supervisor / Approving Manager").
       { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "CREATE" },
+      // Requests manual GPS confirmation when the (mock) provider is offline
+      // (GPS-002) — resolution is the supervisor's job.
+      { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "CREATE" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Primary role 4/6 — merge of the old "Security Manager" (gate
@@ -169,6 +177,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Primary owner of reconciliation review/resolution (RECON-002),
       // mirroring their exception:APPROVE ownership.
       { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "EDIT" }, { resource: "reconciliation", action: "APPROVE" },
+      // Resolves manual GPS confirmations and telematics/policy exceptions
+      // (GPS-002/GPS-005), and is the default named approving manager for
+      // vehicle-use policies (POLICY-001).
+      { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "APPROVE" },
+      { resource: "vehicleUsePolicy", action: "VIEW" }, { resource: "vehicleUsePolicy", action: "APPROVE" },
     ],
   },
   // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
@@ -196,6 +209,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // perspective (e.g. confirming pre-existing damage on file); final
       // sign-off stays with the supervisor (no reconciliation:APPROVE here).
       { resource: "reconciliation", action: "VIEW" }, { resource: "reconciliation", action: "EDIT" },
+      // Owns GPS/tracker connections and the geofence/vehicle-use-policy
+      // catalogue (role description above), per this role's Phase 6 scope.
+      { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "CREATE" }, { resource: "telematics", action: "CONFIGURE" },
+      { resource: "vehicleUsePolicy", action: "VIEW" }, { resource: "vehicleUsePolicy", action: "CREATE" }, { resource: "vehicleUsePolicy", action: "EDIT" },
     ],
   },
   // --- Primary role 6/6 — renamed/refocused "Risk/Compliance Manager".
@@ -217,6 +234,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Reviews fuel/odometer information directly — reconciliation is
       // exactly that comparison, view-only per this role's review-only remit.
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
@@ -238,6 +257,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // exercising the allowed side of that boundary).
       { resource: "mediaAsset", action: "VIEW" },
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the
@@ -257,6 +278,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "exception", action: "VIEW" },
       { resource: "mediaAsset", action: "VIEW" },
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 3/3 — renamed "Executive Viewer". ---
@@ -268,6 +291,8 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
       { resource: "gateEvent", action: "VIEW" },
       { resource: "reconciliation", action: "VIEW" },
+      { resource: "telematics", action: "VIEW" },
+      { resource: "vehicleUsePolicy", action: "VIEW" },
       // Deliberately no mediaAsset permission at all — dashboards/aggregate
       // reporting only (SECURITY_AND_POPIA.md "Internal" classification),
       // never raw evidence, mirroring their existing lack of

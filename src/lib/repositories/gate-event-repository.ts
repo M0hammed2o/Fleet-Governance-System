@@ -93,6 +93,21 @@ export class EvidenceMediaAssetNotFoundError extends Error {
     this.name = "EvidenceMediaAssetNotFoundError";
   }
 }
+/**
+ * `Exception.gateEventId` became nullable in Phase 6 (a telematics/policy
+ * exception has no GateEvent — see DECISIONS.md D-020) — `resolveException()`
+ * below is specifically the gate-tied resolution workflow (escalation,
+ * self-approval, GateEvent state transition), so it rejects an exception
+ * that isn't actually attached to a gate event rather than resolving it
+ * incorrectly. Telematics exceptions resolve through
+ * `telematics-repository.ts`'s own path instead.
+ */
+export class NotAGateEventExceptionError extends Error {
+  constructor() {
+    super("This exception is not attached to a gate event and cannot be resolved through the gate workflow.");
+    this.name = "NotAGateEventExceptionError";
+  }
+}
 
 // --- Core state transition helper, mirrors movement-repository.ts's `transition` ---
 
@@ -496,6 +511,7 @@ export async function resolveException(input: ResolveExceptionInput) {
     include: { gateEvent: true },
   });
   if (!exception) return null;
+  if (!exception.gateEventId || !exception.gateEvent) throw new NotAGateEventExceptionError();
   if (exception.resolvedAt) throw new ExceptionAlreadyResolvedError();
 
   if (exception.requiresSupervisorApproval) {

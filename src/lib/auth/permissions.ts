@@ -89,6 +89,18 @@ const MEDIA_ASSET_ACTIONS = ["VIEW", "CREATE"] as const;
 // off" can be different roles.
 const RECONCILIATION_ACTIONS = ["VIEW", "CREATE", "EDIT", "APPROVE"] as const;
 
+// Phase 6 — telematics foundation (PRODUCT_REQUIREMENTS.md GPS-001..006).
+// VIEW covers reading vehicle position/status/events; CREATE covers
+// triggering a manual provider sync and requesting a manual GPS confirmation
+// (mirrors facialVerificationFallback:CREATE); APPROVE covers resolving a
+// manual GPS confirmation or a telematics-raised Exception (mirrors
+// facialVerificationFallback:APPROVE / exception:APPROVE); CONFIGURE manages
+// the tenant's Geofence catalogue.
+const TELEMATICS_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE"] as const;
+// Phase 6 — vehicle-use policies (POLICY-001/002). CREATE/EDIT is drafting;
+// APPROVE is the named approving manager moving DRAFT -> ACTIVE.
+const VEHICLE_USE_POLICY_ACTIONS = ["VIEW", "CREATE", "EDIT", "APPROVE"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -108,6 +120,8 @@ export const PERMISSION_CATALOGUE = {
   exception: EXCEPTION_ACTIONS,
   mediaAsset: MEDIA_ASSET_ACTIONS,
   reconciliation: RECONCILIATION_ACTIONS,
+  telematics: TELEMATICS_ACTIONS,
+  vehicleUsePolicy: VEHICLE_USE_POLICY_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

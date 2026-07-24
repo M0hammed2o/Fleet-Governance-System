@@ -55,6 +55,10 @@ model Tenant {
   mediaAssets                       MediaAsset[]
   reconciliations                   Reconciliation[]
   reconciliationDiscrepancies       ReconciliationDiscrepancy[]
+  telematicsEvents                  TelematicsEvent[]
+  geofences                         Geofence[]
+  manualGpsConfirmations            ManualGpsConfirmation[]
+  vehicleUsePolicies                VehicleUsePolicy[]
 
   @@map("tenants")
 }
@@ -164,6 +168,9 @@ model User {
   mediaAssetsCaptured                 MediaAsset[]                       @relation("MediaAssetCapturedBy")
   reconciliationsBuilt                Reconciliation[]                   @relation("ReconciliationBuiltBy")
   reconciliationDiscrepanciesResolved ReconciliationDiscrepancy[]        @relation("DiscrepancyResolvedBy")
+  manualGpsConfirmationsRequested     ManualGpsConfirmation[]            @relation("ManualGpsConfirmationRequestedBy")
+  manualGpsConfirmationsApproved      ManualGpsConfirmation[]            @relation("ManualGpsConfirmationApprovedBy")
+  vehicleUsePoliciesApproving         VehicleUsePolicy[]                 @relation("VehicleUsePolicyApprovingManager")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -423,6 +430,7 @@ model Driver {
   movementAuthorisations            MovementAuthorisation[]
   manualFacialVerificationFallbacks ManualFacialVerificationFallback[]
   gateEvents                        GateEvent[]
+  vehicleUsePolicies                VehicleUsePolicy[]
 
   @@index([tenantId])
   @@map("drivers")
@@ -565,10 +573,14 @@ model Vehicle {
 
   complianceDocuments    ComplianceDocument[]
   tyres                  VehicleTyre[]
-  movementAuthorisations MovementAuthorisation[] @relation("MovementVehicle")
-  trailerForMovements    MovementAuthorisation[] @relation("MovementTrailer")
-  gateEvents             GateEvent[]             @relation("GateEventVehicle")
-  trailerForGateEvents   GateEvent[]             @relation("GateEventTrailer")
+  movementAuthorisations MovementAuthorisation[]   @relation("MovementVehicle")
+  trailerForMovements    MovementAuthorisation[]   @relation("MovementTrailer")
+  gateEvents             GateEvent[]               @relation("GateEventVehicle")
+  trailerForGateEvents   GateEvent[]               @relation("GateEventTrailer")
+  telematicsExceptions   Exception[]               @relation("ExceptionVehicle")
+  telematicsEvents       TelematicsEvent[]
+  manualGpsConfirmations ManualGpsConfirmation[]
+  usePolicyAssignments   VehicleUsePolicyVehicle[]
 
   @@unique([tenantId, registrationNumber])
   @@unique([tenantId, vin])
@@ -802,12 +814,12 @@ model MovementAuthorisation {
   recipientName    String?
   recipientContact String?
 
-  // Phase 5C (DISPATCH-004) — plain nullable reference, deliberately not yet
-  // a Prisma relation: VehicleUsePolicy doesn't exist until Phase 6. Adding
-  // the real `@relation` FK is a Phase 6 migration, not this one — see
-  // PRODUCT_REQUIREMENTS.md DISPATCH-004 ("nullable until that model exists,
-  // not a hard Phase 5C dependency") and DECISIONS.md.
+  // Phase 5C (DISPATCH-004) added this as a plain nullable String (no FK —
+  // VehicleUsePolicy didn't exist yet). Phase 6 upgrades it to a real
+  // relation now that the model exists — see DECISIONS.md D-019's revisit
+  // condition.
   vehicleUsePolicyId String?
+  vehicleUsePolicy   VehicleUsePolicy? @relation(fields: [vehicleUsePolicyId], references: [id])
 
   // Short human-friendly code for gate-facing lookup (QR/reference-code search).
   referenceCode String @unique
@@ -1127,8 +1139,18 @@ model Exception {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  gateEventId String
-  gateEvent   GateEvent @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+  // Nullable from Phase 6 (GPS-005/POLICY-002): a telematics/geofence/policy
+  // exception is raised against a vehicle mid-trip, with no GateEvent in
+  // context at all — see DECISIONS.md D-020. Every Phase 3/5B exception still
+  // always sets this (gate-event-repository.ts, reconciliation-repository.ts
+  // never pass null); only the new telematics-repository.ts path leaves it
+  // null and sets `vehicleId` instead.
+  gateEventId String?
+  gateEvent   GateEvent? @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+
+  // Phase 6 — set (instead of gateEventId) for telematics/policy exceptions.
+  vehicleId String?
+  vehicle   Vehicle? @relation("ExceptionVehicle", fields: [vehicleId], references: [id], onDelete: Cascade)
 
   inspectionResultId String?
   inspectionResult   GateEventInspectionItem? @relation(fields: [inspectionResultId], references: [id], onDelete: SetNull)
@@ -1379,4 +1401,200 @@ model ReconciliationDiscrepancy {
   @@index([reconciliationId])
   @@index([tenantId, status])
   @@map("reconciliation_discrepancies")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Telematics foundation, basic geofencing, vehicle-use policies.
+// See PRODUCT_REQUIREMENTS.md GPS-001..006/GPS-BLOCKED, POLICY-001/002 and
+// ARCHITECTURE.md "Telematics architecture". Provider-neutral, following the
+// exact FacialVerificationProvider/StorageProvider adapter pattern — only a
+// deterministic mock provider exists; production connection is blocked
+// (GPS-BLOCKED, INTEGRATIONS.md).
+// ---------------------------------------------------------------------------
+
+enum TelematicsEventSource {
+  // From TelematicsProvider.getSnapshot() (mock in dev).
+  PROVIDER
+  // From the ManualGpsConfirmation workflow (GPS-002) — office staff
+  // confirming a vehicle's whereabouts by phone/radio when GPS is offline.
+  MANUAL
+}
+
+// One normalised position/status sample, regardless of source — the
+// TelematicsProvider interface already normalises whatever a real vendor
+// would return into this shape (lib/telematics/provider.ts), so this table
+// never needs a vendor-specific column.
+model TelematicsEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  source TelematicsEventSource
+
+  latitude       Float?
+  longitude      Float?
+  speedKmh       Float?
+  headingDegrees Float?
+  ignitionOn     Boolean?
+  odometerKm     Float?
+
+  // When the provider says this reading was actually taken — distinct from
+  // createdAt (when we ingested it). GPS-006 "stale data is flagged, not
+  // silently trusted" compares against this, not createdAt.
+  recordedAt DateTime
+  createdAt  DateTime @default(now())
+
+  providerReference String?
+
+  @@index([tenantId])
+  @@index([tenantId, vehicleId, recordedAt])
+  @@map("telematics_events")
+}
+
+// A simple circular geofence — deliberately not a polygon/map-drawing tool
+// (out of scope for "basic geofence monitoring", GPS-004). center +
+// radius is enough to express "must stay within N meters of the approved
+// site/destination."
+model Geofence {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name            String
+  centerLatitude  Float
+  centerLongitude Float
+  radiusMeters    Float
+  isSystem        Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicleUsePolicies VehicleUsePolicy[]
+
+  @@index([tenantId])
+  @@map("geofences")
+}
+
+enum ManualGpsConfirmationStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+// Mirrors ManualFacialVerificationFallback exactly (GPS-002) — office staff
+// request/record manual confirmation of a vehicle's location/status when the
+// (mock) GPS provider is offline or unavailable; a supervisor resolves it,
+// hard self-approval rule enforced the same unconditional way.
+model ManualGpsConfirmation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  reason              String
+  positionDescription String
+
+  status ManualGpsConfirmationStatus @default(PENDING)
+
+  requestedByUserId String
+  requestedBy       User     @relation("ManualGpsConfirmationRequestedBy", fields: [requestedByUserId], references: [id])
+  requestedAt       DateTime @default(now())
+
+  approvedByUserId String?
+  approvedBy       User?     @relation("ManualGpsConfirmationApprovedBy", fields: [approvedByUserId], references: [id])
+  resolvedAt       DateTime?
+  resolutionNotes  String?
+
+  @@index([tenantId])
+  @@index([tenantId, vehicleId])
+  @@map("manual_gps_confirmations")
+}
+
+enum VehicleUsePolicyStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+// POLICY-001 full field list. A policy is authored against a named
+// driver/rep and one or more vehicles (VehicleUsePolicyVehicle join table —
+// "assigned vehicle(s)", plural). Violations are evaluated by
+// lib/telematics/geofence-engine.ts and raise an Exception
+// (vehicleId-linked, gateEventId null — see D-020), never an automatic
+// allegation (POLICY-002).
+model VehicleUsePolicy {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name String
+
+  driverId String
+  driver   Driver @relation(fields: [driverId], references: [id])
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  // 0 (Sunday) .. 6 (Saturday). Empty array = every day permitted.
+  permittedDaysOfWeek Int[]
+  // "HH:MM" 24-hour, tenant-local time. Both null = no time-of-day
+  // restriction (only permittedDaysOfWeek applies, if set).
+  permittedStartTime  String?
+  permittedEndTime    String?
+
+  approvedDestination String?
+  approvedGeofenceId  String?
+  approvedGeofence    Geofence? @relation(fields: [approvedGeofenceId], references: [id])
+
+  kmLimitPerTrip  Float?
+  kmLimitPerDay   Float?
+  kmLimitPerWeek  Float?
+  kmLimitPerMonth Float?
+
+  allowAfterHours         Boolean @default(false)
+  allowWeekend            Boolean @default(false)
+  allowPrivateUse         Boolean @default(false)
+  privateUseKmAllowanceKm Float?
+
+  // "HH:MM" 24-hour, tenant-local time — expected time back on any permitted day.
+  expectedReturnTime String?
+
+  approvingManagerUserId String?
+  approvingManager       User?   @relation("VehicleUsePolicyApprovingManager", fields: [approvingManagerUserId], references: [id])
+
+  status         VehicleUsePolicyStatus @default(DRAFT)
+  overrideReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicles               VehicleUsePolicyVehicle[]
+  movementAuthorisations MovementAuthorisation[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("vehicle_use_policies")
+}
+
+// Many-to-many: one policy can cover several vehicles (e.g. a sales team's
+// pool), and — less commonly — a vehicle could be in scope for more than one
+// policy over its life (a superseding policy takes over, the old one moves
+// to EXPIRED rather than being deleted, append-only spirit).
+model VehicleUsePolicyVehicle {
+  id        String           @id @default(cuid())
+  policyId  String
+  policy    VehicleUsePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([policyId, vehicleId])
+  @@map("vehicle_use_policy_vehicles")
 }

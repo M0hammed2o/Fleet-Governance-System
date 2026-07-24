@@ -124,13 +124,16 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - **ExceptionType** — tenant-configurable exception category, same shape/purpose as `DocumentExpiryRule`:
   code/label, defaultSeverity, defaultOutcomeAction, `requiresSupervisorApproval` (a tenant *default*; the
   hard self-approval rule itself is never bypassable regardless of this value — see DECISIONS.md D-008).
-- **Exception** — an actual raised exception against a GateEvent, optionally tied to the
-  `GateEventInspectionItem` that triggered it (auto-raised on FAIL) or ad hoc. severity,
+- **Exception** — an actual raised exception, originally always against a GateEvent (optionally tied to the
+  `GateEventInspectionItem` that triggered it — auto-raised on FAIL — or ad hoc). severity,
   requiresSupervisorApproval, outcomeAction (one of WARNING/MANUAL_REVIEW/SUPERVISOR_APPROVAL/
   WORKSHOP_LOCKOUT/SECURITY_HOLD/DENIED/CLEARED_WITH_OBSERVATION), raisedByUserId/raisedAt,
   resolvedByUserId/resolvedAt/resolutionNotes. `requiresSupervisorApproval: true` exceptions can only be
   resolved by a different user than `raisedByUserId`, and only once the GateEvent has been explicitly
-  escalated to `SUPERVISOR_REVIEW`.
+  escalated to `SUPERVISOR_REVIEW`. Phase 6 made `gateEventId` nullable and added a nullable `vehicleId`
+  (DECISIONS.md D-020) — a telematics/vehicle-use-policy violation exception sets `vehicleId` instead,
+  since it has no GateEvent in context; every Phase 3/5B caller is unaffected and still always sets
+  `gateEventId`.
 
 ## Phase 4 entities (evidence/media — implemented)
 - **MediaAsset** — one reusable, polymorphic model for every kind of uploaded evidence in the system
@@ -172,6 +175,34 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - Added `MovementAuthorisation.expectedDistanceKm` (nullable `Float`) — optional planned-trip-distance
   baseline the reconciliation engine compares actual `kmTravelled` against for the "excess mileage" check;
   null skips that check rather than treating it as zero.
+
+## Phase 6 entities (telematics/geofencing/vehicle-use policies — implemented)
+- **TelematicsEvent** — one normalised position/status sample regardless of source (`PROVIDER` from
+  `TelematicsProvider.getSnapshot()`, or `MANUAL` — reserved for a future manual-entry path, not yet
+  written by any code this phase). tenantId, vehicleId, latitude/longitude/speedKmh/headingDegrees/
+  ignitionOn/odometerKm (all nullable — a provider snapshot may not carry every field),
+  `recordedAt` (when the provider says the reading was taken — what staleness is measured against,
+  distinct from `createdAt`, when it was ingested), `providerReference`.
+- **Geofence** — a simple circle: name, centerLatitude/centerLongitude, radiusMeters. Deliberately not a
+  polygon/map-drawing tool (GPS-004 "basic geofence monitoring").
+- **ManualGpsConfirmation** — mirrors `ManualFacialVerificationFallback` exactly (GPS-002): vehicleId,
+  reason, positionDescription, status (`PENDING`|`APPROVED`|`DENIED`), requestedByUserId/requestedAt,
+  approvedByUserId/resolvedAt/resolutionNotes. Same hard, unconditional self-approval block.
+- **VehicleUsePolicy** — POLICY-001's full field list: name, driverId (the named driver/rep),
+  effectiveFrom/effectiveTo, permittedDaysOfWeek (`Int[]`, 0=Sunday..6=Saturday, empty = every day),
+  permittedStartTime/permittedEndTime (`"HH:MM"` strings, server-local time — a documented simplification,
+  not a per-tenant-timezone-aware evaluation), approvedDestination (free text)/approvedGeofenceId
+  (optional FK to Geofence), kmLimitPerTrip/PerDay/PerWeek/PerMonth, allowAfterHours/allowWeekend/
+  allowPrivateUse flags, privateUseKmAllowanceKm, expectedReturnTime, approvingManagerUserId (nullable at
+  creation — the first `vehicleUsePolicy:APPROVE` holder to approve becomes the manager of record if none
+  was named), status (`DRAFT`|`ACTIVE`|`SUSPENDED`|`EXPIRED`), overrideReason.
+- **VehicleUsePolicyVehicle** — pure join table (no tenantId, same precedent as `RolePermission`),
+  `@@unique([policyId, vehicleId])` — one policy can cover several vehicles.
+- `MovementAuthorisation.vehicleUsePolicyId` upgraded from a plain String (Phase 5C, D-019) to a real
+  `@relation` now that `VehicleUsePolicy` exists — see D-019's revisit condition and the migration-history
+  entry below (any pre-existing unvalidated value was nulled out, not preserved, as part of the migration).
+- `Exception.gateEventId` made nullable, `Exception.vehicleId` added — see the Phase 3 Exception entry
+  above and DECISIONS.md D-020.
 
 ## Phase 4+ entities (planned, not yet built)
 TyreReading (history), RiskRegisterEntry, ControlRegisterEntry, ControlTestResult — documented here as
@@ -216,8 +247,13 @@ each is actually migrated, not in advance.
 - `20260723230119_phase5c_dispatch_enhancements` (applied): extended `MovementType` with `SALES_VISIT`/
   `SERVICE`/`AUTHORISED_PRIVATE_USE`; added `MovementAuthorisation.senderName/senderContact/recipientName/
   recipientContact/vehicleUsePolicyId`; extended `MediaAssetOwnerType` with `MOVEMENT_DOCUMENT`.
+- `20260723232024_phase6_telematics_geofencing_policies` (applied): `TelematicsEvent`, `Geofence`,
+  `ManualGpsConfirmation`, `VehicleUsePolicy`, `VehicleUsePolicyVehicle`; made `Exception.gateEventId`
+  nullable and added `Exception.vehicleId` (D-020); upgraded `MovementAuthorisation.vehicleUsePolicyId` to
+  a real `@relation` FK (D-019's revisit condition) — includes a data-migration step nulling out any
+  pre-existing value first, since nothing could have referenced a real policy before this migration.
 
-All nine migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All ten migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases.
 
 **Note for future schema changes:** `npx prisma migrate dev --name <name>` works normally in this
