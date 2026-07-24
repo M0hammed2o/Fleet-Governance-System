@@ -86,12 +86,12 @@ Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvi
 | POLICY-002 | Policy violations raise Exceptions, never automatic allegations | Same human-review requirement as GPS-005 | done | Same `evaluateVehiclePolicyCompliance()` path as GPS-005 — one engine, one Exception table, for both GPS and policy violations |
 
 ## SUPPORT — Platform support-access view (Phase 7)
-| ID | Requirement | Acceptance criteria | Status |
-|---|---|---|---|
-| SUPPORT-001 | Platform customer list with health/status summary | Subscription/payment status, sites/gates/vehicle/user counts, open critical exceptions, GPS/facial-verification provider status, storage usage, failed integrations, last activity, onboarding status, support notes — real DB-backed | todo |
-| SUPPORT-002 | `SupportAccessSession` model | Auditable: actor, customer tenant, reason/ticket ref, start, end, time-limited; see DECISIONS.md D-016 | todo |
-| SUPPORT-003 | Controlled support view | Visible "Support view — [Customer]" banner, read-only by default, mandatory reason, immediate exit action, no password/session-cookie exposure, no default biometric/investigation-case access, explicit elevated-access workflow for authorised changes | todo |
-| SUPPORT-004 | Tenant isolation + access-expiry tests | A support session cannot read a tenant it wasn't granted; an expired support session is rejected on next request (same pattern as `evaluateSession()`) | todo |
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| SUPPORT-001 | Platform customer list with health/status summary | Subscription/payment status, sites/gates/vehicle/user counts, open critical exceptions, GPS/facial-verification provider status, storage usage, failed integrations, last activity, onboarding status, support notes — real DB-backed | done | `getCustomerHealthSummaries()` (`support-access-repository.ts`) — real aggregate `count()`/`aggregate()` queries per tenant, gated by the existing `platformTenant:VIEW`; `Tenant.subscriptionStatus` is a manually-set enum (TRIAL/ACTIVE/PAST_DUE/CANCELLED), deliberately not a real billing integration (out of scope, see below); "failed integrations" has no concrete signal to aggregate yet (no integration-attempt logging exists) — surfaced as a known gap in TODO.md, not fabricated; `src/app/platform/support-access/page.tsx` |
+| SUPPORT-002 | `SupportAccessSession` model | Auditable: actor, customer tenant, reason/ticket ref, start, end, time-limited; see DECISIONS.md D-016 | done | `SupportAccessSession` model (60-minute TTL); `startSupportAccessSession`/`endSupportAccessSession`; new "Platform Support Analyst" role (D-016) alongside Platform Administrator |
+| SUPPORT-003 | Controlled support view | Visible "Support view — [Customer]" banner, read-only by default, mandatory reason, immediate exit action, no password/session-cookie exposure, no default biometric/investigation-case access, explicit elevated-access workflow for authorised changes | done | `getSupportViewForCustomer()` requires an active session and returns a bounded read-only summary (sites/gates/counts/open exceptions/recent movements/notes only — no facial-verification enrolment detail, no raw MediaAsset content, no investigation-case data); `elevateSupportAccessSession()` is a separate, `CONFIGURE`-gated, audited action — records intent/audit trail only, does not itself unlock a write path on any customer resource (D-021, a documented scope boundary); UI banner + exit button in `src/app/platform/support-access/[customerTenantId]/page.tsx` |
+| SUPPORT-004 | Tenant isolation + access-expiry tests | A support session cannot read a tenant it wasn't granted; an expired support session is rejected on next request (same pattern as `evaluateSession()`) | done | `tests/support-access-repository.test.ts` (22 cases incl. cross-tenant isolation, forced-expiry, nonexistent-tenant-id) |
 
 ## GOV — Governance (Phase 6, unchanged scope — risk/control register)
 | ID | Requirement | Acceptance criteria | Status | Implementation |
@@ -130,7 +130,9 @@ mechanism (SUPPORT-002), not a permission grant.
 1. Facial-verification vendor — blocked (INTEGRATIONS.md).
 2. Telematics vendor — blocked (INTEGRATIONS.md); October pilot needs one production provider matched to
    the pilot customer.
-3. Production hosting target — deferred to Phase 7.
+3. Production hosting target — still undecided; Phase 7 (platform support-access) is now complete but did
+   not itself require a hosting decision (all Phases 5-7 work ran against local Docker Postgres). Raise
+   before any paid third-party hosting/deploy account is created.
 4. Retention granularity (single tenant-wide `retentionDays` vs per-category) — flagged in
    SECURITY_AND_POPIA.md for legal review; current schema only supports the simpler single value.
 5. Subscription billing and full investigation-case management — explicitly out of scope for Phases 5-7,

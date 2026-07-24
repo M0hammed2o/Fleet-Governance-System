@@ -204,6 +204,20 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - `Exception.gateEventId` made nullable, `Exception.vehicleId` added — see the Phase 3 Exception entry
   above and DECISIONS.md D-020.
 
+## Phase 7 entities (platform support-access — implemented)
+- **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
+  to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
+  architecture"). tenantId (the actor's own platform tenant), actorUserId, customerTenantId, reason
+  (mandatory)/ticketReference (optional), elevated/elevatedReason/elevatedAt (DECISIONS.md D-021 — records
+  intent/audit trail only, doesn't itself unlock any write path), startedAt/expiresAt (60-minute TTL)/
+  endedAt (set on explicit exit, distinct from simply reaching expiresAt).
+- **SupportNote** — an append-only log of platform-staff notes against a customer tenant, same
+  "don't rewrite history" principle as `AuditLog`. tenantId (author's platform tenant), customerTenantId,
+  authorUserId, note.
+- Added `Tenant.subscriptionStatus` (`TenantSubscriptionStatus`: TRIAL/ACTIVE/PAST_DUE/CANCELLED,
+  default TRIAL) — a manually-set status flag for the SUPPORT-001 health summary, deliberately not a real
+  billing/payment integration (subscription billing is explicitly out of scope for this build run).
+
 ## Phase 4+ entities (planned, not yet built)
 TyreReading (history), RiskRegisterEntry, ControlRegisterEntry, ControlTestResult — documented here as
 each is actually migrated, not in advance.
@@ -252,11 +266,21 @@ each is actually migrated, not in advance.
   nullable and added `Exception.vehicleId` (D-020); upgraded `MovementAuthorisation.vehicleUsePolicyId` to
   a real `@relation` FK (D-019's revisit condition) — includes a data-migration step nulling out any
   pre-existing value first, since nothing could have referenced a real policy before this migration.
+- `20260724000922_phase7_support_access` (applied): `SupportAccessSession`, `SupportNote`.
+- `20260724001114_phase7_tenant_subscription_status` (applied): added `Tenant.subscriptionStatus`
+  (a separate migration rather than folded into the one above — split naturally since the need for it was
+  only discovered while writing SUPPORT-001's health summary, after the first Phase 7 migration had
+  already been applied to the dev database; see WORKLOG.md Session 12 for the checksum-mismatch lesson
+  this avoided repeating).
 
-All ten migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All twelve migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases.
 
 **Note for future schema changes:** `npx prisma migrate dev --name <name>` works normally in this
 environment's shell as of the Phase 5B session (2026-07-23/24) — the earlier note that it didn't was
 specific to whatever shell an earlier session was using and no longer applies; it ran cleanly here in both
-the Bash tool and PowerShell.
+the Bash tool and PowerShell. **Never hand-edit a migration.sql file after it has already been applied to
+any database** — Prisma records a checksum at apply time and will refuse to proceed on any database still
+carrying the old checksum (see WORKLOG.md Session 11's test-DB incident and Session 12's dev-DB recovery of
+the same class of mistake, this time fixed by correcting the recorded checksum directly rather than
+resetting). If a just-applied migration needs a correction, always create a new, separate migration for it.

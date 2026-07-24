@@ -411,6 +411,33 @@ exception through its own approval workflow (beyond the simple audit-logged crea
 resolution function should live in `telematics-repository.ts`, not be bolted onto `gate-event-repository.ts`'s
 `resolveException()`.
 
+## D-021 — 2026-07-24 — SupportAccessSession's "elevated" flag records intent/audit trail only; it does not itself unlock write access to any customer resource
+**Context:** SUPPORT-003 requires "an explicit elevated-access workflow for authorised changes." A fully
+general implementation would mean every existing repository function across the whole app (movements,
+drivers, vehicles, gate events, ...) would need to accept and check "is this an elevated platform support
+actor" as a second, parallel authorization path alongside the existing per-tenant `hasPermission()` check —
+a change with a large blast radius touching essentially every write path in the system.
+**Decision:** Phase 7 builds the full audited elevation *workflow* (`elevateSupportAccessSession()` — a
+deliberate, separately-permissioned, audited action distinct from starting the session) and *records* that
+a session is elevated with its reason and timestamp, but does not wire that flag into any actual write
+capability on movements/drivers/vehicles/gate events/etc. A platform support actor — elevated or not —
+still cannot call `updateVehicle()`, `approveMovement()`, or any other customer-tenant write path today;
+`getSupportViewForCustomer()` itself only ever reads.
+**Alternatives considered:** Building elevated-write proxying into every customer resource type in this
+phase — rejected as far beyond "basic"/"controlled support view" scope, and doing it hastily across dozens
+of call sites would be a bigger tenant-isolation risk than not building it at all. A narrower elevated-write
+path scoped to just one or two resources (e.g. only `Tenant.subscriptionStatus`) — considered, but no
+specific authorised-change use case was specified by the requirement to build against, so nothing was
+invented speculatively.
+**Consequences:** SUPPORT-003 is satisfied for the audit/workflow half of "explicit elevated-access
+workflow for authorised changes" (the request, the reason, the audit trail) but not yet the "for authorised
+changes" half literally unlocking anything. This is a real, documented gap (TODO.md), not a silent one —
+the elevated flag currently has no functional effect beyond being recorded and displayed.
+**Revisit condition:** The first time a genuine "platform support needs to make an authorised change on a
+customer's behalf" use case is specified, wire `elevated` into that *one* specific write path, checked via
+`getActiveSupportAccessSession()` inside that resource's own repository function — not a generic
+cross-cutting mechanism built ahead of a real need.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

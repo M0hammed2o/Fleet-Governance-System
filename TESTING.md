@@ -283,6 +283,26 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
       500, and marks the vehicle INACTIVE → confirmed the geofences and vehicle-use-policies admin pages
       render (200).
 
+## Phase 7 coverage (platform support-access view, added 2026-07-24)
+- [x] `tests/support-access-repository.test.ts` (22 cases): health summary requires `platformTenant:VIEW`
+      and returns real aggregate counts excluding the canonical platform tenant; session start requires a
+      mandatory reason, is time-limited, and is audited; rejects a nonexistent or platform-slugged
+      customer tenant; only the actor who started a session can end or elevate it (tested with a colleague
+      in the *same* platform tenant, not an isolated one, matching real usage); rejects ending an
+      already-ended session and elevating an ended one; the support view is refused with no active session,
+      returns a bounded read-only summary once one exists, includes support notes, and is immediately
+      revoked on exit; a session active for one customer tenant grants zero access to another (tenant
+      isolation); an expired session (forced into the past) is rejected on the next request, same pattern
+      as `evaluateSession()`; session audit history listing; wrong-role cases (VIEW-only cannot
+      start/note, CREATE-only cannot elevate).
+- [x] Manually verified end-to-end via curl: Platform Support Analyst blocked from viewing a customer with
+      no session (403) → started a session with a reason → view succeeded → added a support note →
+      elevation attempt blocked (403, no `supportAccessSession:CONFIGURE`) → exited the session → view
+      blocked again immediately → Platform Administrator started and elevated their own session (200,
+      `elevated: true`) → session audit history showed both entries with correct actor/reason/elevated/
+      ended state → an ordinary customer-tenant Company Administrator got 403 on every support-access
+      endpoint (zero grant, confirming the platform/customer boundary holds) → both UI pages render (200).
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

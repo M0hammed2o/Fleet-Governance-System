@@ -341,12 +341,66 @@ async function main() {
       create: { roleId: platformAdminRole.id, permissionId },
     });
   }
+  // Phase 7 (SUPPORT-002/003) — full support-access rights, including the
+  // explicit elevation workflow (CONFIGURE) that Platform Support Analyst
+  // below deliberately does not get.
+  for (const action of ["VIEW", "CREATE", "CONFIGURE"] as const) {
+    const permissionId = permissionIdByKey.get(permissionKey("supportAccessSession", action));
+    if (!permissionId) continue;
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: platformAdminRole.id, permissionId } },
+      update: {},
+      create: { roleId: platformAdminRole.id, permissionId },
+    });
+  }
 
   const platformAdminUser = await upsertUser({
     tenantId: platformTenant.id,
     roleId: platformAdminRole.id,
     email: "platform.admin@example.test",
     name: "Priya Naidoo",
+  });
+
+  // --- Platform Support Analyst (Phase 7, D-016) -----------------------------
+  // Second platform-side role, distinguished from Platform Administrator by a
+  // narrower permission set: can see the customer list and start/use support
+  // sessions, but cannot create/edit/suspend tenants and cannot elevate a
+  // support session to authorised-change access — that stays with the
+  // Administrator role only.
+  const platformSupportAnalystRole = await prisma.role.upsert({
+    where: { tenantId_name: { tenantId: platformTenant.id, name: "Platform Support Analyst" } },
+    update: {},
+    create: {
+      tenantId: platformTenant.id,
+      name: "Platform Support Analyst",
+      description: "Views the customer health-summary list and runs time-limited, audited support-access sessions. Cannot manage tenants or elevate a session's access.",
+      isSystem: true,
+    },
+  });
+  {
+    const platformTenantViewId = permissionIdByKey.get(permissionKey("platformTenant", "VIEW"));
+    if (platformTenantViewId) {
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: platformSupportAnalystRole.id, permissionId: platformTenantViewId } },
+        update: {},
+        create: { roleId: platformSupportAnalystRole.id, permissionId: platformTenantViewId },
+      });
+    }
+  }
+  for (const action of ["VIEW", "CREATE"] as const) {
+    const permissionId = permissionIdByKey.get(permissionKey("supportAccessSession", action));
+    if (!permissionId) continue;
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: platformSupportAnalystRole.id, permissionId } },
+      update: {},
+      create: { roleId: platformSupportAnalystRole.id, permissionId },
+    });
+  }
+  const platformSupportAnalystUser = await upsertUser({
+    tenantId: platformTenant.id,
+    roleId: platformSupportAnalystRole.id,
+    email: "platform.support.analyst@example.test",
+    name: "Thabo Mahlangu",
   });
 
   // --- Demo tenant ------------------------------------------------------------
@@ -379,6 +433,7 @@ async function main() {
 
   const createdUsers: { role: string; email: string }[] = [
     { role: "Platform Administrator", email: platformAdminUser.email },
+    { role: "Platform Support Analyst", email: platformSupportAnalystUser.email },
   ];
   const usersByRole = new Map<string, { id: string; email: string }>();
 

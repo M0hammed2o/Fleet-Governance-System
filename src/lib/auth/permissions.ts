@@ -101,6 +101,16 @@ const TELEMATICS_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE"] as const;
 // APPROVE is the named approving manager moving DRAFT -> ACTIVE.
 const VEHICLE_USE_POLICY_ACTIONS = ["VIEW", "CREATE", "EDIT", "APPROVE"] as const;
 
+// Phase 7 — platform support-access view (PRODUCT_REQUIREMENTS.md
+// SUPPORT-001..004). Only ever granted within the system "platform" tenant
+// (same rule as `platformTenant`, D-005) — an ordinary customer-tenant role
+// must never receive this. VIEW covers the customer health-summary list and
+// a session's own audit history; CREATE covers starting a support-access
+// session and adding a support note; CONFIGURE covers the explicit elevation
+// workflow (SUPPORT-003) — deliberately separate from CREATE so "can look"
+// and "can request elevated access" are independently grantable.
+const SUPPORT_ACCESS_SESSION_ACTIONS = ["VIEW", "CREATE", "CONFIGURE"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -122,6 +132,7 @@ export const PERMISSION_CATALOGUE = {
   reconciliation: RECONCILIATION_ACTIONS,
   telematics: TELEMATICS_ACTIONS,
   vehicleUsePolicy: VEHICLE_USE_POLICY_ACTIONS,
+  supportAccessSession: SUPPORT_ACCESS_SESSION_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

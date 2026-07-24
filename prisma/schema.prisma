@@ -16,49 +16,60 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Tenant {
-  id                       String       @id @default(cuid())
+  id                       String                   @id @default(cuid())
   name                     String
-  slug                     String       @unique
-  timezone                 String       @default("Africa/Johannesburg")
-  currency                 String       @default("ZAR")
-  retentionDays            Int          @default(365)
-  status                   TenantStatus @default(ACTIVE)
+  slug                     String                   @unique
+  timezone                 String                   @default("Africa/Johannesburg")
+  currency                 String                   @default("ZAR")
+  retentionDays            Int                      @default(365)
+  status                   TenantStatus             @default(ACTIVE)
   // Movement-approval policy (build brief 7.5/7.7: "must not approve their own
   // movement request where tenant policy prohibits self-approval"). Default is
   // the safer option — self-approval disabled — tenants opt in explicitly.
-  allowSelfApproveMovement Boolean      @default(false)
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  allowSelfApproveMovement Boolean                  @default(false)
+  // Phase 7 (SUPPORT-001) — a manually-set status flag for the platform
+  // customer health summary, deliberately NOT a real billing/payment
+  // integration (subscription billing is explicitly out of scope for this
+  // build run, PRODUCT_REQUIREMENTS.md "Unresolved questions" #5). Set by a
+  // Platform Administrator; no invoicing, no payment provider, no automatic
+  // transitions.
+  subscriptionStatus       TenantSubscriptionStatus @default(TRIAL)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
-  sites                             Site[]
-  gates                             Gate[]
-  users                             User[]
-  roles                             Role[]
-  sessions                          Session[]
-  approvalDelegations               ApprovalDelegation[]
-  auditLogs                         AuditLog[]
-  userPermissionOverrides           UserPermissionOverride[]
-  userInvitations                   UserInvitation[]
-  drivers                           Driver[]
-  vehicles                          Vehicle[]
-  complianceDocuments               ComplianceDocument[]
-  documentExpiryRules               DocumentExpiryRule[]
-  tyrePositionConfigs               TyrePositionConfig[]
-  vehicleTyres                      VehicleTyre[]
-  movementAuthorisations            MovementAuthorisation[]
-  manualFacialVerificationFallbacks ManualFacialVerificationFallback[]
-  inspectionTemplates               InspectionTemplate[]
-  gateEvents                        GateEvent[]
-  gateEventInspectionItems          GateEventInspectionItem[]
-  exceptionTypes                    ExceptionType[]
-  exceptions                        Exception[]
-  mediaAssets                       MediaAsset[]
-  reconciliations                   Reconciliation[]
-  reconciliationDiscrepancies       ReconciliationDiscrepancy[]
-  telematicsEvents                  TelematicsEvent[]
-  geofences                         Geofence[]
-  manualGpsConfirmations            ManualGpsConfirmation[]
-  vehicleUsePolicies                VehicleUsePolicy[]
+  sites                                 Site[]
+  gates                                 Gate[]
+  users                                 User[]
+  roles                                 Role[]
+  sessions                              Session[]
+  approvalDelegations                   ApprovalDelegation[]
+  auditLogs                             AuditLog[]
+  userPermissionOverrides               UserPermissionOverride[]
+  userInvitations                       UserInvitation[]
+  drivers                               Driver[]
+  vehicles                              Vehicle[]
+  complianceDocuments                   ComplianceDocument[]
+  documentExpiryRules                   DocumentExpiryRule[]
+  tyrePositionConfigs                   TyrePositionConfig[]
+  vehicleTyres                          VehicleTyre[]
+  movementAuthorisations                MovementAuthorisation[]
+  manualFacialVerificationFallbacks     ManualFacialVerificationFallback[]
+  inspectionTemplates                   InspectionTemplate[]
+  gateEvents                            GateEvent[]
+  gateEventInspectionItems              GateEventInspectionItem[]
+  exceptionTypes                        ExceptionType[]
+  exceptions                            Exception[]
+  mediaAssets                           MediaAsset[]
+  reconciliations                       Reconciliation[]
+  reconciliationDiscrepancies           ReconciliationDiscrepancy[]
+  telematicsEvents                      TelematicsEvent[]
+  geofences                             Geofence[]
+  manualGpsConfirmations                ManualGpsConfirmation[]
+  vehicleUsePolicies                    VehicleUsePolicy[]
+  supportAccessSessionsAsActorTenant    SupportAccessSession[]             @relation("SupportAccessSessionActorTenant")
+  supportAccessSessionsAsCustomerTenant SupportAccessSession[]             @relation("SupportAccessSessionCustomerTenant")
+  supportNotesAsAuthorTenant            SupportNote[]                      @relation("SupportNoteAuthorTenant")
+  supportNotesAsCustomerTenant          SupportNote[]                      @relation("SupportNoteCustomerTenant")
 
   @@map("tenants")
 }
@@ -66,6 +77,13 @@ model Tenant {
 enum TenantStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum TenantSubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
 }
 
 model Site {
@@ -171,6 +189,8 @@ model User {
   manualGpsConfirmationsRequested     ManualGpsConfirmation[]            @relation("ManualGpsConfirmationRequestedBy")
   manualGpsConfirmationsApproved      ManualGpsConfirmation[]            @relation("ManualGpsConfirmationApprovedBy")
   vehicleUsePoliciesApproving         VehicleUsePolicy[]                 @relation("VehicleUsePolicyApprovingManager")
+  supportAccessSessionsAsActor        SupportAccessSession[]             @relation("SupportAccessSessionActor")
+  supportNotesAuthored                SupportNote[]                      @relation("SupportNoteAuthor")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1597,4 +1617,81 @@ model VehicleUsePolicyVehicle {
 
   @@unique([policyId, vehicleId])
   @@map("vehicle_use_policy_vehicles")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Platform support-access view. See PRODUCT_REQUIREMENTS.md
+// SUPPORT-001..004 and ARCHITECTURE.md "Platform support-access architecture".
+// Deliberately a new, separately-scoped, fully audited mechanism — not an
+// extension of platform-tenant-repository.ts (D-005/D-016) — for reading a
+// customer tenant's data as platform staff. Read-only summary by default;
+// "elevated" only records intent/audit trail in this phase (see D-021), it
+// does not itself unlock write access to arbitrary customer resources.
+// ---------------------------------------------------------------------------
+
+// One time-limited, fully audited grant for one platform-tenant user to view
+// one customer tenant's support-view summary (SUPPORT-002/003). Not the same
+// thing as a Session (that's the actor's own login) — this is a *permission
+// window* layered on top of an already-authenticated platform session,
+// checked explicitly by support-access-repository.ts, never by widening
+// hasPermission()'s normal per-tenant check.
+model SupportAccessSession {
+  id       String @id @default(cuid())
+  // The actor's own (platform) tenant — kept for the same "every tenant-owned
+  // row carries tenantId" convention as everywhere else, even though the
+  // *subject* of this row is a different tenant entirely (customerTenantId).
+  tenantId String
+  tenant   Tenant @relation("SupportAccessSessionActorTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  actorUserId String
+  actor       User   @relation("SupportAccessSessionActor", fields: [actorUserId], references: [id])
+
+  customerTenantId String
+  customerTenant   Tenant @relation("SupportAccessSessionCustomerTenant", fields: [customerTenantId], references: [id], onDelete: Cascade)
+
+  // Mandatory — SUPPORT-003 "mandatory reason". ticketReference is optional
+  // (not every support touch has a formal ticket).
+  reason          String
+  ticketReference String?
+
+  // SUPPORT-003 "explicit elevated-access workflow for authorised changes" —
+  // a second, deliberate action distinct from starting the session at all.
+  elevated       Boolean   @default(false)
+  elevatedReason String?
+  elevatedAt     DateTime?
+
+  startedAt DateTime  @default(now())
+  expiresAt DateTime
+  // Set on explicit exit (SUPPORT-003 "immediate exit action") — distinct
+  // from simply reaching expiresAt, so audit history can tell apart "actor
+  // left deliberately" from "actor forgot and it timed out."
+  endedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([actorUserId])
+  @@index([customerTenantId])
+  @@map("support_access_sessions")
+}
+
+// A support note is deliberately its own append-only log, not a single
+// mutable Tenant field — same "don't rewrite history" principle as AuditLog.
+model SupportNote {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("SupportNoteAuthorTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  customerTenantId String
+  customerTenant   Tenant @relation("SupportNoteCustomerTenant", fields: [customerTenantId], references: [id], onDelete: Cascade)
+
+  authorUserId String
+  author       User   @relation("SupportNoteAuthor", fields: [authorUserId], references: [id])
+
+  note String
+
+  createdAt DateTime @default(now())
+
+  @@index([customerTenantId])
+  @@map("support_notes")
 }

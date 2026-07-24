@@ -2,6 +2,16 @@
 
 ## 2026-07-24
 ### Added
+- Phase 7 — platform support-access view (SUPPORT-001..004), the final phase of this build run: a
+  real DB-backed customer health-summary list (site/gate/vehicle/user counts, open critical exceptions,
+  GPS status, storage usage, onboarding status), a time-limited and fully audited `SupportAccessSession`
+  mechanism (mandatory reason, immediate exit, explicit elevation workflow), a bounded read-only "support
+  view" of one customer tenant scoped to an active session, and a new "Platform Support Analyst" role
+  alongside Platform Administrator. Tenant isolation is enforced live on every request — a session opened
+  for one customer grants zero access to another, and an expired session is rejected immediately, same
+  pattern as ordinary session validation. 22 new tests (396/396 total). Subscription billing and full
+  investigation-case management remain explicitly out of scope, per the user's instruction — this is the
+  deliberate stopping point for the current run.
 - Phase 6 — telematics foundation, basic geofencing, and vehicle-use policies (GPS-001..006/GPS-BLOCKED,
   POLICY-001/002): a provider-neutral `TelematicsProvider` interface with a deterministic mock (production
   vendor connection explicitly blocked pending the user's decision), a manual GPS confirmation fallback

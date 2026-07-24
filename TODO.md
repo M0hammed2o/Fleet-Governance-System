@@ -1,25 +1,28 @@
 # TODO.md
 
 ## Now
-- [ ] Begin Phase 7 (Platform support-access view): SUPPORT-001 (platform customer list with health/status
-      summary — subscription/payment status, sites/gates/vehicle/user counts, open critical exceptions,
-      GPS/facial-verification provider status, storage usage, failed integrations, last activity,
-      onboarding status, support notes, real DB-backed), SUPPORT-002 (`SupportAccessSession` model —
-      auditable actor/customer tenant/reason/ticket ref/start/end, time-limited, see DECISIONS.md D-016),
-      SUPPORT-003 (controlled support view — banner, read-only by default, mandatory reason, immediate
-      exit, no credential/session exposure, no default biometric/investigation-case access), SUPPORT-004
-      (tenant isolation + access-expiry tests). This is the last phase in the current run — subscription
-      billing and full investigation-case management are explicitly out of scope, next planned work after
-      this. | Priority: high | Deps: none — Phase 6 is complete
+Phases 5B/5C/6/7 (this run's full scope, per the user's instruction to proceed autonomously through Phase
+7) are **all complete** — see the Revised build order below and WORKLOG.md Sessions 9-12. Per that same
+instruction, this is the deliberate stopping point: **subscription billing and the full Investigation Case
+Management module are explicitly not started.** Next planned work, when the user is ready to scope it:
+- Subscription billing — real payment/invoicing integration (`Tenant.subscriptionStatus`, added Phase 7,
+  is a manually-set placeholder flag only, not a billing system — see DECISIONS.md D-021's sibling
+  reasoning on scope boundaries).
+- Full investigation-case management — case creation, findings, disposition tracking. External Reviewer /
+  Internal Investigator profiles already exist for evidence access (Phase 5A), but no case-management
+  module itself.
+Also still open, not part of either of the above: production hosting/deployment target (Unresolved
+questions #3, PRODUCT_REQUIREMENTS.md), facial-verification and telematics production vendor selection
+(both blocked on the user's decision).
 
 ## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
 Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Phase 5B (Reconciliation) — **done**, see
 WORKLOG.md Session 9 / DECISIONS.md D-017/D-018. Phase 5C (Dispatch workflow enhancements) — **done**, see
 WORKLOG.md Session 10. Phase 6 (Telematics foundation + basic geofencing) — **done**, see WORKLOG.md
-Session 11 / DECISIONS.md D-019/D-020. Next and final phase of this run: Phase 7 (Platform support-access
-view — SUPPORT-001..004). Subscription billing and full investigation-case management are explicitly out
-of scope for this run — next planned work after Phase 7. Full requirement detail in
-PRODUCT_REQUIREMENTS.md.
+Session 11 / DECISIONS.md D-019/D-020. Phase 7 (Platform support-access view) — **done**, see WORKLOG.md
+Session 12 / DECISIONS.md D-021. This was the full scope of the current build run — subscription billing
+and full investigation-case management are explicitly out of scope, next planned work whenever the user
+wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.md.
 
 ## Next
 - [ ] Driver-portrait and compliance-document-attachment upload UI — both are fully wired end-to-end at the
@@ -35,6 +38,8 @@ PRODUCT_REQUIREMENTS.md.
 - [ ] Vehicle create/edit UI: tyrePositionConfigId picker and inline tyre (VehicleTyre) editing on the vehicle detail page — API routes already exist and are tested (`POST /api/vehicles/[id]/tyres`), just no UI affordance yet | Priority: low | Deps: none
 - [ ] Per-trip distance accumulation for the vehicle-use-policy km-limit check — `evaluateVehiclePolicyCompliance()` currently passes `tripKmSoFar: null` (no trip-boundary tracking wired up yet), so `kmLimitPerTrip` never actually fires; needs a trip-start reference (likely the vehicle's last EXIT GateEvent or last policy-reset point) to compute a real running total — see ARCHITECTURE.md "Telematics architecture" and DECISIONS.md D-020's revisit condition | Priority: medium | Deps: none
 - [ ] Manual GPS confirmation and geofences UI affordance on the vehicle detail page itself (currently reachable via `/admin/geofences`, `/admin/vehicle-use-policies`, and the API directly, but not from the vehicle detail page where a Fleet/GPS Manager would naturally look) | Priority: low | Deps: none
+- [ ] Wire `SupportAccessSession.elevated` into an actual write path once a real "platform support needs to make an authorised change" use case is specified — today elevation only records audit intent (DECISIONS.md D-021); do not build a generic cross-cutting elevated-write mechanism speculatively, wire the *one* specific resource that needs it | Priority: low | Deps: a concrete authorised-change use case from the user
+- [ ] SUPPORT-001's "failed integrations" health-summary field has no concrete signal to aggregate yet — no integration-attempt logging exists anywhere (facial-verification/telematics provider calls aren't logged as attempts, only their outcomes on the owning record); add one if/when a real production provider integration exists to actually fail | Priority: low | Deps: a production provider (currently blocked)
 - [ ] MediaAsset retention-purge / hard-delete mechanism (POPIA erasure) — no delete path exists yet for any owner kind; `StorageProvider.delete()` is implemented but unwired to any route | Priority: low | Deps: legal review of retention granularity (see existing "Retention-purge scheduled job" item below)
 - [ ] FOUND-003 — Password reset flow | Priority: medium | Deps: none to build (dev-mode token-in-response, same pattern as invite), email provider only needed for production delivery | Design: SECURITY_AND_POPIA.md
 - [ ] FOUND-010 — Reauthentication requirement for defined sensitive actions | Priority: low | Deps: first genuinely sensitive Phase 3+ action to attach it to (e.g. high-severity exception override) | Design: SECURITY_AND_POPIA.md
@@ -58,6 +63,15 @@ PRODUCT_REQUIREMENTS.md.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 7: Platform support-access view (SUPPORT-001..004) — `getCustomerHealthSummaries()` (real
+      aggregate counts, gated by existing `platformTenant:VIEW`), `SupportAccessSession` (60-minute TTL,
+      mandatory reason, fully audited), a new "Platform Support Analyst" role (D-016) alongside Platform
+      Administrator, `getSupportViewForCustomer()` (bounded read-only summary, requires an active session,
+      tenant-isolated), immediate-exit and explicit-elevation actions (elevation records audit intent only —
+      see D-021's documented scope boundary), platform customer-list and support-view UI with a visible
+      banner — 396/396 tests passing (22 new), tsc/lint/build clean, full live curl verification incl. the
+      complete session lifecycle and the platform/customer permission boundary — 2026-07-24. **This was the
+      last phase of the current build run per the user's instruction — see "Now" above.**
 - [x] Phase 6: Telematics foundation, basic geofencing, vehicle-use policies (GPS-001..006/GPS-BLOCKED,
       POLICY-001/002) — `TelematicsProvider`/`MockTelematicsProvider` (provider-neutral, GPS-BLOCKED
       recorded), `ManualGpsConfirmation` (mirrors facial-verification fallback), `Geofence` (simple

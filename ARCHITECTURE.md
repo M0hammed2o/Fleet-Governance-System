@@ -282,6 +282,49 @@ from any GateEvent lifecycle hook — it's triggered by an explicit `POST /api/v
 call, matching how a real GPS vendor would push/poll independently of gate activity, not tied to a vehicle
 physically being at a gate.
 
+## Platform support-access architecture (Phase 7, see PRODUCT_REQUIREMENTS.md SUPPORT-001..004)
+A new, separately-scoped, fully audited mechanism for platform staff to read a customer tenant's data —
+deliberately **not** an extension of `platform-tenant-repository.ts` (that file's own comment already
+anticipated this: "If a future support-access feature needs to read a customer tenant's business data, it
+must be a new, separately-scoped, similarly audited mechanism — not an extension of this file", D-005).
+Everything lives in `support-access-repository.ts` instead, with two distinct trust levels:
+
+**Level 1 — the customer list (SUPPORT-001).** `getCustomerHealthSummaries()` is gated by the existing
+`platformTenant:VIEW` alone — no support session needed — because it only ever returns *aggregate counts*
+(sites, gates, vehicles, users, open HIGH/CRITICAL exceptions, GPS-active vehicle count, storage bytes,
+last-activity timestamp, a derived onboarding status), never an individual business record. This is the
+same "safe to browse before deciding whether to open a support session" tier as a real support-ops
+dashboard.
+
+**Level 2 — the support session and view (SUPPORT-002/003/004).** A `SupportAccessSession` is a
+*permission window* layered on top of an already-authenticated platform session — not the same thing as
+`Session` (that's the actor's own login, unaffected). Starting one (`startSupportAccessSession()`) requires
+a mandatory `reason`, is time-limited (60 minutes, `SUPPORT_ACCESS_SESSION_TTL_MINUTES`), and is fully
+audited. `getSupportViewForCustomer()` — the actual "controlled support view" — refuses to return anything
+at all unless `getActiveSupportAccessSession(actorUserId, customerTenantId)` finds a matching, unexpired,
+unended row; this check is scoped to *both* the specific actor *and* the specific customer tenant, so a
+session opened against Tenant A grants zero access to Tenant B (SUPPORT-004 tenant isolation) and an
+expired session is rejected on the very next request, the same "re-check live, don't trust a cached
+decision" principle as `evaluateSession()`. The view itself is a bounded, read-only summary (site/gate
+names, aggregate vehicle/driver counts, open exceptions, recent movements, support notes) — deliberately
+excluding facial-verification enrolment detail, raw `MediaAsset` content, and investigation-case data (that
+module doesn't exist yet regardless), satisfying "no default biometric/investigation-case access."
+
+**Exit and elevation (SUPPORT-003).** `endSupportAccessSession()` is the "immediate exit action" — only
+the actor who started a session may end it, and doing so revokes support-view access to that customer
+immediately (verified in tests, not just assumed). `elevateSupportAccessSession()` is a second, deliberate,
+separately-permissioned (`supportAccessSession:CONFIGURE`) action recording an elevation reason and
+timestamp — but, per D-021, it currently only *records* elevated intent/audit trail; it does not itself
+unlock a write path on any customer resource (movements, drivers, vehicles, ...). Building that out is
+explicitly deferred until a real "platform support needs to make an authorised change" use case exists,
+rather than speculatively wiring a cross-cutting elevated-write mechanism into every existing repository
+function ahead of need.
+
+**Platform-side roles.** Platform Administrator gets full `supportAccessSession` (VIEW/CREATE/CONFIGURE)
+alongside its existing `platformTenant` grants; a new "Platform Support Analyst" role (D-016) gets
+`platformTenant:VIEW` (to browse the customer list) plus `supportAccessSession:VIEW`/`CREATE` but
+deliberately not `CONFIGURE` — elevation stays an Administrator-only action.
+
 ## Integration boundaries
 `FacialVerificationProvider` (`lib/facial-verification/provider.ts`) has a deterministic mock
 implementation (`mock-provider.ts`, driven by `force:<outcome>` markers in the capture reference — see its
