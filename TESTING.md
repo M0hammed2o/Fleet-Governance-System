@@ -418,6 +418,24 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] `npm run verify:clean-migrations` — all 16 migrations, including both of this phase's, apply cleanly
       to a genuinely empty database.
 
+## Phase 8D coverage (platform and customer storage dashboards, added 2026-07-26)
+- [x] `tests/storage-dashboard-repository.test.ts` (8 cases): `getPlatformStorageDashboard` requires
+      `platformTenant:VIEW`; excludes the canonical platform tenant and correctly reports a real customer
+      tenant's active-vehicle count, current storage, and per-category breakdown; evidence-under-hold,
+      failed-upload, and export/deletion-request counts are all correct and isolated per tenant;
+      **BUG-005 regression coverage**: a permanently-deleted asset's bytes are excluded from
+      `currentStorageBytes` (its binary is actually gone) and an archived asset's bytes are counted only in
+      `archivedBytes`, never both; a nonexistent tenant id returns `null` rather than throwing.
+- [x] Manually verified end-to-end via curl against a running dev server: fetched the platform dashboard as
+      Platform Administrator and confirmed real, correct per-category totals for the demo tenant — this is
+      exactly where BUG-005 was found (a `CARGO_EVIDENCE` asset deleted earlier in the same session's Phase
+      8C live testing was still showing up as 306 bytes of "current storage"); fixed, then re-verified live
+      that the number dropped by exactly 306 bytes and the now-empty category entry disappeared entirely;
+      fetched the customer dashboard as Company Administrator (200, correct data) and as Executive
+      Read-Only Viewer (403, no `retention` grant at all).
+- [x] `npm run verify:clean-migrations` — all 16 migrations (no schema change in this subphase) still apply
+      cleanly to a genuinely empty database.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

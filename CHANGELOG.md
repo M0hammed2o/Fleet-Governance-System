@@ -1,5 +1,19 @@
 # CHANGELOG.md
 
+## 2026-07-26 (Phase 8D) — completes Phase 8
+### Added
+- Phase 8D — platform-admin and customer-admin storage dashboards (DASH-001..003): every stat from the
+  brief (active vehicles, current storage, storage by category, monthly growth, evidence approaching
+  expiry, evidence under hold, export requests, pending deletions, archive plan, estimated storage charge,
+  failed uploads, storage warnings), computed via a fixed, batched set of aggregate queries across every
+  tenant at once rather than a per-tenant loop. Both dashboards are read-only; no new elevation path for
+  platform staff. 8 new tests (486/486 total).
+
+### Fixed
+- BUG-005 — the storage dashboards counted a permanently-deleted asset's bytes as "current storage" because
+  the aggregate query checked only `uploadStatus`, not `retentionStatus`. Fixed to exclude `DELETED` assets
+  entirely and count `ARCHIVED` bytes only in the separate archive total, never both.
+
 ## 2026-07-26 (Phase 8C)
 ### Added
 - Phase 8C — retention, archive and deletion (RETAIN-001..010): per-category retention policies (12-month

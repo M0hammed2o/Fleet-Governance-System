@@ -133,6 +133,13 @@ Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvi
 | RETAIN-009 | Storage billing-hook interface + archive pricing configuration | Configuration data, not scattered UI values; payment collection not implemented | done | `StorageBillingHookProvider` interface + `NoOpStorageBillingHookProvider` (no billing vendor chosen — payment collection explicitly out of scope); `ARCHIVE_PRICING_TIERS` (R149/R1500 up to 100GB, R299/R3000 101-250GB, R499/R5000 251-500GB, R899/R9000 501GB-1TB, custom quote beyond, all ZAR excl. VAT) |
 | RETAIN-010 | Retention-expiry notifications prepared for 90/60/30/7 days and expiry | Computed, since no notification provider exists yet | done | `currentRetentionMilestone()` (pure); `getDueRetentionNotifications()` — no real email/SMS sent, same documented gap as every other not-yet-built notification channel (INTEGRATIONS.md) |
 
+## DASH — Phase 8D storage dashboards
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| DASH-001 | Platform-admin storage dashboard | Customer, active vehicles, current storage, storage by category, monthly growth, evidence approaching expiry, evidence under hold, export requests, pending deletions, archive plan, estimated storage charge, failed uploads, storage warnings — real DB-backed, every tenant | done | `getPlatformStorageDashboard()` (`storage-dashboard-repository.ts`) — batched `groupBy` aggregate queries across every tenant at once (never a per-tenant loop — see KNOWN_BUGS.md BUG-004's lesson), gated by `platformTenant:VIEW`; `GET /api/platform/storage-dashboard`; `src/app/platform/storage-dashboard/page.tsx` |
+| DASH-002 | Customer-admin storage page | Same data, scoped to the caller's own tenant only, plus which retention actions are available | done | `getCustomerStorageDashboard()`, gated by `retention:VIEW`; `GET /api/retention/storage-dashboard`; `src/app/admin/storage-dashboard/page.tsx` |
+| DASH-003 | Platform support access remains read-only; no unrestricted impersonation | No new elevation/write path introduced by this phase | done | The storage dashboards are read-only aggregate views only (no mutating actions); Phase 7's `SupportAccessSession` audited-elevation boundary is unchanged and untouched by this phase |
+
 ## GOV — Governance (Phase 6, unchanged scope — risk/control register)
 | ID | Requirement | Acceptance criteria | Status | Implementation |
 |---|---|---|---|---|

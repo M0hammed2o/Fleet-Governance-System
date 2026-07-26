@@ -1411,6 +1411,89 @@ uploads), then the customer-admin storage page scoped to one tenant's own data.
 
 ---
 
+## 2026-07-26 — Session 16 — Phase 8D: platform and customer storage dashboards (DASH-001..003) — completes Phase 8
+**Objective:** Finish the user's instructed autonomous run through Phase 8 with 8D — a platform-admin
+storage dashboard across every customer tenant, and a customer-admin storage page scoped to one tenant's
+own data, both real DB-backed with every stat the brief listed.
+
+**Design:** `storage-dashboard-repository.ts`'s `computeDashboardRows()` is shared by both views —
+`getPlatformStorageDashboard()` (every non-platform tenant, `platformTenant:VIEW`-gated, same trust tier as
+Phase 7's SUPPORT-001 health summary — aggregate counts only, never an individual business record) and
+`getCustomerStorageDashboard()` (one tenant, `retention:VIEW`-gated). Learning directly from KNOWN_BUGS.md
+BUG-004 (Phase 8A's real production-scale defect — an unbounded per-tenant query fan-out that saturated the
+connection pool once enough tenants existed), this was built batched from the start: a fixed ~10 `groupBy`
+queries across every tenant *at once*, never one query per tenant in a loop. Verified this held up even
+against the shared test database's 1,000+ accumulated fixture tenants — the full dashboard test file ran in
+about 11 seconds.
+
+**A real bug found through live verification, not just automated tests (BUG-005):** after fetching the
+platform dashboard against the dev server, a `CARGO_EVIDENCE` asset permanently deleted earlier in this same
+session's Phase 8C live-testing walkthrough was still showing up as 306 bytes of "current storage." Root
+cause: `MediaAsset.uploadStatus` (upload lifecycle: PENDING/PROCESSING/READY/FAILED) and `retentionStatus`
+(retention lifecycle: ACTIVE/ARCHIVED/PENDING_DELETION/DELETED) are independent fields — a deleted asset's
+`uploadStatus` correctly stays `READY` (the upload itself succeeded; that's not what changed), but the
+dashboard's "current storage" aggregate only filtered on `uploadStatus`, never checking `retentionStatus`.
+Fixed by adding `retentionStatus: { in: ["ACTIVE", "PENDING_DELETION"] }` to the storage/growth queries —
+`DELETED` assets are now excluded entirely (the binary is genuinely gone) and `ARCHIVED` assets are counted
+only in the separate `archivedBytes` stat, so the two numbers can never double-count the same bytes. Added
+two regression tests, then re-verified live: the dashboard's `currentStorageBytes` dropped by exactly 306
+bytes and the now-empty category entry disappeared.
+
+**Deliberately out of scope this subphase:** "monthly storage growth" is an approximation (last-30-days vs
+prior-30-days upload bytes), not a true historical ledger — no time-series snapshot table exists, and
+building one wasn't asked for; a documented TODO.md item, not silently assumed to be a real historical
+trend. Neither dashboard exposes any mutating action — both are read-only aggregate views, and Phase 7's
+`SupportAccessSession` audited-elevation mechanism (the only sanctioned path to any deeper platform access
+to a customer tenant) is entirely untouched by this phase (DASH-003).
+
+**Files changed:**
+- `src/lib/repositories/storage-dashboard-repository.ts` (new) — `getPlatformStorageDashboard()`,
+  `getCustomerStorageDashboard()`, shared `computeDashboardRows()`.
+- Routes (new): `GET /api/platform/storage-dashboard`, `GET /api/retention/storage-dashboard`.
+- Pages (new): `src/app/platform/storage-dashboard/page.tsx` (expandable per-tenant table),
+  `src/app/admin/storage-dashboard/page.tsx` (stat-tile dashboard for one tenant, plus a plain-language list
+  of which retention actions exist).
+- `tests/storage-dashboard-repository.test.ts` (new, 8 cases, including the two BUG-005 regression cases).
+- Docs: `PRODUCT_REQUIREMENTS.md` (new DASH-001..003 table), `ARCHITECTURE.md` (new "Storage dashboard
+  architecture" section), `TESTING.md` (Phase 8D coverage), `KNOWN_BUGS.md` (BUG-005), `TODO.md`.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean (one incidental fix along the way: a stale, corrupted `.next/dev/types`
+  artifact from an earlier session's abrupt dev-server `taskkill` was breaking `tsc` with unrelated parse
+  errors in generated route-typing files; `.next/` is gitignored build cache, safe to clear and let
+  regenerate — not a real source defect).
+- `npm run lint` — clean (fixed one JSX issue along the way: a shorthand `<>...</>` fragment can't carry a
+  `key` prop in a `.map()` — switched to explicit `<Fragment key={...}>`).
+- `npm test` — **486/486 passing** (34 files; 8 new). One transient timeout occurred in an unrelated,
+  untouched test file (`reconciliation-repository.test.ts`) during a single full-suite run — passed cleanly
+  both in isolation (24/24) and on an immediate full-suite retry (484/484, then 486/486 after this
+  session's own tests were added) — logged as a growing test-database-scale operational risk in TODO.md,
+  not treated as a regression from this session's changes.
+- `npm run build` — clean (4 new routes/pages).
+- `npm run verify:clean-migrations` — PASS (no schema change this subphase; all 16 existing migrations
+  still apply cleanly).
+- Manual curl verification against a running dev server: fetched the platform dashboard as Platform
+  Administrator, found BUG-005 as described above, fixed it, and re-verified the corrected number live;
+  fetched the customer dashboard as Company Administrator (200, correct data) and as Executive Read-Only
+  Viewer (403, no `retention` grant at all, matching that role's existing deliberately-restricted evidence
+  access).
+
+**Bugs found this session:** BUG-005 (see KNOWN_BUGS.md) — found via live verification of the exact feature
+this phase was building, fixed, and regression-tested before being reported complete.
+
+**Remaining work:** None planned within Phase 8's scope — all four subphases (8A engineering hardening, 8B
+object-storage architecture, 8C retention/archive/deletion, 8D storage dashboards) are complete. Next
+planned work, per the user's own stated target: Phase 9 (on-device one-to-one facial verification and basic
+liveness with a cloud fallback interface).
+
+**Exact recommended next action:** Begin Phase 9 by first reading the existing `FacialVerificationProvider`
+interface (`lib/facial-verification/provider.ts`, Phase 2) and its mock implementation — the existing
+adapter-interface pattern this whole codebase already follows (facial verification, telematics, object
+storage) is the direct precedent for how an on-device verification/liveness interface plus a cloud-fallback
+adapter should be shaped, before designing anything new from scratch.
+
+---
+
 ## 2026-07-26 — Session 14 — Phase 8B: cost-efficient object-storage architecture (MEDIA-001..012)
 **Objective:** Continue the user's instructed autonomous run through Phase 8 with 8B — a provider-neutral
 object-storage architecture, presigned upload/download, ten evidence categories with per-category

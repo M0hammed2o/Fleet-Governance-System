@@ -30,10 +30,12 @@ mapping and rationale (remapped 2026-07-23 from an earlier 8-role set).
   record rather than re-capturing cargo/delivery data.
 
 ## Current project status
-**Phases 1–7 complete; Phase 8A (engineering hardening), 8B (cost-efficient object-storage architecture),
-and 8C (retention, archive and deletion) complete; Phase 8D (platform storage dashboard) is next.** See
-WORKLOG.md Sessions 13-15 and TODO.md "Now" for current detail — the paragraph below is a stale narrative
-snapshot from an earlier phase, kept for history; WORKLOG.md/TODO.md are the source of truth.
+**Phases 1–8 complete** — Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention
+Management: 8A engineering hardening, 8B cost-efficient object-storage architecture, 8C retention/archive/
+deletion, 8D platform and customer storage dashboards) finished 2026-07-26. See WORKLOG.md Sessions 13-16
+and TODO.md "Now" for current detail — the paragraph below is a stale narrative snapshot from an earlier
+phase, kept for history; WORKLOG.md/TODO.md are the source of truth. Next planned work: Phase 9 (on-device
+one-to-one facial verification and basic liveness with a cloud fallback interface).
 Repository was empty (greenfield) as of 2026-07-19. Foundation (auth/permissions/audit), master data
 (drivers/vehicles/documents/tyre config/movement authorisation), gate operations (GateEvent state
 machine, guided inspection, exceptions, security dashboard), evidence/media (secure upload, signed-URL-

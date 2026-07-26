@@ -112,6 +112,31 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
 - Status: open (cosmetic, non-blocking) — worth revisiting the next time a Prisma version bump is already
   on the table for another reason, not on its own.
 
+## BUG-005 — Platform/customer storage dashboards counted a permanently-deleted asset's bytes as "current storage"
+- Severity: medium
+- Reproduction steps: permanently delete a `MediaAsset` (Phase 8C `completeDeletionRequest()` — its binary
+  is removed, `retentionStatus` set to `DELETED`, but `uploadStatus` stays `READY` since that field tracks
+  the *upload* lifecycle, not the *retention* lifecycle). Then fetch
+  `GET /api/platform/storage-dashboard` or `GET /api/retention/storage-dashboard`.
+- Expected result: the deleted asset's `fileSizeBytes` is excluded from `currentStorageBytes` and its
+  category breakdown — the binary no longer exists, so it isn't "current storage."
+- Actual result (before fix): the byte count and category entry were still present, because
+  `storage-dashboard-repository.ts`'s aggregate queries filtered only on `uploadStatus: "READY"`, not on
+  `retentionStatus`. Found via live curl verification (Phase 8D): a `CARGO_EVIDENCE` asset deleted earlier
+  in the same session's Phase 8C live testing still showed up as 306 bytes of "current storage."
+- Suspected cause: `uploadStatus` and `retentionStatus` are two independent lifecycle fields on `MediaAsset`
+  (upload confirmation vs. retention/deletion), and the dashboard aggregates were written checking only the
+  first.
+- Status: fixed — 2026-07-26. The `currentStorageBytes`/`storageByCategory`/30-day-growth queries now filter
+  `retentionStatus: { in: ["ACTIVE", "PENDING_DELETION"] }` in addition to `uploadStatus: "READY"` — `DELETED`
+  assets are excluded entirely (binary genuinely gone) and `ARCHIVED` assets are excluded from "current"
+  (tracked separately as `archivedBytes`, so the two stats never double-count the same bytes).
+- Fix verification: two new regression tests in `tests/storage-dashboard-repository.test.ts` ("excludes a
+  permanently-deleted asset's bytes from current storage" and "counts archived bytes separately from
+  current storage, never both"); re-verified live via curl against the same dev-server tenant — confirmed
+  `currentStorageBytes` dropped by exactly 306 bytes and the now-empty `CARGO_EVIDENCE` category entry
+  disappeared from the breakdown entirely.
+
 ## Template for new entries
 ```
 ### BUG-NNN — <short title>

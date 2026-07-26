@@ -1,9 +1,11 @@
 # TODO.md
 
 ## Now
-Phase 8A (engineering hardening), 8B (cost-efficient object-storage architecture), and 8C (retention,
-archive and deletion — RETAIN-001..010) are **complete**, see WORKLOG.md Sessions 13-15. Phase 8D (platform
-storage dashboard) is next, per the user's instruction to proceed autonomously through all of Phase 8.
+Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
+8A (engineering hardening), 8B (cost-efficient object-storage architecture), 8C (retention/archive/
+deletion), and 8D (platform/customer storage dashboards) all done, see WORKLOG.md Sessions 13-16. Next
+planned work, when the user is ready to scope it: Phase 9 (on-device one-to-one facial verification and
+basic liveness with a cloud fallback interface, per the user's own stated next-phase target).
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -61,6 +63,8 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] `completeDeletionRequest()`/`completeDueDeletionRequests()` and `cleanupFailedUploads()` are not wired to any scheduler — both are callable on demand via their routes, same documented gap as the pre-existing `expireMovement` auto-transition item | Priority: low | Deps: a scheduling mechanism, none exists in this codebase yet
 - [ ] Deletion eligibility only checks legal hold, investigation hold, and an unresolved linked Exception — the brief's "insurance claim, dispute, or open audit" conditions have no corresponding data model in this codebase (MVP_SCOPE.md explicitly scopes full investigation-case management out) and are not enforced (D-025's sibling gap, lib/retention/deletion-rules.ts) | Priority: medium | Deps: an investigation-case/claims data model, out of scope for this run
 - [ ] `serveRawMediaAsset()`/`mintSignedUrlForMediaAsset()` do not yet check `MediaAsset.binaryDeletedAt` before attempting a read — a deleted asset's storage key simply 404s at the provider level today rather than a purpose-built "this evidence was permanently deleted on [date]" response (D-027) | Priority: low | Deps: none, add when a UI surfaces a "view" action for a deleted/archived asset
+- [ ] The shared test-Postgres database has accumulated well over 1,000 fixture tenants across every session (by design — TESTING.md's tenant-isolation approach creates fresh fixtures per test, never tears down). A full-suite run intermittently produced one transient timeout in an unrelated, untouched test file during Phase 8D (passed cleanly both in isolation and on an immediate full-suite retry — not a real regression), but this is a growing operational risk to test-suite stability, not just performance, as the count keeps climbing session over session | Priority: medium | Deps: a decision on whether to add periodic test-DB resets/cleanup to the workflow, or just tolerate/retry occasional flakiness
+- [ ] "Monthly storage growth" on the Phase 8D dashboards is an approximation (last-30-days vs prior-30-days upload bytes from `MediaAsset.capturedAt`), not a true historical ledger — no `StorageUsageSnapshot`-style time-series table exists | Priority: low | Deps: none, build one if the pilot customer needs real historical trend charts, not just a point-in-time indicator
 
 ## Later
 - [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
@@ -76,6 +80,16 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 8D: Platform and customer storage dashboards (DASH-001..003) — real DB-backed aggregate
+      dashboards computed via a fixed, batched set of `groupBy` queries across every tenant at once (never
+      a per-tenant loop, directly applying the BUG-004 lesson); platform-admin view across every customer
+      tenant (`platformTenant:VIEW`-gated) and a customer-admin view scoped to the caller's own tenant
+      (`retention:VIEW`-gated); both read-only, no new elevation path, Phase 7's `SupportAccessSession`
+      boundary unchanged. Found and fixed BUG-005 via live verification: "current storage" was counting a
+      permanently-deleted asset's bytes because the aggregate only checked `uploadStatus`, not
+      `retentionStatus` — fixed, with two regression tests. 486/486 tests passing (8 new), tsc/lint/build
+      clean, clean-migration verification passing, full live curl verification of both dashboards including
+      the bug-fix confirmation and role-based access denial — 2026-07-26. **This completes Phase 8.**
 - [x] Phase 8C: Retention, archive and deletion (RETAIN-001..010) — per-category `RetentionPolicy`
       (12-month rolling default, overridable), replacing the never-enforced single tenant-wide
       `Tenant.retentionDays` (removed); legal-hold/investigation-hold hard blockers plus a best-effort

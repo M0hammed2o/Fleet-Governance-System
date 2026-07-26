@@ -230,6 +230,43 @@ days-before-expiry applies to a given `scheduledDeletionAt`; `getDueRetentionNot
 `ACTIVE` asset currently due. No email/SMS is actually sent — no notification provider exists yet
 (INTEGRATIONS.md) — this only computes *which* milestone applies, "preparing for" each one per RETAIN-010.
 
+## Storage dashboard architecture (Phase 8D, see PRODUCT_REQUIREMENTS.md DASH-001..003)
+`storage-dashboard-repository.ts` computes both the platform-admin (every tenant) and customer-admin (one
+tenant) dashboards from the same underlying function, `computeDashboardRows()` — the platform view just
+doesn't filter to one tenant. Real DB aggregate queries only, same discipline as
+`security-dashboard-repository.ts`/`support-access-repository.ts`.
+
+**Deliberately batched, never a per-tenant loop.** `getPlatformStorageDashboard()` runs a fixed ~10 `groupBy`
+queries across every tenant *at once* (vehicle counts, storage-by-category, two 30-day windows for growth,
+assets-approaching-expiry, hold counts, export-request counts, deletion-request counts, archived bytes,
+failed-upload counts), then assembles per-tenant rows from those grouped results in-process — never one
+query per tenant. This is a direct application of the lesson from KNOWN_BUGS.md BUG-004 (Phase 8A): an
+unbounded per-tenant fan-out saturates the connection pool and produces slow/incorrect dashboards exactly
+as the platform grows the number of tenants this dashboard is meant to scale across.
+
+**"Current storage" vs "archived storage" are mutually exclusive (BUG-005, found via live verification this
+phase).** `MediaAsset.uploadStatus` (upload lifecycle) and `retentionStatus` (retention/deletion lifecycle)
+are independent fields — a permanently deleted asset keeps `uploadStatus: READY` (it uploaded successfully;
+that's not what changed) but moves to `retentionStatus: DELETED`. The dashboard's "current storage" queries
+filter on both `uploadStatus: "READY"` *and* `retentionStatus: { in: ["ACTIVE", "PENDING_DELETION"] }` — a
+`DELETED` asset's bytes are excluded entirely (the binary is actually gone), and an `ARCHIVED` asset's bytes
+are excluded from "current" and counted only in the separate `archivedBytes` stat, so a customer reading
+both numbers never has to wonder whether they overlap.
+
+**Monthly storage growth is an approximation**, not a true historical ledger — no `StorageUsageSnapshot`-
+style time-series table exists (deliberately not built for Phase 8B/8C, see those phases' scope notes).
+Computed as bytes uploaded in the last 30 days minus bytes uploaded in the preceding 30 days, both from
+`MediaAsset.capturedAt` — good enough for a dashboard trend indicator, not a billing-grade historical record.
+
+**Archive plan / estimated charge** reuses Phase 8C's `getArchiveTierForBytes()` against the tenant's current
+`archivedBytes` total — the same pricing configuration `RetentionPolicy`/`moveAssetsToArchive()` already use,
+so the dashboard's number and the actual archive-workflow pricing can never drift apart.
+
+**Read-only, no new elevation path.** Neither dashboard exposes a mutating action — both are aggregate views
+only. Phase 7's `SupportAccessSession` audited-elevation mechanism (the only sanctioned path for platform
+staff to gain any deeper access to a customer tenant) is entirely unchanged by this phase; there is no new
+"platform admin can act on a customer's evidence" capability introduced here (DASH-003).
+
 ## Movement authorisation architecture (Phase 2)
 `MovementAuthorisation` has its own state machine — a pure, DB-free transition table in
 `lib/movements/state-machine.ts` (`isValidMovementTransition`, `assertValidMovementTransition`), the same
