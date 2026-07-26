@@ -484,6 +484,51 @@ convention as every other distance-limit check here.
 **Revisit condition:** If a production telematics vendor's actual data doesn't reliably report ignition
 state, revisit against that vendor's real signal shape once selected (GPS-BLOCKED).
 
+## D-024 — 2026-07-26 — Video compression ships as configuration + a passthrough provider, not a working transcoder
+**Context:** Phase 8B (MEDIA-012) asks for real video compression (720p, H.264/MP4, 24-30fps, 30-60s max,
+target bitrate). Real H.264 re-encoding needs an external binary (ffmpeg) or a wrapper around one
+(`fluent-ffmpeg`, `@ffmpeg-installer/ffmpeg`) — none of which are installed in this environment, and adding
+one within this pass without the time to verify it actually transcodes correctly on this machine would risk
+reporting a feature as "done" that was never actually exercised.
+**Decision:** Ship the full target policy (`VIDEO_COMPRESSION_PROFILES`) and a `VideoCompressionProvider`
+interface a real transcoder plugs into, but only implement `PassthroughVideoCompressionProvider` — it
+records the *intended* profile name and stores the original bytes unchanged. Image compression, by contrast,
+is fully real (`sharp`, already a common Node ecosystem dependency, installed and verified against real
+images in tests).
+**Alternatives considered:** Installing ffmpeg/fluent-ffmpeg and building a real transcoder now — rejected
+for this pass given the verification risk above; installing it and *not* verifying it — rejected outright,
+would violate the hard rule against overclaiming. A fake "compressed" video (re-muxed but not actually
+re-encoded, to at least claim *something* changed) — rejected as actively misleading: it would look like
+compression happened without actually reducing storage cost, the entire point of MEDIA-012.
+**Consequences:** Video evidence uploaded today consumes its full original size in storage — no bitrate/
+resolution reduction yet. Tracked as an open TODO.md item, not silently assumed working; the interface
+boundary means wiring in a real transcoder later touches only `video-compression.ts`, no call site changes.
+**Revisit condition:** The first time ffmpeg (or an equivalent) can be installed and verified end-to-end in
+this environment — not speculatively before then.
+
+## D-025 — 2026-07-26 — `MediaCategory` is a new field defaulting to `OTHER_DOCUMENT`, not inferred from `MediaAssetOwnerType`
+**Context:** Phase 8B's ten storage/retention/billing categories are a different classification axis than
+the existing five-owner-kind `MediaAssetOwnerType` (D-011) — a `GATE_EVENT_INSPECTION_ITEM`'s evidence could
+legitimately be `VEHICLE_INSPECTION_PHOTO`, `DAMAGE_EVIDENCE`, or `CARGO_EVIDENCE` depending on what was
+actually photographed, so ownerType alone can't determine it.
+**Decision:** Add `MediaAsset.category` as its own field, `@default(OTHER_DOCUMENT)`. Callers that pass an
+explicit category (the new presigned-upload path, and any route updated to offer a category picker) get
+correct classification immediately; the ~30 existing `uploadMediaAsset()` call sites across the codebase
+that predate Phase 8B were not all individually updated to pass one in this pass, and fall back to the
+default rather than a guessed category. The one unambiguous exception: a migration-time backfill sets
+`category = DRIVER_PORTRAIT` for every pre-existing row with `ownerType = DRIVER_PORTRAIT`, since that
+mapping is genuinely 1:1.
+**Alternatives considered:** Deriving category from ownerType via a lookup table — rejected: would be wrong
+for `GATE_EVENT`/`GATE_EVENT_INSPECTION_ITEM` (could be any of several categories) and `MOVEMENT_DOCUMENT`
+(could be `DELIVERY_DOCUMENT` or `CARGO_EVIDENCE`), producing confidently-wrong data rather than an honestly
+generic default. Rewriting every existing call site to pass a category now — considered, but is a much
+larger, riskier diff than this subphase's actual scope (object-storage architecture, not a full audit of
+every evidence-capture UI); tracked as a TODO.md follow-up.
+**Consequences:** Storage-usage-by-category reporting (Phase 8D) will show a large `OTHER_DOCUMENT` bucket
+until calling code is updated to categorise explicitly — a known, visible gap, not a silently wrong number.
+**Revisit condition:** Update each existing capture-point UI to offer/set a real category as those pages are
+next revisited, not as a speculative batch change now.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

@@ -339,6 +339,43 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
       inert warning traced to Prisma's own runtime (left open, documented, not chased with an unconfirmed
       dependency upgrade).
 
+## Phase 8B coverage (cost-efficient object-storage architecture, added 2026-07-26)
+- [x] `tests/media-asset-repository.test.ts` (rewritten for the compression pipeline, 19 cases): a real
+      valid image (`fakeImageBytes()`, `tests/helpers/fixtures.ts` — sharp-generated, since sharp now
+      genuinely decodes uploaded evidence) compresses to WebP, checksum recorded over the *final* bytes
+      (asserted distinct from a hash of the original), thumbnail generated and independently readable,
+      `DAMAGE_EVIDENCE` preserves the original alongside the compressed copy while `OTHER_DOCUMENT` does
+      not, capture metadata round-trips, all pre-existing type/size/checksum/idempotency/signed-URL cases
+      still pass unchanged.
+- [x] `tests/object-storage-phase8b.test.ts` (20 cases): full presigned-upload lifecycle (initiate → raw PUT
+      → confirm → READY, compressed); confirming before the object exists marks FAILED and throws a typed
+      error; confirming a non-PENDING asset is rejected; failed-upload cleanup removes an aged
+      PENDING/FAILED row (and best-effort deletes its storage object) but leaves a young PENDING row and any
+      READY row untouched regardless of age; storage-usage accounting aggregates READY bytes by category,
+      excludes PENDING/FAILED from totals, and does not leak another tenant's usage;
+      `R2CompatibleStorageProvider` throws `R2NotConfiguredError` from every method when unconfigured
+      (the real state of this environment — no Cloudflare account exists) and generates a validly-shaped
+      presigned URL against a fake config with zero real network calls; `media-categories.ts`
+      (classification, per-kind size limits, every category has a rule, DAMAGE_EVIDENCE/
+      INVESTIGATION_EVIDENCE preserve-original + high-quality); `image-compression.ts` (WebP conversion,
+      1920px ceiling, never upscales, profile quality ordering, thumbnail ceiling, throws on undecodable
+      input rather than silently passing it through).
+- [x] `tests/signed-url.test.ts` extended (3 new "purpose isolation" cases): an upload-purpose token cannot
+      be verified as a read-purpose token and vice versa.
+- [x] Manually verified end-to-end via curl against a running dev server: uploaded a real 2400×1600 JPEG
+      with `category=DAMAGE_EVIDENCE` via `POST /api/media/upload` — confirmed the response shows
+      `contentType: image/webp`, a `thumbnailStorageKey`, an `originalStorageKey`, and
+      `compressionProfile: high-quality`, with the compressed `fileSizeBytes` far smaller than the original;
+      confirmed a VIEW-only role (no `mediaAsset:CREATE`) is blocked 403 initiating a presigned upload; ran
+      the full presigned-upload lifecycle (`POST /api/media/presigned-upload` → `PUT
+      /api/media/raw-upload` with the real file bytes, no auth cookie, matching how a real S3/R2 presigned
+      URL behaves → `POST /api/media/[id]/confirm-upload`) and confirmed the resulting asset is `READY`,
+      `contentType: image/webp`, category `VEHICLE_INSPECTION_PHOTO` with the `standard` profile and no
+      preserved original (correct per that category's policy); confirmed re-confirming an already-confirmed
+      upload correctly 404s (`PendingUploadNotFoundError`), not a 500.
+- [x] `npm run verify:clean-migrations` — all 14 migrations, including this phase's, apply cleanly to a
+      genuinely empty database.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

@@ -4,7 +4,7 @@
 |---|---|---|
 | Facial verification | **Interface + mock built (2026-07-21)**, no vendor selected | mock only |
 | Telematics (GPS) | Interface planned (Phase 6), no vendor selected. October pilot needs one production provider selected | mock only |
-| Object storage | **Interface + local-filesystem dev implementation built (2026-07-22)**, no production vendor selected | dev mode only |
+| Object storage | **Interface + local-filesystem dev implementation + R2-compatible configuration boundary built (2026-07-26, Phase 8B)**, no Cloudflare account created | dev mode only |
 | Notifications (email/SMS) | Not started | — |
 | Hardware/device (barrier, ANPR camera, ticket printer) | Not started, deferred item | — |
 
@@ -74,23 +74,33 @@ to evaluate geofence/after-hours/mileage violations. Violations raise an `Except
 Phase 3 workflow — never an automatic fraud/theft/crime conclusion (SECURITY_AND_POPIA.md), always subject
 to human review.
 
-## StorageProvider (built — `src/lib/storage/provider.ts`)
+## ObjectStorageProvider (built — `src/lib/storage/provider.ts`, extended Phase 8B)
 ```ts
-interface StorageProvider {
-  store(tenantId, fileName, data: Buffer, contentType): Promise<{ storageKey, checksumSha256 }>;
+interface ObjectStorageProvider {
+  store(tenantId, category: MediaCategory, fileName, data: Buffer, contentType): Promise<{ storageKey, checksumSha256, fileSizeBytes }>;
+  createPresignedUpload(tenantId, category, fileName, contentType, expiresInSeconds): Promise<PresignedUpload>;
+  confirmUpload(storageKey): Promise<{ exists: boolean; fileSizeBytes: number | null }>;
   getSignedReadUrl(storageKey, expiresInSeconds): Promise<string>;
   read(storageKey): Promise<{ data: Buffer; contentType } | null>;
   delete(storageKey): Promise<void>;
 }
 ```
 Dev implementation (`local-filesystem-provider.ts`): writes to the gitignored `.data/media/` directory
-(`STORAGE_LOCAL_PATH`); `getSignedReadUrl()` mints an HMAC-SHA256-signed, time-limited URL
-(`lib/storage/signed-url.ts`, keyed by `MEDIA_URL_SIGNING_SECRET`) served through
-`GET /api/media/raw`, never a static/public path. No MinIO/S3/Supabase Storage adapter was built — the
-interface is designed so one can be added later without changing any call site in
-`lib/repositories/media-asset-repository.ts`. **Blocked:** production object-storage vendor selection is a
-major decision requiring the user's input (same status as facial verification/telematics) — deferred to
-Phase 7 alongside hosting, per DECISIONS.md's open-items list.
+(`STORAGE_LOCAL_PATH`); `getSignedReadUrl()`/`createPresignedUpload()` mint HMAC-SHA256-signed, time-limited,
+*purpose*-distinct (read vs upload) URLs (`lib/storage/signed-url.ts`, keyed by `MEDIA_URL_SIGNING_SECRET`)
+served through `GET /api/media/raw` / `PUT /api/media/raw-upload`, never a static/public path.
+
+**R2CompatibleStorageProvider (built, blocked — `src/lib/storage/r2-compatible-provider.ts`):** a real
+`@aws-sdk/client-s3` client pointed at Cloudflare R2's S3-compatible endpoint shape (`https://
+<accountId>.r2.cloudflarestorage.com`), not a hand-rolled stub — the same class works against a real R2
+bucket once credentials exist, no code change, only environment variables. **Blocked: no Cloudflare account
+has been created for this project** (hard rule — paid third-party account requires explicit sign-off first,
+same status as facial-verification/telematics vendor selection). Every method throws
+`R2NotConfiguredError` unless `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME` are
+all set — none are set anywhere in this repo. Presigned-URL generation (pure local SigV4 signing, no network
+call) is unit-tested against a fake, non-real config; `store`/`read`/`delete`/`confirmUpload` make a real
+network call and are therefore unverified against an actual bucket — same "interface + mock, real vendor
+connection blocked" pattern as `FacialVerificationProvider`/`TelematicsProvider`.
 
 ## Notification integration
 Not designed yet. Will follow the same adapter pattern once a channel (email/SMS provider) is chosen —

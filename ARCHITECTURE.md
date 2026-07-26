@@ -106,6 +106,69 @@ upload affordance per inspection item.
 signed-URL mint (`mediaAsset.readAccessGranted`) — the point where read access is actually authorised, not
 every subsequent raw-byte fetch (DECISIONS.md D-014).
 
+## Object-storage architecture (Phase 8B, see PRODUCT_REQUIREMENTS.md MEDIA-001..012)
+Extends the Phase 4 `StorageProvider` interface into `ObjectStorageProvider` (`lib/storage/provider.ts`) —
+same adapter shape, plus presigned upload, upload confirmation, and category-aware storage keys. Every key
+is `${tenantId}/${category}/${uuid}-${fileName}`, never a bare filename, so per-tenant/per-category storage
+usage is always attributable even without a provider's own billing dashboard.
+
+**Providers.** `LocalFilesystemStorageProvider` (dev, fully working — extended from Phase 4 with
+`createPresignedUpload()`/`confirmUpload()`) and `R2CompatibleStorageProvider` (`lib/storage/
+r2-compatible-provider.ts`) — a real `@aws-sdk/client-s3` client pointed at Cloudflare R2's S3-compatible
+endpoint shape, not a stub. **No Cloudflare account exists for this project** — every method throws
+`R2NotConfiguredError` unless `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME` are
+all set, none of which appear anywhere in this repo's `.env*` files, so this provider is never actually
+reachable today — same "blocked pending vendor decision" status as `FacialVerificationProvider`/
+`TelematicsProvider` (INTEGRATIONS.md). Presigned-URL generation is pure local SigV4 signing (no network
+call), so it's directly unit-tested against a fake (non-real) config without ever touching a real account.
+
+**Presigned direct-to-storage upload (MEDIA-002).** `initiatePresignedUpload()` reserves a storage key,
+creates a `PENDING` MediaAsset row immediately (so an abandoned upload leaves a discoverable, cleanable
+trace, not a silent orphan), and mints a presigned upload URL. The client PUTs bytes straight to that URL —
+for the real S3/R2 provider this bypasses this app's request thread entirely (ARCHITECTURE.md "Technical
+constraints"); for local dev, `PUT /api/media/raw-upload` is a self-hosted analogue that verifies an
+upload-purpose signed token before writing. `confirmPresignedUpload()` then verifies the object actually
+exists (`provider.confirmUpload()` — never trusts the client's own claim), reads it back, runs the same
+compression pipeline the direct-upload path uses, and moves the row PENDING → READY (or FAILED, typed,
+never a raw 500).
+
+**Compression pipeline and checksum ordering (MEDIA-004/MEDIA-012).** Compression always runs *before* the
+checksum is computed — the recorded `checksumSha256` is a hash of the bytes actually persisted, never the
+client's original upload (`tests/media-asset-repository.test.ts` asserts these differ). Images: real WebP
+conversion via `sharp` (`lib/storage/image-compression.ts`), resized so the longest side never exceeds
+1920px (never upscaled), quality 75-82% depending on category (`MEDIA_CATEGORY_RULES`'s
+"standard"/"high-quality" profile). `DAMAGE_EVIDENCE`/`INVESTIGATION_EVIDENCE` use the high-quality profile
+and additionally preserve the original, uncompressed bytes under `MediaAsset.originalStorageKey` — every
+other category only ever stores the compressed copy. A thumbnail (≤320px, WebP) is generated for every
+image and stored under `thumbnailStorageKey`. Videos: `lib/storage/video-compression.ts` defines the full
+target policy (720p, H.264/MP4, 24-30fps, 30-60s max, target bitrate) and a `VideoCompressionProvider`
+interface, but ships only `PassthroughVideoCompressionProvider` — real H.264 transcoding needs an external
+binary (ffmpeg) not installed in this environment; storing an untranscoded original and recording the
+*intended* profile is the honest choice over silently claiming video compression works. A documented gap
+(TODO.md), verified by name in TESTING.md, not silently assumed correct.
+
+**Ten evidence categories (MEDIA-011).** `MediaCategory` is orthogonal to `MediaAssetOwnerType` — ownerType
+says which *record* owns this evidence (a GateEvent, a Driver, ...); category says what *kind* of evidence
+it is for storage/retention/billing purposes (a GateEventInspectionItem's evidence could be
+`VEHICLE_INSPECTION_PHOTO` or `DAMAGE_EVIDENCE` depending on content, not derivable from ownerType alone).
+`category` defaults to `OTHER_DOCUMENT` for any caller not yet updated to pass one explicitly — a documented
+simplification (TODO.md), not a silent miscategorisation, since existing Phase 4-era call sites (gate
+inspection evidence, manual facial-verification fallback evidence) haven't all been updated to pass a
+specific category in this pass.
+
+**Upload-status lifecycle and cleanup (MEDIA-006/MEDIA-008).** `MediaUploadStatus`: `PENDING` (presigned
+URL minted, not yet confirmed) → `PROCESSING` (confirmed, compression running) → `READY` (usable) or
+`FAILED` (never completed, or processing errored). `cleanupFailedUploads()` deletes any `PENDING`/`FAILED`
+row older than a configurable age (default 24h) — best-effort deletes the underlying storage object too,
+then removes the DB row entirely (a never-completed upload has no evidentiary value to keep as a
+tombstone), audit-logging the cleanup before it happens.
+
+**Storage usage accounting (MEDIA-010).** `getStorageUsageForTenant()` — real DB `groupBy` aggregate query
+by category, `READY` rows only (a `PENDING` row's real bytes-on-disk aren't reliably known without an extra
+provider call per asset; a `FAILED` one is cleanup-eligible, not billable) — same "no static/mock values"
+discipline as `security-dashboard-repository.ts`/`support-access-repository.ts`. Feeds the Phase 8D storage
+dashboards, not built as a route/UI in this subphase.
+
 ## Movement authorisation architecture (Phase 2)
 `MovementAuthorisation` has its own state machine — a pure, DB-free transition table in
 `lib/movements/state-machine.ts` (`isValidMovementTransition`, `assertValidMovementTransition`), the same

@@ -8,6 +8,7 @@ import {
   ChecksumMismatchError,
   IdempotencyKeyConflictError,
   MediaOwnerNotFoundError,
+  MediaProcessingError,
 } from "@/lib/repositories/media-asset-repository";
 import { uploadMediaAssetFormSchema } from "@/lib/validation/media";
 
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       ownerId: form.get("ownerId"),
       idempotencyKey: form.get("idempotencyKey"),
       checksumSha256: form.get("checksumSha256") || undefined,
+      category: form.get("category") || undefined,
     });
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message ?? "Invalid input");
 
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
       data,
       idempotencyKey: parsed.data.idempotencyKey,
       clientChecksumSha256: parsed.data.checksumSha256 ?? null,
+      category: parsed.data.category,
     });
 
     return NextResponse.json({ mediaAsset }, { status: 201 });
@@ -53,7 +56,8 @@ export async function POST(request: Request) {
       err instanceof InvalidFileTypeError ||
       err instanceof EmptyFileError ||
       err instanceof FileTooLargeError ||
-      err instanceof ChecksumMismatchError
+      err instanceof ChecksumMismatchError ||
+      err instanceof MediaProcessingError
     ) {
       return apiErrorResponse(new ApiError(400, err.message));
     }

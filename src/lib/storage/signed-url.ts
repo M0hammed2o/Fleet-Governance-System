@@ -26,8 +26,17 @@ export function getMediaSigningSecret(): string {
   return process.env.MEDIA_URL_SIGNING_SECRET || DEV_FALLBACK_SECRET;
 }
 
-function computeSignature(resourceKey: string, expiresAt: number, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(`${resourceKey}.${expiresAt}`).digest("hex");
+/**
+ * `purpose` (Phase 8B) discriminates a read token from an upload token —
+ * without it, a signed read URL for object X could be replayed against the
+ * upload endpoint to overwrite X's bytes, and vice versa. Defaults to
+ * "read" so every pre-Phase-8B caller (all of which only ever minted read
+ * tokens) is unaffected.
+ */
+export type ResourceAccessPurpose = "read" | "upload";
+
+function computeSignature(resourceKey: string, expiresAt: number, purpose: ResourceAccessPurpose, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(`${resourceKey}.${expiresAt}.${purpose}`).digest("hex");
 }
 
 export interface SignedResourceAccessToken {
@@ -38,11 +47,12 @@ export interface SignedResourceAccessToken {
 export function signResourceAccess(
   resourceKey: string,
   expiresInSeconds: number,
+  purpose: ResourceAccessPurpose = "read",
   secret: string = getMediaSigningSecret(),
   now: Date = new Date(),
 ): SignedResourceAccessToken {
   const expiresAt = Math.floor(now.getTime() / 1000) + expiresInSeconds;
-  return { expiresAt, signature: computeSignature(resourceKey, expiresAt, secret) };
+  return { expiresAt, signature: computeSignature(resourceKey, expiresAt, purpose, secret) };
 }
 
 export type ResourceAccessVerification = { valid: true } | { valid: false; reason: "expired" | "invalid_signature" };
@@ -51,10 +61,11 @@ export function verifyResourceAccess(
   resourceKey: string,
   expiresAt: number,
   signature: string,
+  purpose: ResourceAccessPurpose = "read",
   secret: string = getMediaSigningSecret(),
   now: Date = new Date(),
 ): ResourceAccessVerification {
-  const expected = computeSignature(resourceKey, expiresAt, secret);
+  const expected = computeSignature(resourceKey, expiresAt, purpose, secret);
   const expectedBuf = Buffer.from(expected, "hex");
   const actualBuf = Buffer.from(signature, "hex");
   const signatureValid = expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);

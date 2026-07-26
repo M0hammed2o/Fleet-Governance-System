@@ -1,6 +1,24 @@
 import crypto from "node:crypto";
+import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/password";
+
+/**
+ * A real, tiny, valid JPEG — Phase 8B's upload pipeline runs actual image
+ * compression (`lib/storage/image-compression.ts`, sharp), so a fixture
+ * upload with `contentType: "image/jpeg"` must be real, decodable image
+ * bytes, not arbitrary text (sharp throws on anything else). `seed` selects
+ * a distinct fill colour so tests that need two different "images" (e.g.
+ * checksum-uniqueness/idempotency-conflict cases) can request genuinely
+ * different content while still requesting a valid one.
+ */
+export async function fakeImageBytes(seed = 0): Promise<Buffer> {
+  return sharp({
+    create: { width: 8, height: 8, channels: 3, background: { r: seed % 256, g: (seed * 53) % 256, b: (seed * 97) % 256 } },
+  })
+    .jpeg()
+    .toBuffer();
+}
 
 // crypto.randomUUID(), not a counter — test files run in parallel worker
 // processes, each with its own module instance, so a per-module counter

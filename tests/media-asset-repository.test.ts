@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { describe, it, expect } from "vitest";
+import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import {
   uploadMediaAsset,
@@ -15,7 +16,8 @@ import {
   InvalidOrExpiredSignedUrlError,
   MAX_IMAGE_BYTES,
 } from "@/lib/repositories/media-asset-repository";
-import { createTenant, createRole, createUser, createDriver } from "./helpers/fixtures";
+import { compressImage } from "@/lib/storage/image-compression";
+import { createTenant, createRole, createUser, createDriver, fakeImageBytes } from "./helpers/fixtures";
 
 function unique() {
   return crypto.randomUUID();
@@ -26,13 +28,14 @@ async function makeActor(tenantId: string) {
   return createUser({ tenantId, roleId: role.id, email: `${unique()}@example.test` });
 }
 
-describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
-  it("uploads a valid image and computes the checksum server-side, never trusting a client value blindly", async () => {
+describe("media-asset-repository (Phase 4 — EVID-001..004, Phase 8B compression pipeline)", () => {
+  it("uploads a valid image, compresses it, and computes the checksum over the final (compressed) bytes — never the client's original bytes, never trusting a client checksum blindly", async () => {
     const tenant = await createTenant();
     const actor = await makeActor(tenant.id);
     const driver = await createDriver(tenant.id);
-    const data = Buffer.from("fictional test image bytes");
-    const expectedChecksum = crypto.createHash("sha256").update(data).digest("hex");
+    const data = await fakeImageBytes(1);
+    const expectedFinal = await compressImage(data, "standard");
+    const expectedChecksum = crypto.createHash("sha256").update(expectedFinal.data).digest("hex");
 
     const asset = await uploadMediaAsset({
       tenantId: tenant.id,
@@ -46,12 +49,105 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
     });
 
     expect(asset.checksumSha256).toBe(expectedChecksum);
+    expect(asset.checksumSha256).not.toBe(crypto.createHash("sha256").update(data).digest("hex")); // proves it's the final bytes, not the original
+    expect(asset.contentType).toBe("image/webp");
     expect(asset.classification).toBe("RESTRICTED");
-    expect(asset.fileSizeBytes).toBe(data.byteLength);
+    expect(asset.fileSizeBytes).toBe(expectedFinal.data.byteLength);
     expect(asset.storageKey).toContain(tenant.id);
+    expect(asset.category).toBe("OTHER_DOCUMENT"); // no category passed — defaults
+    expect(asset.compressionProfile).toBe("standard");
+    expect(asset.uploadStatus).toBe("READY");
   });
 
-  it("rejects an unsupported content type (e.g. application/pdf) with a typed error, not a generic failure", async () => {
+  it("generates a thumbnail for an uploaded image", async () => {
+    const tenant = await createTenant();
+    const actor = await makeActor(tenant.id);
+    const driver = await createDriver(tenant.id);
+
+    const asset = await uploadMediaAsset({
+      tenantId: tenant.id,
+      actorUserId: actor.id,
+      ownerType: "DRIVER_PORTRAIT",
+      ownerId: driver.id,
+      fileName: "portrait.jpg",
+      contentType: "image/jpeg",
+      data: await fakeImageBytes(2),
+      idempotencyKey: unique(),
+      category: "DRIVER_PORTRAIT",
+    });
+
+    expect(asset.thumbnailStorageKey).not.toBeNull();
+    const file = await readStorageObjectDirectly(asset.thumbnailStorageKey!);
+    const metadata = await sharp(file.data).metadata();
+    expect(metadata.format).toBe("webp");
+    expect(Math.max(metadata.width ?? 0, metadata.height ?? 0)).toBeLessThanOrEqual(320);
+  });
+
+  it("preserves the original alongside the compressed copy for a category flagged for high-quality/original retention (DAMAGE_EVIDENCE)", async () => {
+    const tenant = await createTenant();
+    const actor = await makeActor(tenant.id);
+    const driver = await createDriver(tenant.id);
+    const data = await fakeImageBytes(3);
+
+    const asset = await uploadMediaAsset({
+      tenantId: tenant.id,
+      actorUserId: actor.id,
+      ownerType: "DRIVER_PORTRAIT",
+      ownerId: driver.id,
+      fileName: "damage.jpg",
+      contentType: "image/jpeg",
+      data,
+      idempotencyKey: unique(),
+      category: "DAMAGE_EVIDENCE",
+    });
+
+    expect(asset.originalStorageKey).not.toBeNull();
+    expect(asset.compressionProfile).toBe("high-quality");
+    const file = await readStorageObjectDirectly(asset.originalStorageKey!);
+    expect(file.data.equals(data)).toBe(true); // the original, untouched
+  });
+
+  it("does not preserve an original for a category with no such policy (OTHER_DOCUMENT)", async () => {
+    const tenant = await createTenant();
+    const actor = await makeActor(tenant.id);
+    const driver = await createDriver(tenant.id);
+
+    const asset = await uploadMediaAsset({
+      tenantId: tenant.id,
+      actorUserId: actor.id,
+      ownerType: "DRIVER_PORTRAIT",
+      ownerId: driver.id,
+      fileName: "portrait.jpg",
+      contentType: "image/jpeg",
+      data: await fakeImageBytes(4),
+      idempotencyKey: unique(),
+    });
+
+    expect(asset.originalStorageKey).toBeNull();
+  });
+
+  it("records capture metadata alongside the file", async () => {
+    const tenant = await createTenant();
+    const actor = await makeActor(tenant.id);
+    const driver = await createDriver(tenant.id);
+
+    const asset = await uploadMediaAsset({
+      tenantId: tenant.id,
+      actorUserId: actor.id,
+      ownerType: "DRIVER_PORTRAIT",
+      ownerId: driver.id,
+      fileName: "portrait.jpg",
+      contentType: "image/jpeg",
+      data: await fakeImageBytes(5),
+      idempotencyKey: unique(),
+      captureMetadata: { device: "iPad Air", originalWidthPx: 4032, originalHeightPx: 3024 },
+    });
+
+    const reloaded = await getMediaAssetInTenant(tenant.id, asset.id);
+    expect(reloaded?.captureMetadata).toMatchObject({ device: "iPad Air", originalWidthPx: 4032 });
+  });
+
+  it("rejects an unsupported content type (e.g. text/plain) with a typed error, not a generic failure", async () => {
     const tenant = await createTenant();
     const actor = await makeActor(tenant.id);
     const driver = await createDriver(tenant.id);
@@ -62,8 +158,8 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         actorUserId: actor.id,
         ownerType: "DRIVER_PORTRAIT",
         ownerId: driver.id,
-        fileName: "doc.pdf",
-        contentType: "application/pdf",
+        fileName: "doc.txt",
+        contentType: "text/plain",
         data: Buffer.from("not an image"),
         idempotencyKey: unique(),
       }),
@@ -122,7 +218,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driverB.id, // belongs to a different tenant
         fileName: "portrait.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(6),
         idempotencyKey: unique(),
       }),
     ).rejects.toBeInstanceOf(MediaOwnerNotFoundError);
@@ -141,7 +237,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driver.id,
         fileName: "portrait.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("real bytes"),
+        data: await fakeImageBytes(7),
         idempotencyKey: unique(),
         clientChecksumSha256: "0".repeat(64),
       }),
@@ -154,7 +250,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
       const actor = await makeActor(tenant.id);
       const driver = await createDriver(tenant.id);
       const idempotencyKey = unique();
-      const data = Buffer.from("identical retry bytes");
+      const data = await fakeImageBytes(8);
 
       const first = await uploadMediaAsset({
         tenantId: tenant.id,
@@ -195,7 +291,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driver.id,
         fileName: "portrait.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("first content"),
+        data: await fakeImageBytes(9),
         idempotencyKey,
       });
 
@@ -207,7 +303,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
           ownerId: driver.id,
           fileName: "portrait.jpg",
           contentType: "image/jpeg",
-          data: Buffer.from("different content entirely"),
+          data: await fakeImageBytes(10),
           idempotencyKey,
         }),
       ).rejects.toBeInstanceOf(IdempotencyKeyConflictError);
@@ -232,7 +328,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driverA.id,
         fileName: "a.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("tenant a bytes"),
+        data: await fakeImageBytes(11),
         idempotencyKey: sharedKey,
       });
       const b = await uploadMediaAsset({
@@ -242,7 +338,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driverB.id,
         fileName: "b.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("tenant b bytes"),
+        data: await fakeImageBytes(12),
         idempotencyKey: sharedKey,
       });
 
@@ -251,11 +347,10 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
   });
 
   describe("signed URL minting and serving (EVID-002 mandatory gate — no public permanent URL)", () => {
-    it("mints a signed URL that, when parsed back through serveRawMediaAsset, returns the exact bytes originally uploaded", async () => {
+    it("mints a signed URL that, when parsed back through serveRawMediaAsset, returns the exact (final, compressed) bytes actually stored, self-consistent with the recorded checksum", async () => {
       const tenant = await createTenant();
       const actor = await makeActor(tenant.id);
       const driver = await createDriver(tenant.id);
-      const data = Buffer.from("the actual evidence bytes for this test");
 
       const asset = await uploadMediaAsset({
         tenantId: tenant.id,
@@ -264,7 +359,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driver.id,
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data,
+        data: await fakeImageBytes(13),
         idempotencyKey: unique(),
       });
 
@@ -276,8 +371,10 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
       const signature = parsed.searchParams.get("sig")!;
 
       const { file } = await serveRawMediaAsset({ storageKey, expiresAt, signature, requestingTenantId: tenant.id });
-      expect(file.data.equals(data)).toBe(true);
-      expect(file.contentType).toBe("image/jpeg");
+      expect(crypto.createHash("sha256").update(file.data).digest("hex")).toBe(asset.checksumSha256);
+      expect(file.contentType).toBe("image/webp");
+      const metadata = await sharp(file.data).metadata();
+      expect(metadata.format).toBe("webp"); // genuinely decodable, not just a byte-count match
 
       // Audit-on-read: mint time is when read access is granted (see DECISIONS.md).
       const auditRows = await prisma.auditLog.findMany({
@@ -297,7 +394,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driver.id,
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(14),
         idempotencyKey: unique(),
       });
 
@@ -325,7 +422,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driver.id,
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(15),
         idempotencyKey: unique(),
       });
       const minted = await mintSignedUrlForMediaAsset(tenant.id, actor.id, asset.id, 300);
@@ -352,7 +449,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driverA.id,
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(16),
         idempotencyKey: unique(),
       });
 
@@ -373,7 +470,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
         ownerId: driverA.id,
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(17),
         idempotencyKey: unique(),
       });
       const minted = await mintSignedUrlForMediaAsset(tenantA.id, actorA.id, asset.id, 300);
@@ -403,7 +500,7 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
       ownerId: driverA.id,
       fileName: "evidence.jpg",
       contentType: "image/jpeg",
-      data: Buffer.from("bytes"),
+      data: await fakeImageBytes(18),
       idempotencyKey: unique(),
     });
 
@@ -411,3 +508,18 @@ describe("media-asset-repository (Phase 4 — EVID-001..004)", () => {
     expect(await getMediaAssetInTenant(tenantA.id, asset.id)).not.toBeNull();
   });
 });
+
+/**
+ * Reads a non-primary storage key (thumbnail/original) directly off the
+ * local dev filesystem — `serveRawMediaAsset()`/`mintSignedUrlForMediaAsset()`
+ * only ever look up a MediaAsset by its *primary* `storageKey` column, so
+ * they can't serve a thumbnail/original key; this bypasses the HTTP-facing
+ * signed-URL path entirely and asserts directly against the storage layer,
+ * which is all these tests need.
+ */
+async function readStorageObjectDirectly(storageKey: string) {
+  const { LocalFilesystemStorageProvider } = await import("@/lib/storage/local-filesystem-provider");
+  const file = await new LocalFilesystemStorageProvider().read(storageKey);
+  if (!file) throw new Error(`Expected a stored object at ${storageKey}`);
+  return file;
+}

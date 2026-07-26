@@ -215,6 +215,23 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   `evaluateVehiclePolicyCompliance()` and passed through to `evaluatePolicyCompliance()`/
   `computeDistanceSoFar()` — no schema change needed, HARD-004 was a behavioural gap, not a missing column.
 
+## Phase 8B entities (cost-efficient object-storage architecture — implemented)
+- `MediaCategory` (new enum) — ten storage/retention/billing categories (DRIVER_PORTRAIT, FACIAL_AUDIT,
+  VEHICLE_INSPECTION_PHOTO, VEHICLE_INSPECTION_VIDEO, DAMAGE_EVIDENCE, CARGO_EVIDENCE, DELIVERY_DOCUMENT,
+  INVESTIGATION_EVIDENCE, GENERATED_REPORT, OTHER_DOCUMENT) — orthogonal to the existing
+  `MediaAssetOwnerType`, see ARCHITECTURE.md "Object-storage architecture".
+- `MediaUploadStatus` (new enum) — `PENDING`/`PROCESSING`/`READY`/`FAILED`.
+- `MediaAsset` gained: `category` (`MediaCategory @default(OTHER_DOCUMENT)`), `uploadStatus`
+  (`MediaUploadStatus @default(READY)` — every pre-existing row is already fully uploaded), `storageProvider`
+  (`String @default("local")` — which `ObjectStorageProvider` implementation persisted this object),
+  `originalStorageKey`/`thumbnailStorageKey` (both nullable — set only when a category's policy preserves an
+  original, or for any image respectively), `compressionProfile` (nullable — the named profile actually
+  applied, null if stored unmodified), `captureMetadata` (nullable `Json` — device/resolution/GPS/capture
+  timestamp, purely descriptive, never used for access control). A backfill in the migration itself sets
+  `category = DRIVER_PORTRAIT` for every pre-existing row with `ownerType = DRIVER_PORTRAIT` — the one
+  unambiguous mapping; every other pre-existing row keeps the `OTHER_DOCUMENT` column default rather than a
+  guessed category.
+
 ## Phase 7 entities (platform support-access — implemented)
 - **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
   to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
@@ -287,8 +304,13 @@ each is actually migrated, not in advance.
   `observationCount`/`lastObservedAt` + a `[vehicleId, violationType, resolvedAt]` index (HARD-006).
   Purely additive — no data migration needed, every pre-existing row gets `violationType: null`,
   `observationCount: 1` (the column default), `lastObservedAt: null`.
+- `20260726130000_phase8b_media_categories_and_lifecycle` (applied): `MediaCategory`/`MediaUploadStatus`
+  enums; added `MediaAsset.category`/`uploadStatus`/`storageProvider`/`originalStorageKey`/
+  `thumbnailStorageKey`/`compressionProfile`/`captureMetadata` (MEDIA-001..012). Includes one backfill
+  UPDATE (`category = 'DRIVER_PORTRAIT' WHERE ownerType = 'DRIVER_PORTRAIT'`) — every other pre-existing row
+  keeps the column default.
 
-All thirteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All fourteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 

@@ -1,6 +1,20 @@
 # CHANGELOG.md
 
-## 2026-07-26
+## 2026-07-26 (Phase 8B)
+### Added
+- Phase 8B — cost-efficient object-storage architecture (MEDIA-001..012): `ObjectStorageProvider` extended
+  with presigned upload/download and category-aware storage keys; `R2CompatibleStorageProvider` (a real
+  `@aws-sdk/client-s3` client against Cloudflare R2's endpoint shape — blocked, no Cloudflare account
+  exists); ten evidence categories (driver portraits, facial audits, vehicle inspection photos/video, damage
+  evidence, cargo evidence, delivery documents, investigation evidence, generated reports, other documents)
+  each with their own compression profile and original-retention policy; real image compression (WebP,
+  ≤1920px, 75-82% quality) with the checksum always computed on the final compressed bytes, never the
+  client's original upload; thumbnails; an upload-status lifecycle (PENDING/PROCESSING/READY/FAILED) with
+  automated cleanup of abandoned uploads; per-tenant/per-category storage usage accounting. Video
+  compression ships as configuration + a documented passthrough (no ffmpeg in this environment) rather than
+  an unverified transcoder. 27 net new tests (443/443 total).
+
+## 2026-07-26 (Phase 8A)
 ### Added
 - Phase 8A — engineering hardening (HARD-001..006): an automated clean-database migration verification
   script (`npm run verify:clean-migrations`); tenant-timezone-aware vehicle-use-policy evaluation

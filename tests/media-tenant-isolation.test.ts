@@ -10,7 +10,7 @@ import {
 import { startGateEvent, recordInspectionResult, EvidenceMediaAssetNotFoundError } from "@/lib/repositories/gate-event-repository";
 import { createMovement } from "@/lib/repositories/movement-repository";
 import { prisma } from "@/lib/db/prisma";
-import { createTenant, createRole, createUser, createSite, createGate, createDriver, createVehicle } from "./helpers/fixtures";
+import { createTenant, createRole, createUser, createSite, createGate, createDriver, createVehicle, fakeImageBytes } from "./helpers/fixtures";
 
 function unique() {
   return crypto.randomUUID();
@@ -59,7 +59,7 @@ describe("cross-tenant access denied for MediaAsset (Phase 4)", () => {
       ownerId: gateEvent.id,
       fileName: "evidence.jpg",
       contentType: "image/jpeg",
-      data: Buffer.from("tenant a evidence bytes"),
+      data: await fakeImageBytes(101),
       idempotencyKey: unique(),
     });
 
@@ -80,7 +80,7 @@ describe("cross-tenant access denied for MediaAsset (Phase 4)", () => {
       ownerId: gateEvent.id,
       fileName: "evidence.jpg",
       contentType: "image/jpeg",
-      data: Buffer.from("tenant a evidence bytes"),
+      data: await fakeImageBytes(102),
       idempotencyKey: unique(),
     });
 
@@ -99,7 +99,7 @@ describe("cross-tenant access denied for MediaAsset (Phase 4)", () => {
       ownerId: gateEvent.id,
       fileName: "evidence.jpg",
       contentType: "image/jpeg",
-      data: Buffer.from("tenant a evidence bytes"),
+      data: await fakeImageBytes(103),
       idempotencyKey: unique(),
     });
     const minted = await mintSignedUrlForMediaAsset(tenantA.id, actor.id, asset.id, 300);
@@ -127,7 +127,7 @@ describe("cross-tenant access denied for MediaAsset (Phase 4)", () => {
         ownerId: gateEvent.id, // belongs to tenant A
         fileName: "evidence.jpg",
         contentType: "image/jpeg",
-        data: Buffer.from("bytes"),
+        data: await fakeImageBytes(104),
         idempotencyKey: unique(),
       }),
     ).rejects.toBeInstanceOf(MediaOwnerNotFoundError);
@@ -147,7 +147,7 @@ describe("cross-tenant access denied for MediaAsset (Phase 4)", () => {
       ownerId: otherGateEvent.id,
       fileName: "evidence.jpg",
       contentType: "image/jpeg",
-      data: Buffer.from("bytes"),
+      data: await fakeImageBytes(105),
       idempotencyKey: unique(),
     });
 

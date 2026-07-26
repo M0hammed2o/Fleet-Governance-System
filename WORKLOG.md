@@ -1293,3 +1293,119 @@ usage accounting) next.
 **Exact recommended next action:** Begin Phase 8B — the `ObjectStorageProvider` interface first (mirroring
 the existing `StorageProvider`/`FacialVerificationProvider`/`TelematicsProvider` adapter pattern), since
 presigned URLs, checksum verification, upload-status lifecycle, and storage accounting all build on it.
+
+---
+
+## 2026-07-26 — Session 14 — Phase 8B: cost-efficient object-storage architecture (MEDIA-001..012)
+**Objective:** Continue the user's instructed autonomous run through Phase 8 with 8B — a provider-neutral
+object-storage architecture, presigned upload/download, ten evidence categories with per-category
+compression/retention rules, real image compression, thumbnails, an upload-status lifecycle, failed-upload
+cleanup, and storage usage accounting — without opening a Cloudflare account.
+
+**Design (see DECISIONS.md D-024/D-025 for the two genuinely non-obvious calls):**
+- Extended the existing Phase 4 `StorageProvider` interface into `ObjectStorageProvider`
+  (`lib/storage/provider.ts`) rather than building a parallel interface — added
+  `createPresignedUpload()`/`confirmUpload()`, and every method now takes a `MediaCategory` so storage keys
+  are `${tenantId}/${category}/${uuid}-${fileName}`, not just `${tenantId}/...`.
+- `LocalFilesystemStorageProvider` extended with a presigned-upload analogue: since there's no real cloud
+  vendor to hand a presigned PUT to, it mints an HMAC-signed *upload*-purpose token (distinct from a read
+  token — `lib/storage/signed-url.ts` gained a `purpose: "read" | "upload"` parameter, so one can never be
+  replayed as the other) pointing at a new `PUT /api/media/raw-upload` route.
+- `R2CompatibleStorageProvider` (new) — a real `@aws-sdk/client-s3` client against R2's S3-compatible
+  endpoint (`https://<accountId>.r2.cloudflarestorage.com`), not a hand-rolled stub, so swapping in real R2
+  credentials later needs no code change. **No Cloudflare account exists for this project** — every method
+  throws `R2NotConfiguredError` unless all four `R2_*` env vars are set, none of which appear anywhere in
+  this repo. Presigned-URL generation is pure local SigV4 signing (no network call), so it's directly
+  unit-tested against a fake, explicitly-non-real config without ever touching a real account.
+- Ten `MediaCategory` values (D-025) — orthogonal to the existing `MediaAssetOwnerType`. Added as
+  `MediaAsset.category`, defaulting to `OTHER_DOCUMENT`; the ~30 existing `uploadMediaAsset()` call sites
+  across the codebase were not individually rewritten to pass one in this pass (a much larger diff than this
+  subphase's actual scope) — a documented gap (TODO.md), with one migration-time backfill for the single
+  unambiguous case (`ownerType: DRIVER_PORTRAIT` → `category: DRIVER_PORTRAIT`).
+- Real image compression (`lib/storage/image-compression.ts`, `sharp`): WebP conversion, resized to ≤1920px
+  on the longest side (never upscaled), quality 75-82% depending on a "standard"/"high-quality" profile
+  (`MEDIA_CATEGORY_RULES`). `DAMAGE_EVIDENCE`/`INVESTIGATION_EVIDENCE` use the high-quality profile and
+  additionally preserve the original alongside the compressed copy; every other category stores only the
+  compressed copy. A thumbnail (≤320px WebP) is generated for every image. The checksum is always computed
+  over the *final* (post-compression) bytes, never the client's original upload — verified by a test
+  asserting the recorded checksum differs from a hash of the original input.
+- Video compression (D-024) ships as full policy configuration (`lib/storage/video-compression.ts`:
+  720p/H.264/MP4/24-30fps/30-60s/target bitrate) plus a `VideoCompressionProvider` interface, but only
+  `PassthroughVideoCompressionProvider` is implemented — real H.264 transcoding needs ffmpeg, not installed
+  here, and shipping an unverified transcoder (or worse, a fake one) would violate the hard rule against
+  overclaiming. A real, honest, documented gap, not a silent one.
+- Presigned-upload lifecycle: `initiatePresignedUpload()` creates a `PENDING` MediaAsset row immediately
+  (so an abandoned upload leaves a discoverable, cleanable trace, not a silent orphaned storage key) and
+  reserves a storage key; the client PUTs bytes directly; `confirmPresignedUpload()` verifies the object
+  actually exists (never trusts the client's claim), reads it back, runs the same compression pipeline the
+  direct-upload path uses, and moves PENDING → READY (or FAILED, typed, never a raw 500).
+- `cleanupFailedUploads()` removes any PENDING/FAILED row older than a configurable age (default 24h),
+  best-effort deleting the underlying storage object first — a never-completed upload has no evidentiary
+  value to keep as a tombstone.
+- `getStorageUsageForTenant()` — one `groupBy` aggregate query by category, READY rows only (real DB
+  aggregates, same discipline as every other dashboard-style function in this codebase, no static values).
+
+**A test-fixture compatibility break found and fixed along the way:** the ~30 pre-existing tests that upload
+"images" used arbitrary text buffers (`Buffer.from("fake image content")`) labeled `contentType:
+"image/jpeg"` — this worked under the old pipeline (no real decoding) but now fails, since `sharp` genuinely
+tries to decode the bytes. Added `fakeImageBytes(seed)` to `tests/helpers/fixtures.ts` (a real, tiny,
+sharp-generated JPEG, parameterised by seed so tests needing two genuinely different "images" — e.g.
+idempotency-conflict cases — still get distinct content) and updated the three affected test files
+(`media-asset-repository.test.ts`, `media-tenant-isolation.test.ts`, `dispatch-enhancements.test.ts`) to use
+it. `media-asset-repository.test.ts`'s assertions were also updated to reflect that the served/checksummed
+bytes are now the compressed WebP output, not the original upload — verified via `sharp(file.data).metadata()`
+returning a genuinely decodable image, not just a byte-count match.
+
+**Files changed:**
+- `prisma/schema.prisma` — `MediaCategory`/`MediaUploadStatus` enums; `MediaAsset` gained
+  `category`/`uploadStatus`/`storageProvider`/`originalStorageKey`/`thumbnailStorageKey`/
+  `compressionProfile`/`captureMetadata`; migration
+  `prisma/migrations/20260726130000_phase8b_media_categories_and_lifecycle/` (includes the DRIVER_PORTRAIT
+  backfill).
+- `src/lib/storage/provider.ts` — `ObjectStorageProvider` interface (extended from `StorageProvider`).
+- `src/lib/storage/local-filesystem-provider.ts` — presigned upload, category-aware keys.
+- `src/lib/storage/r2-compatible-provider.ts` (new).
+- `src/lib/storage/media-categories.ts` (new) — category rules, content-type classification, size limits.
+- `src/lib/storage/image-compression.ts` (new) — real `sharp`-based compression + thumbnails.
+- `src/lib/storage/video-compression.ts` (new) — policy config + passthrough provider.
+- `src/lib/storage/signed-url.ts` — added the `purpose` parameter (read vs upload token isolation).
+- `src/lib/repositories/media-asset-repository.ts` — category-aware validation, compression pipeline,
+  `initiatePresignedUpload()`/`confirmPresignedUpload()`/`cleanupFailedUploads()`/
+  `getStorageUsageForTenant()`.
+- `src/lib/validation/media.ts` — `mediaCategorySchema`, `initiatePresignedUploadSchema`.
+- Routes (new): `POST /api/media/presigned-upload`, `POST /api/media/[id]/confirm-upload`,
+  `PUT /api/media/raw-upload`. `POST /api/media/upload` extended to accept an optional `category` field.
+- `package.json`/`package-lock.json` — added `sharp`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`.
+- `tests/helpers/fixtures.ts` — `fakeImageBytes()`.
+- `tests/media-asset-repository.test.ts` (rewritten for the compression pipeline), `tests/
+  media-tenant-isolation.test.ts`/`tests/dispatch-enhancements.test.ts` (updated to use real image bytes),
+  `tests/signed-url.test.ts` (purpose-isolation cases), `tests/object-storage-phase8b.test.ts` (new).
+- Docs: `PRODUCT_REQUIREMENTS.md` (new MEDIA-001..012 table), `ARCHITECTURE.md` (new "Object-storage
+  architecture" section), `DATA_MODEL.md` (Phase 8B entities + migration history), `DECISIONS.md` (D-024,
+  D-025), `INTEGRATIONS.md` (ObjectStorageProvider/R2CompatibleStorageProvider status), `TESTING.md` (Phase
+  8B coverage), `TODO.md`.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean (fixed two unused-import warnings along the way).
+- `npm test` — **443/443 passing** (31 files; 27 net new over Phase 8A's 416, including a full rewrite of
+  the 19 media-asset-repository cases for the new compression pipeline).
+- `npm run build` — clean (3 new routes).
+- `npm run verify:clean-migrations` — PASS, all 14 migrations against a genuinely empty database.
+- Manual curl verification against a running dev server: uploaded a real 2400×1600 JPEG with
+  `category=DAMAGE_EVIDENCE` via `POST /api/media/upload` — confirmed `contentType: image/webp`, a
+  populated `thumbnailStorageKey` and `originalStorageKey`, `compressionProfile: high-quality`, and a
+  dramatically smaller `fileSizeBytes` than the original; confirmed a VIEW-only role is blocked 403
+  initiating a presigned upload; ran the complete presigned-upload lifecycle end to end (initiate → raw PUT
+  with no auth cookie, matching real S3/R2 presigned-URL behaviour → confirm) and got a `READY`,
+  correctly-categorised, correctly-profiled asset; confirmed re-confirming an already-confirmed upload
+  404s, not a 500. No raw 500s observed at any step.
+
+**Bugs found this session:** none in the implementation — the test-fixture incompatibility above was an
+expected, anticipated consequence of adding real compression, not a defect.
+
+**Remaining work:** Phase 8C (retention, archive, deletion) next.
+
+**Exact recommended next action:** Begin Phase 8C — `RetentionPolicy` model first (category-specific
+durations, legal/investigation-hold flags, scheduled-deletion date), since the deletion-approval workflow,
+export-request workflow, and archive-pricing configuration all reference it.

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { createMovement } from "@/lib/repositories/movement-repository";
 import { uploadMediaAsset, MediaOwnerNotFoundError } from "@/lib/repositories/media-asset-repository";
-import { createTenant, createRole, createUser, createSite, createDriver, createVehicle } from "./helpers/fixtures";
+import { createTenant, createRole, createUser, createSite, createDriver, createVehicle, fakeImageBytes } from "./helpers/fixtures";
 
 async function baseSetup() {
   const tenant = await createTenant();
@@ -137,7 +137,7 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       ownerId: movement.id,
       fileName: "delivery-note.pdf",
       contentType: "image/png",
-      data: Buffer.from("fictional delivery note content"),
+      data: await fakeImageBytes(201),
       idempotencyKey: crypto.randomUUID(),
     });
 
@@ -165,7 +165,7 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
         ownerId: movement.id,
         fileName: "delivery-note.pdf",
         contentType: "image/png",
-        data: Buffer.from("fictional content"),
+        data: await fakeImageBytes(202),
         idempotencyKey: crypto.randomUUID(),
       }),
     ).rejects.toBeInstanceOf(MediaOwnerNotFoundError);
@@ -189,7 +189,7 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       ownerId: movement.id,
       fileName: "delivery-note.pdf",
       contentType: "image/png",
-      data: Buffer.from("delivery note"),
+      data: await fakeImageBytes(203),
       idempotencyKey: crypto.randomUUID(),
     });
     await uploadMediaAsset({
@@ -199,7 +199,7 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       ownerId: movement.id,
       fileName: "proof-of-delivery.png",
       contentType: "image/png",
-      data: Buffer.from("proof of delivery"),
+      data: await fakeImageBytes(204),
       idempotencyKey: crypto.randomUUID(),
     });
 

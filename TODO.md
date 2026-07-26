@@ -1,9 +1,10 @@
 # TODO.md
 
 ## Now
-Phase 8A (engineering hardening — HARD-001..006) is **complete**, see WORKLOG.md Session 13. Phase 8B
-(cost-efficient media architecture), 8C (retention/archive/deletion), and 8D (platform storage dashboard)
-are next, per the user's instruction to proceed autonomously through all of Phase 8.
+Phase 8A (engineering hardening — HARD-001..006) and Phase 8B (cost-efficient object-storage architecture —
+MEDIA-001..012) are **complete**, see WORKLOG.md Sessions 13-14. Phase 8C (retention/archive/deletion) and
+8D (platform storage dashboard) are next, per the user's instruction to proceed autonomously through all of
+Phase 8.
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -54,6 +55,9 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Scheduled job to auto-transition APPROVED movements past `expectedDepartureAt` to EXPIRED (repository function `expireMovement` exists and is tested; nothing calls it on a schedule yet) | Priority: low | Deps: none
 - [ ] No self-service way to change `Tenant.timezone` from its seeded/schema default (`Africa/Johannesburg`) — the field is now genuinely used for vehicle-use-policy evaluation (Phase 8A, HARD-004), but there is no `tenant` permission resource or settings route/UI to update it; every tenant is evaluated against the default until one is added | Priority: low | Deps: none, deliberately not built speculatively — no route existed for any tenant self-service setting before this phase
 - [ ] `TRIP_DISTANCE_LIMIT_EXCEEDED`'s trip-boundary definition (ignition-off→on transitions, D-023) has not been validated against a real telematics vendor's actual ignition-signal reliability — only the mock provider, which always reports it | Priority: low | Deps: a production telematics provider (currently blocked, GPS-BLOCKED)
+- [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy already defined in `lib/storage/video-compression.ts`) — currently a documented passthrough (D-024); needs ffmpeg or an equivalent installed and verified in this environment | Priority: medium | Deps: none, but must be verified end-to-end before claiming it works, not just installed
+- [ ] Most existing `uploadMediaAsset()` call sites (gate inspection evidence, manual facial-verification fallback evidence, compliance-document attachments, movement documents — everything predating Phase 8B) still default to `category: OTHER_DOCUMENT` rather than passing a real category (D-025) — update each capture-point's call site to pass an appropriate category as those pages are next revisited | Priority: medium | Deps: none
+- [ ] No admin UI to browse/act on `MediaAsset.uploadStatus` (e.g. a "failed uploads" list, a manual "retry cleanup now" button) — `cleanupFailedUploads()` exists and is tested but nothing calls it on a schedule yet, same category of gap as the existing "Scheduled job to auto-transition APPROVED movements" item above | Priority: low | Deps: none
 
 ## Later
 - [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
@@ -69,6 +73,18 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 8B: Cost-efficient object-storage architecture (MEDIA-001..012) — `ObjectStorageProvider`
+      interface extended with presigned upload/confirm; `R2CompatibleStorageProvider` (real
+      `@aws-sdk/client-s3` client, blocked — no Cloudflare account); ten `MediaCategory` values with
+      per-category compression-profile/original-retention/retention-category rules; real image compression
+      (WebP, ≤1920px, 75-82% quality via `sharp`) with checksum computed on the final compressed bytes, not
+      the client's original; thumbnails; video-compression policy + interface defined but shipped as a
+      documented passthrough (D-024, real transcoding needs ffmpeg, not installed); upload-status lifecycle
+      (PENDING→PROCESSING→READY/FAILED); failed-upload cleanup; per-tenant/per-category storage usage
+      accounting — 443/443 tests passing (27 net new over Phase 8A's 416, including a full rewrite of the
+      19 media-asset-repository cases for the new compression pipeline),
+      tsc/lint/build clean, clean-migration verification passing, full live curl verification of the
+      multipart-upload-with-compression path and the complete presigned-upload lifecycle — 2026-07-26.
 - [x] Phase 8A: Engineering hardening (HARD-001..006) — clean-database migration verification
       (`npm run verify:clean-migrations`); root-caused and fixed the Postgres concurrent-query deprecation
       warning's real underlying defect (`getCustomerHealthSummaries()`'s unbounded per-tenant query fan-out,

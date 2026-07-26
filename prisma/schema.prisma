@@ -1246,6 +1246,34 @@ enum MediaDataClassification {
   INTERNAL
 }
 
+// Phase 8B (cost-efficient media architecture) — storage/retention/billing
+// classification, orthogonal to `MediaAssetOwnerType` (which describes which
+// *record* owns this evidence, not what *kind* of evidence it is). See
+// ARCHITECTURE.md "Object-storage architecture" and DECISIONS.md.
+enum MediaCategory {
+  DRIVER_PORTRAIT
+  FACIAL_AUDIT
+  VEHICLE_INSPECTION_PHOTO
+  VEHICLE_INSPECTION_VIDEO
+  DAMAGE_EVIDENCE
+  CARGO_EVIDENCE
+  DELIVERY_DOCUMENT
+  INVESTIGATION_EVIDENCE
+  GENERATED_REPORT
+  OTHER_DOCUMENT
+}
+
+// Phase 8B upload-status lifecycle. PENDING = a presigned upload URL was
+// minted but the object hasn't been confirmed yet; PROCESSING = confirmed,
+// compression/thumbnail generation running; READY = usable; FAILED = the
+// upload never completed or processing failed — eligible for cleanup.
+enum MediaUploadStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
 // One reusable, polymorphic model for every kind of uploaded evidence in the
 // system — gate-event walk-around photos/video, a single inspection item's
 // evidence, manual facial-verification fallback evidence, driver portraits,
@@ -1292,6 +1320,28 @@ model MediaAsset {
   // uploadMediaAsset() / IdempotencyKeyConflictError in
   // lib/repositories/media-asset-repository.ts.
   idempotencyKey String
+
+  // --- Phase 8B: cost-efficient object-storage architecture ---------------
+  category        MediaCategory     @default(OTHER_DOCUMENT)
+  uploadStatus    MediaUploadStatus @default(READY)
+  // Which ObjectStorageProvider implementation persisted this object
+  // ("local" | "r2") — for accounting/dashboards, not used to route reads
+  // (a MediaAsset's provider never changes after creation in this phase).
+  storageProvider String            @default("local")
+  // Set only when a compressed/converted version differs from what the
+  // client originally sent and policy requires keeping the original too
+  // (flagged incidents — see ARCHITECTURE.md). Null otherwise: most evidence
+  // only ever has one stored copy.
+  originalStorageKey  String?
+  thumbnailStorageKey String?
+  // Named compression profile actually applied at upload time (see
+  // lib/storage/media-categories.ts) — null if stored unmodified (e.g. a
+  // content type this phase doesn't compress, like PDF documents).
+  compressionProfile  String?
+  // Capture-context metadata recorded alongside the file (device, original
+  // resolution/duration, GPS if supplied, client capture timestamp) —
+  // opaque JSON, never used for access control, purely descriptive.
+  captureMetadata     Json?
 
   createdAt DateTime @default(now())
 

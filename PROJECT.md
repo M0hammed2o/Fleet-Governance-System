@@ -30,10 +30,10 @@ mapping and rationale (remapped 2026-07-23 from an earlier 8-role set).
   record rather than re-capturing cargo/delivery data.
 
 ## Current project status
-**Phases 1–7 complete; Phase 8A (engineering hardening) complete; Phase 8B (cost-efficient media
-architecture) is next.** See WORKLOG.md Session 13 and TODO.md "Now" for current detail — the paragraph
-below is a stale narrative snapshot from an earlier phase, kept for history; WORKLOG.md/TODO.md are the
-source of truth.
+**Phases 1–7 complete; Phase 8A (engineering hardening) and 8B (cost-efficient object-storage architecture)
+complete; Phase 8C (retention/archive/deletion) is next.** See WORKLOG.md Sessions 13-14 and TODO.md "Now"
+for current detail — the paragraph below is a stale narrative snapshot from an earlier phase, kept for
+history; WORKLOG.md/TODO.md are the source of truth.
 Repository was empty (greenfield) as of 2026-07-19. Foundation (auth/permissions/audit), master data
 (drivers/vehicles/documents/tyre config/movement authorisation), gate operations (GateEvent state
 machine, guided inspection, exceptions, security dashboard), evidence/media (secure upload, signed-URL-
