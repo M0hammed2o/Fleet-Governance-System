@@ -1,5 +1,21 @@
 # CHANGELOG.md
 
+## 2026-07-26
+### Added
+- Phase 8A — engineering hardening (HARD-001..006): an automated clean-database migration verification
+  script (`npm run verify:clean-migrations`); tenant-timezone-aware vehicle-use-policy evaluation
+  (`Tenant.timezone`, previously unused, now actually drives day/hour/weekend checks); real per-trip/daily/
+  weekly/monthly distance accumulation from telematics odometer readings (`lib/telematics/distance-engine.ts`,
+  pure and timezone-aware); GPS-exception deduplication with episode tracking, escalation after repeated
+  observation, and automatic clearing on a return to compliance; removed the obsolete
+  `vite-tsconfig-paths` plugin in favour of Vite's native option. 20 new tests (416/416 total).
+
+### Fixed
+- BUG-004 — `getCustomerHealthSummaries()` fired an unbounded ~9-queries-per-tenant fan-out, which
+  saturated the database connection pool once enough fixture tenants had accumulated and caused
+  intermittent test timeouts (surfacing as a Postgres "client already executing a query" deprecation
+  warning). Rewritten to use grouped aggregate queries — 9 total, regardless of tenant count.
+
 ## 2026-07-24
 ### Added
 - Phase 7 — platform support-access view (SUPPORT-001..004), the final phase of this build run: a

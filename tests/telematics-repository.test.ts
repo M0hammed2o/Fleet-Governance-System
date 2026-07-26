@@ -5,6 +5,7 @@ import { TelematicsProviderUnavailableError } from "@/lib/telematics/provider";
 import { haversineDistanceMeters, isWithinGeofence, evaluatePolicyCompliance } from "@/lib/telematics/geofence-engine";
 import {
   syncVehicleTelematics,
+  evaluateVehiclePolicyCompliance,
   requestManualGpsConfirmation,
   resolveManualGpsConfirmation,
   createGeofence,
@@ -86,97 +87,179 @@ describe("geofence-engine (pure)", () => {
     expect(isWithinGeofence({ latitude: -33.9249, longitude: 18.4241 }, geofence)).toBe(false);
   });
 
+  const SAST = "Africa/Johannesburg"; // UTC+2, no DST — the seeded/default Tenant.timezone
+  const noDistance = { trip: null, day: null, week: null, month: null };
+  const basePolicy = {
+    permittedDaysOfWeek: [] as number[],
+    permittedStartTime: null as string | null,
+    permittedEndTime: null as string | null,
+    allowAfterHours: false,
+    allowWeekend: false,
+    approvedGeofence: null as { centerLatitude: number; centerLongitude: number; radiusMeters: number } | null,
+    kmLimitPerTrip: null as number | null,
+    kmLimitPerDay: null as number | null,
+    kmLimitPerWeek: null as number | null,
+    kmLimitPerMonth: null as number | null,
+  };
+
   it("produces no violations for a fully compliant reading", () => {
-    const monday = new Date("2026-07-27T10:00:00"); // a Monday
+    const mondayMorningSAST = new Date("2026-07-27T08:00:00Z"); // 10:00 SAST, a Monday
     const violations = evaluatePolicyCompliance({
       position: { latitude: -26.2041, longitude: 28.0473 },
-      at: monday,
+      at: mondayMorningSAST,
+      timezone: SAST,
       policy: {
-        permittedDaysOfWeek: [],
+        ...basePolicy,
         permittedStartTime: "08:00",
         permittedEndTime: "17:00",
-        allowAfterHours: false,
-        allowWeekend: false,
         approvedGeofence: { centerLatitude: -26.2041, centerLongitude: 28.0473, radiusMeters: 500 },
         kmLimitPerTrip: 200,
       },
-      tripKmSoFar: 50,
+      distanceSoFar: { ...noDistance, trip: 50 },
     });
     expect(violations).toHaveLength(0);
   });
 
   it("flags OUTSIDE_APPROVED_GEOFENCE as HIGH severity", () => {
-    const monday = new Date("2026-07-27T10:00:00");
+    const mondayMorningSAST = new Date("2026-07-27T08:00:00Z");
     const violations = evaluatePolicyCompliance({
       position: { latitude: -33.9249, longitude: 18.4241 },
-      at: monday,
-      policy: {
-        permittedDaysOfWeek: [],
-        permittedStartTime: null,
-        permittedEndTime: null,
-        allowAfterHours: false,
-        allowWeekend: false,
-        approvedGeofence: { centerLatitude: -26.2041, centerLongitude: 28.0473, radiusMeters: 500 },
-        kmLimitPerTrip: null,
-      },
-      tripKmSoFar: null,
+      at: mondayMorningSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, approvedGeofence: { centerLatitude: -26.2041, centerLongitude: 28.0473, radiusMeters: 500 } },
+      distanceSoFar: noDistance,
     });
     expect(violations.find((v) => v.type === "OUTSIDE_APPROVED_GEOFENCE")?.severity).toBe("HIGH");
   });
 
   it("flags WEEKEND_USE_NOT_PERMITTED on a Saturday when allowWeekend is false", () => {
-    const saturday = new Date("2026-07-25T10:00:00"); // a Saturday
+    const saturdayMorningSAST = new Date("2026-07-25T08:00:00Z"); // 10:00 SAST, a Saturday
     const violations = evaluatePolicyCompliance({
       position: null,
-      at: saturday,
-      policy: { permittedDaysOfWeek: [], permittedStartTime: null, permittedEndTime: null, allowAfterHours: false, allowWeekend: false, approvedGeofence: null, kmLimitPerTrip: null },
-      tripKmSoFar: null,
+      at: saturdayMorningSAST,
+      timezone: SAST,
+      policy: basePolicy,
+      distanceSoFar: noDistance,
     });
     expect(violations.some((v) => v.type === "WEEKEND_USE_NOT_PERMITTED")).toBe(true);
   });
 
   it("does not flag weekend use when allowWeekend is true", () => {
-    const saturday = new Date("2026-07-25T10:00:00");
+    const saturdayMorningSAST = new Date("2026-07-25T08:00:00Z");
     const violations = evaluatePolicyCompliance({
       position: null,
-      at: saturday,
-      policy: { permittedDaysOfWeek: [], permittedStartTime: null, permittedEndTime: null, allowAfterHours: false, allowWeekend: true, approvedGeofence: null, kmLimitPerTrip: null },
-      tripKmSoFar: null,
+      at: saturdayMorningSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, allowWeekend: true },
+      distanceSoFar: noDistance,
     });
     expect(violations.some((v) => v.type === "WEEKEND_USE_NOT_PERMITTED")).toBe(false);
   });
 
   it("flags OUTSIDE_PERMITTED_HOURS outside the configured window", () => {
-    const lateNight = new Date("2026-07-27T23:00:00"); // Monday 23:00
+    const lateNightSAST = new Date("2026-07-27T21:00:00Z"); // 23:00 SAST, Monday
     const violations = evaluatePolicyCompliance({
       position: null,
-      at: lateNight,
-      policy: { permittedDaysOfWeek: [], permittedStartTime: "08:00", permittedEndTime: "17:00", allowAfterHours: false, allowWeekend: false, approvedGeofence: null, kmLimitPerTrip: null },
-      tripKmSoFar: null,
+      at: lateNightSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, permittedStartTime: "08:00", permittedEndTime: "17:00" },
+      distanceSoFar: noDistance,
     });
     expect(violations.some((v) => v.type === "OUTSIDE_PERMITTED_HOURS")).toBe(true);
   });
 
   it("does not flag hours when allowAfterHours is true", () => {
-    const lateNight = new Date("2026-07-27T23:00:00");
+    const lateNightSAST = new Date("2026-07-27T21:00:00Z");
     const violations = evaluatePolicyCompliance({
       position: null,
-      at: lateNight,
-      policy: { permittedDaysOfWeek: [], permittedStartTime: "08:00", permittedEndTime: "17:00", allowAfterHours: true, allowWeekend: false, approvedGeofence: null, kmLimitPerTrip: null },
-      tripKmSoFar: null,
+      at: lateNightSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, permittedStartTime: "08:00", permittedEndTime: "17:00", allowAfterHours: true },
+      distanceSoFar: noDistance,
     });
     expect(violations.some((v) => v.type === "OUTSIDE_PERMITTED_HOURS")).toBe(false);
   });
 
-  it("flags DISTANCE_LIMIT_EXCEEDED when trip distance exceeds the per-trip limit", () => {
-    const monday = new Date("2026-07-27T10:00:00");
+  it("flags TRIP_DISTANCE_LIMIT_EXCEEDED when trip distance exceeds the per-trip limit", () => {
+    const mondayMorningSAST = new Date("2026-07-27T08:00:00Z");
     const violations = evaluatePolicyCompliance({
       position: null,
-      at: monday,
-      policy: { permittedDaysOfWeek: [], permittedStartTime: null, permittedEndTime: null, allowAfterHours: false, allowWeekend: false, approvedGeofence: null, kmLimitPerTrip: 100 },
-      tripKmSoFar: 150,
+      at: mondayMorningSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, kmLimitPerTrip: 100 },
+      distanceSoFar: { ...noDistance, trip: 150 },
     });
-    expect(violations.some((v) => v.type === "DISTANCE_LIMIT_EXCEEDED")).toBe(true);
+    expect(violations.some((v) => v.type === "TRIP_DISTANCE_LIMIT_EXCEEDED")).toBe(true);
+  });
+
+  it("flags DAILY/WEEKLY/MONTHLY_DISTANCE_LIMIT_EXCEEDED independently of the per-trip limit", () => {
+    const mondayMorningSAST = new Date("2026-07-27T08:00:00Z");
+    const violations = evaluatePolicyCompliance({
+      position: null,
+      at: mondayMorningSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, kmLimitPerDay: 100, kmLimitPerWeek: 300, kmLimitPerMonth: 1000 },
+      distanceSoFar: { trip: null, day: 150, week: 350, month: 1200 },
+    });
+    expect(violations.some((v) => v.type === "DAILY_DISTANCE_LIMIT_EXCEEDED")).toBe(true);
+    expect(violations.some((v) => v.type === "WEEKLY_DISTANCE_LIMIT_EXCEEDED")).toBe(true);
+    expect(violations.some((v) => v.type === "MONTHLY_DISTANCE_LIMIT_EXCEEDED")).toBe(true);
+  });
+
+  it("never flags a distance limit when the computed distance is null (insufficient data), rather than treating it as zero", () => {
+    const mondayMorningSAST = new Date("2026-07-27T08:00:00Z");
+    const violations = evaluatePolicyCompliance({
+      position: null,
+      at: mondayMorningSAST,
+      timezone: SAST,
+      policy: { ...basePolicy, kmLimitPerTrip: 1, kmLimitPerDay: 1, kmLimitPerWeek: 1, kmLimitPerMonth: 1 },
+      distanceSoFar: noDistance,
+    });
+    expect(violations).toHaveLength(0);
+  });
+
+  describe("timezone boundary — must use the tenant's IANA timezone, not the server/UTC clock", () => {
+    it("evaluates permitted-day against the tenant's local calendar day, which can differ from the UTC calendar day", () => {
+      // 2026-07-27T23:30:00Z is Monday in UTC, but 2026-07-28T01:30 SAST — already Tuesday locally.
+      const crossesMidnightInSAST = new Date("2026-07-27T23:30:00Z");
+      const violations = evaluatePolicyCompliance({
+        position: null,
+        at: crossesMidnightInSAST,
+        timezone: SAST,
+        policy: { ...basePolicy, permittedDaysOfWeek: [2] /* Tuesday only */, allowWeekend: true },
+        distanceSoFar: noDistance,
+      });
+      // Locally (SAST) this is Tuesday, a permitted day — a UTC-based evaluation would
+      // see Monday (not in permittedDaysOfWeek) and wrongly flag OUTSIDE_PERMITTED_DAY.
+      expect(violations.some((v) => v.type === "OUTSIDE_PERMITTED_DAY")).toBe(false);
+    });
+
+    it("evaluates permitted-hours against the tenant's local clock, which can differ from the UTC hour", () => {
+      // 21:30 UTC = 23:30 SAST — outside a 08:00-22:00 local window, even though 21:30 UTC would be inside it.
+      const at = new Date("2026-07-27T21:30:00Z");
+      const violations = evaluatePolicyCompliance({
+        position: null,
+        at,
+        timezone: SAST,
+        policy: { ...basePolicy, permittedStartTime: "08:00", permittedEndTime: "22:00" },
+        distanceSoFar: noDistance,
+      });
+      expect(violations.some((v) => v.type === "OUTSIDE_PERMITTED_HOURS")).toBe(true);
+    });
+
+    it("a different tenant timezone shifts the same instant to a compliant local time", () => {
+      // The same UTC instant as above, evaluated against a UTC-based tenant timezone
+      // instead, lands at 21:30 local — inside the 08:00-22:00 window.
+      const at = new Date("2026-07-27T21:30:00Z");
+      const violations = evaluatePolicyCompliance({
+        position: null,
+        at,
+        timezone: "UTC",
+        policy: { ...basePolicy, permittedStartTime: "08:00", permittedEndTime: "22:00" },
+        distanceSoFar: noDistance,
+      });
+      expect(violations.some((v) => v.type === "OUTSIDE_PERMITTED_HOURS")).toBe(false);
+    });
   });
 });
 
@@ -252,6 +335,107 @@ describe("syncVehicleTelematics (GPS-001/003/006)", () => {
     const { tenant, user, vehicle } = await baseSetup();
     const result = await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
     expect(result.violations).toHaveLength(0);
+  });
+});
+
+describe("GPS-exception deduplication (Phase 8A) — episode tracking, escalation, and auto-clearing", () => {
+  async function setUpOutsideGeofencePolicy() {
+    const { tenant, user, vehicle } = await baseSetup();
+    const driver = await createDriver(tenant.id);
+    const geofence = await createGeofence({ tenantId: tenant.id, name: "Approved Site", centerLatitude: -33.9249, centerLongitude: 18.4241, radiusMeters: 500 });
+    const policy = await createVehicleUsePolicy({
+      tenantId: tenant.id,
+      name: "Sales team policy",
+      driverId: driver.id,
+      vehicleIds: [vehicle.id],
+      effectiveFrom: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      approvedGeofenceId: geofence.id,
+    });
+    await approveVehicleUsePolicy(tenant.id, policy.id, user.id);
+    await prisma.vehicle.update({ where: { id: vehicle.id }, data: { gpsDeviceReference: vehicle.id } }); // default JHB position, outside Cape Town geofence
+    return { tenant, user, vehicle, policy };
+  }
+
+  it("does not raise a second open exception when the same violation persists across repeated syncs", async () => {
+    const { tenant, user, vehicle } = await setUpOutsideGeofencePolicy();
+
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+
+    const exceptions = await prisma.exception.findMany({ where: { tenantId: tenant.id, vehicleId: vehicle.id, violationType: "OUTSIDE_APPROVED_GEOFENCE" } });
+    expect(exceptions).toHaveLength(1);
+    expect(exceptions[0].observationCount).toBe(3);
+    expect(exceptions[0].resolvedAt).toBeNull();
+  });
+
+  it("escalates a continuing violation to HIGH/supervisor-approval once it persists past the observation threshold", async () => {
+    const { tenant, user, vehicle } = await baseSetup();
+    const driver = await createDriver(tenant.id);
+    // A MEDIUM violation (weekend use) so escalation is observable — geofence violations already start HIGH.
+    const policy = await createVehicleUsePolicy({
+      tenantId: tenant.id,
+      name: "Weekday only policy",
+      driverId: driver.id,
+      vehicleIds: [vehicle.id],
+      effectiveFrom: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      allowWeekend: false,
+    });
+    await approveVehicleUsePolicy(tenant.id, policy.id, user.id);
+
+    // Called directly (not through syncVehicleTelematics/the mock provider's
+    // real "now") with a fixed, deterministic Saturday, so this test never
+    // depends on which real-world day the suite happens to run on.
+    const saturday = new Date("2026-08-01T08:00:00Z");
+    const event = { latitude: -26.2041, longitude: 28.0473, recordedAt: saturday };
+
+    await evaluateVehiclePolicyCompliance(tenant.id, vehicle.id, event, user.id);
+    await evaluateVehiclePolicyCompliance(tenant.id, vehicle.id, event, user.id);
+    await evaluateVehiclePolicyCompliance(tenant.id, vehicle.id, event, user.id);
+
+    const exception = await prisma.exception.findFirst({ where: { tenantId: tenant.id, vehicleId: vehicle.id, violationType: "WEEKEND_USE_NOT_PERMITTED" } });
+    expect(exception?.observationCount).toBe(3);
+    expect(exception?.severity).toBe("HIGH");
+    expect(exception?.requiresSupervisorApproval).toBe(true);
+
+    const escalationAudit = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: "telematics.policyViolationEscalated", entityId: exception!.id } });
+    expect(escalationAudit).not.toBeNull();
+  });
+
+  it("automatically clears an open episode once the vehicle returns to compliance on a later sync", async () => {
+    const { tenant, user, vehicle, policy } = await setUpOutsideGeofencePolicy();
+
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+    const openException = await prisma.exception.findFirst({ where: { tenantId: tenant.id, vehicleId: vehicle.id, violationType: "OUTSIDE_APPROVED_GEOFENCE" } });
+    expect(openException?.resolvedAt).toBeNull();
+
+    // Vehicle becomes compliant: suspend the policy so there's nothing left to violate.
+    await prisma.vehicleUsePolicy.update({ where: { id: policy.id }, data: { status: "SUSPENDED" } });
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+
+    const cleared = await prisma.exception.findUniqueOrThrow({ where: { id: openException!.id } });
+    expect(cleared.resolvedAt).not.toBeNull();
+    expect(cleared.resolutionNotes).toMatch(/automatically cleared/i);
+
+    const clearAudit = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: "telematics.policyViolationCleared", entityId: openException!.id } });
+    expect(clearAudit).not.toBeNull();
+
+    // No duplicate/new exception should be created once cleared and the vehicle stays compliant.
+    const stillOpen = await prisma.exception.findMany({ where: { tenantId: tenant.id, vehicleId: vehicle.id, resolvedAt: null } });
+    expect(stillOpen).toHaveLength(0);
+  });
+
+  it("does not touch a gate-event exception (violationType null) when reconciling telematics violations", async () => {
+    const { tenant, user, vehicle } = await setUpOutsideGeofencePolicy();
+    const unrelated = await prisma.exception.create({
+      data: { tenantId: tenant.id, vehicleId: vehicle.id, description: "Manually raised, not telematics-tracked", severity: "MEDIUM", raisedByUserId: user.id },
+    });
+
+    await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
+
+    const reloaded = await prisma.exception.findUniqueOrThrow({ where: { id: unrelated.id } });
+    expect(reloaded.resolvedAt).toBeNull();
+    expect(reloaded.violationType).toBeNull();
   });
 });
 

@@ -1196,11 +1196,29 @@ model Exception {
   resolvedAt       DateTime?
   resolutionNotes  String?
 
+  // Phase 8A (GPS-exception deduplication) — set only for telematics/policy
+  // exceptions (vehicleId-scoped, gateEventId null). Identifies which
+  // PolicyViolationType (lib/telematics/geofence-engine.ts) this episode is
+  // tracking, so a repeat sync that finds the same still-ongoing violation
+  // updates the existing open row instead of creating a duplicate. Null for
+  // every Phase 3/5B gate-event/reconciliation exception.
+  violationType    String?
+  // How many consecutive syncs have re-observed this violation still open —
+  // used to escalate a continuing violation to HIGH/supervisor-approval
+  // after it persists rather than leaving it at its original severity
+  // forever. Meaningless (stays 1) for non-telematics exceptions.
+  observationCount Int       @default(1)
+  // When this still-open telematics violation was last confirmed ongoing —
+  // distinct from raisedAt (episode start). Null for non-telematics
+  // exceptions.
+  lastObservedAt   DateTime?
+
   reconciliationDiscrepancy ReconciliationDiscrepancy?
 
   @@index([tenantId])
   @@index([gateEventId])
   @@index([tenantId, resolvedAt])
+  @@index([vehicleId, violationType, resolvedAt])
   @@map("exceptions")
 }
 

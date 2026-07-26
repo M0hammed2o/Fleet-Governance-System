@@ -61,6 +61,57 @@
   `rejects.toBeInstanceOf(...)` for each error class, so a future refactor can't silently regress to an
   untyped throw. Full suite re-run afterward: 259/259 passing.
 
+## BUG-004 — `getCustomerHealthSummaries()` fanned out ~9 concurrent Prisma queries per tenant, unbounded
+- Severity: high
+- Reproduction steps: run the full test suite (`npm test`) once enough fixture tenants have accumulated in
+  the shared test database (observed at 1,283 tenants — every test session creates fixture tenants and
+  none are torn down, by design, per TESTING.md's tenant-isolation approach). Call
+  `getCustomerHealthSummaries()` (platform customer list, SUPPORT-001).
+- Expected result: completes promptly regardless of tenant count.
+- Actual result (before fix): `tests/support-access-repository.test.ts`'s two SUPPORT-001 cases timed out
+  (15s) intermittently once the tenant count was large enough — the function fired
+  `tenants.map(async tenant => Promise.all([9 queries]))`, i.e. an unbounded `9 × tenantCount` concurrent
+  query fan-out in one tick, which saturated the pg connection pool and surfaced as
+  `(node) DeprecationWarning: Calling client.query() when the client is already executing a query is
+  deprecated...` (pg's warning path for overlapping queries on a client that should be queued/awaited, not
+  fired all at once) as well as the outright timeouts.
+- Suspected cause: no concurrency bound and no batching — one query per metric per tenant instead of one
+  grouped query per metric across all tenants.
+- Status: fixed — 2026-07-26 (Phase 8A). `getCustomerHealthSummaries()` rewritten to use
+  `prisma.<model>.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, ... })` — 9 queries
+  total regardless of tenant count, not 9 per tenant. Same output shape, same test assertions.
+- Fix verification: full suite (`npm test`) re-run against the same 1,283-tenant test database — 396/396
+  passing, no timeouts, in ~100s (was intermittently failing before). See WORKLOG.md Phase 8A entry.
+
+### Residual, non-blocking: a `pg` concurrent-query DeprecationWarning line still prints once per Vitest
+worker during a full suite run, unrelated to BUG-004 above (traced separately — see below).
+- **Root cause (traced via `NODE_OPTIONS=--trace-deprecation`):** the warning's stack trace points into
+  `@prisma/client`'s own generated runtime (`node_modules/@prisma/client/runtime/client.js`, `interpretNode`)
+  calling into `@prisma/adapter-pg`'s `PgTransaction.performIO` (`node_modules/@prisma/adapter-pg/dist/
+  index.mjs:618`) from inside an `Array.map`. This is Prisma's own query-interpreter executing a
+  multi-statement operation (a nested-array create — e.g. seeding many `RolePermission` rows or
+  `InspectionItem` rows in one nested `create: [...]` call, something almost every test fixture touches)
+  by mapping several `client.query()` calls onto the *same* checked-out transaction connection, which is
+  exactly the pattern node-postgres is deprecating (queuing multiple `.query()` calls on one client instead
+  of sequencing them with `await`). This is inside Prisma's compiled runtime, not application code — there
+  is no `Promise.all`/`.map()` over a `client.query()` call anywhere in this repository's own source.
+- **Why not fixed further:** (1) it has zero observed functional effect — the full suite passes 396/396
+  reliably after the BUG-004 fix above, and this warning line has apparently been present in every prior
+  session's `npm test` output without ever causing a failure; (2) the only two available fixes are
+  disproportionate to a cosmetic warning — either an unconfirmed `prisma`/`@prisma/client`/
+  `@prisma/adapter-pg` version bump (tried 7.8.0 → 7.9.0 experimentally; reverted without confirming it
+  helped, since this project has an explicit prior precedent, WORKLOG.md Session 6, against upgrading
+  dependencies opportunistically, and the bump surfaced pre-existing `npm audit` findings that needed
+  separate verification — see below), or rewriting every nested-array-create call site across the codebase
+  to issue sequential creates instead, which is a broad refactor with real regression risk for a warning
+  with no correctness impact.
+- **Separately confirmed:** the 16 `npm audit` findings (mostly `eslint`/`next`/`prisma` dev-tooling
+  transitive advisories) are pre-existing at the currently-pinned dependency versions, not introduced by the
+  reverted upgrade attempt — confirmed by re-running `npm audit` after `git checkout -- package.json
+  package-lock.json && npm install` and observing the same count.
+- Status: open (cosmetic, non-blocking) — worth revisiting the next time a Prisma version bump is already
+  on the table for another reason, not on its own.
+
 ## Template for new entries
 ```
 ### BUG-NNN — <short title>

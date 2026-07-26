@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { tenantWhere } from "@/lib/db/tenant-scope";
 import { recordAudit } from "@/lib/audit/record-audit";
 import { evaluatePolicyCompliance, type PolicyViolation } from "@/lib/telematics/geofence-engine";
+import { computeDistanceSoFar } from "@/lib/telematics/distance-engine";
 import { MockTelematicsProvider } from "@/lib/telematics/mock-provider";
 import { TelematicsProviderUnavailableError, type TelematicsProvider } from "@/lib/telematics/provider";
 import type { Prisma } from "@/generated/prisma/client";
@@ -149,12 +150,123 @@ export async function syncVehicleTelematics(
   return { vehicle: updatedVehicle, event, isStale, violations };
 }
 
+// Wide enough to always contain a full calendar month plus the trip/week
+// lookback the distance engine needs, regardless of which day of the month
+// `at` falls on.
+const DISTANCE_LOOKBACK_DAYS = 45;
+
+// A violation re-observed on this many consecutive syncs is escalated to
+// HIGH/supervisor-approval even if it started out MEDIUM — a violation that
+// keeps recurring deserves escalated review, not indefinite silent
+// repetition at its original severity (Phase 8A "escalate continuing
+// violations appropriately"). Count-based, not time-based, so it's
+// deterministic to test without mocking elapsed time.
+const ESCALATION_OBSERVATION_THRESHOLD = 3;
+
+/**
+ * GPS-exception deduplication (Phase 8A): reconciles the violation types
+ * detected on *this* sync against any already-OPEN telematics exceptions
+ * for the vehicle (`Exception.violationType` set, `resolvedAt: null`) —
+ * never raises a second open exception for a violation type that's already
+ * an open episode, tracks how many consecutive syncs have re-observed it
+ * (escalating severity/supervisor-approval once it persists), and
+ * automatically clears any open episode whose violation type is no longer
+ * present in this sync's results (the vehicle has returned to compliance
+ * for that specific rule). A gate-event/reconciliation exception (created
+ * elsewhere, `violationType: null`) is never touched by this function.
+ */
+async function reconcileTelematicsViolations(
+  tenantId: string,
+  vehicleId: string,
+  violations: PolicyViolation[],
+  actorUserId: string,
+  observedAt: Date,
+): Promise<PolicyViolation[]> {
+  const openEpisodes = await prisma.exception.findMany({
+    where: { tenantId, vehicleId, resolvedAt: null, violationType: { not: null } },
+  });
+  const stillActiveTypes = new Set(violations.map((v) => v.type as string));
+
+  for (const episode of openEpisodes) {
+    if (episode.violationType && !stillActiveTypes.has(episode.violationType)) {
+      await prisma.exception.update({
+        where: { id: episode.id },
+        data: {
+          resolvedAt: observedAt,
+          resolutionNotes: "Automatically cleared — vehicle telemetry showed compliance with this rule on a subsequent sync.",
+        },
+      });
+      await recordAudit({
+        tenantId,
+        userId: actorUserId,
+        action: "telematics.policyViolationCleared",
+        entityType: "Exception",
+        entityId: episode.id,
+        beforeValue: { violationType: episode.violationType, severity: episode.severity },
+      });
+    }
+  }
+
+  for (const violation of violations) {
+    const episode = openEpisodes.find((e) => e.violationType === violation.type);
+    if (episode) {
+      const observationCount = episode.observationCount + 1;
+      const shouldEscalate =
+        observationCount >= ESCALATION_OBSERVATION_THRESHOLD && episode.severity !== "HIGH" && episode.severity !== "CRITICAL";
+      await prisma.exception.update({
+        where: { id: episode.id },
+        data: {
+          lastObservedAt: observedAt,
+          observationCount,
+          ...(shouldEscalate ? { severity: "HIGH" as const, requiresSupervisorApproval: true } : {}),
+        },
+      });
+      if (shouldEscalate) {
+        await recordAudit({
+          tenantId,
+          userId: actorUserId,
+          action: "telematics.policyViolationEscalated",
+          entityType: "Exception",
+          entityId: episode.id,
+          beforeValue: { severity: episode.severity },
+          afterValue: { severity: "HIGH", observationCount },
+        });
+      }
+    } else {
+      const exception = await prisma.exception.create({
+        data: {
+          tenantId,
+          vehicleId,
+          description: violation.description,
+          severity: violation.severity,
+          requiresSupervisorApproval: violation.severity === "HIGH",
+          raisedByUserId: actorUserId,
+          violationType: violation.type,
+          observationCount: 1,
+          lastObservedAt: observedAt,
+        },
+      });
+      await recordAudit({
+        tenantId,
+        userId: actorUserId,
+        action: "telematics.policyViolationRaised",
+        entityType: "Exception",
+        entityId: exception.id,
+        afterValue: { type: violation.type, severity: violation.severity },
+      });
+    }
+  }
+
+  return violations;
+}
+
 /**
  * GPS-004/POLICY-002: compares one TelematicsEvent against the vehicle's
- * currently ACTIVE VehicleUsePolicy (if any) and raises a real Exception
- * (vehicleId-linked, no GateEvent involved — see DECISIONS.md D-020) for
- * each violation found. Never concludes fraud/theft — see
- * lib/telematics/geofence-engine.ts's own docs.
+ * currently ACTIVE VehicleUsePolicy (if any) and reconciles the result
+ * against any already-open telematics exceptions (see
+ * `reconcileTelematicsViolations()` above — Phase 8A deduplication) rather
+ * than raising a fresh Exception on every sync. Never concludes
+ * fraud/theft — see lib/telematics/geofence-engine.ts's own docs.
  */
 export async function evaluateVehiclePolicyCompliance(
   tenantId: string,
@@ -166,52 +278,51 @@ export async function evaluateVehiclePolicyCompliance(
     where: { vehicleId, policy: { tenantId, status: "ACTIVE" } },
     include: { policy: { include: { approvedGeofence: true } } },
   });
-  if (!assignment) return [];
 
-  const policy = assignment.policy;
-  if (policy.effectiveTo && policy.effectiveTo < event.recordedAt) return [];
-  if (policy.effectiveFrom > event.recordedAt) return [];
+  let violations: PolicyViolation[] = [];
 
-  const violations = evaluatePolicyCompliance({
-    position: event.latitude != null && event.longitude != null ? { latitude: event.latitude, longitude: event.longitude } : null,
-    at: event.recordedAt,
-    policy: {
-      permittedDaysOfWeek: policy.permittedDaysOfWeek,
-      permittedStartTime: policy.permittedStartTime,
-      permittedEndTime: policy.permittedEndTime,
-      allowAfterHours: policy.allowAfterHours,
-      allowWeekend: policy.allowWeekend,
-      approvedGeofence: policy.approvedGeofence,
-      kmLimitPerTrip: policy.kmLimitPerTrip,
-    },
-    // Real per-trip distance accumulation isn't wired up in this phase (no
-    // trip-boundary tracking yet) — per-trip km-limit violations simply don't
-    // fire rather than being silently guessed at.
-    tripKmSoFar: null,
-  });
+  if (assignment) {
+    const policy = assignment.policy;
+    const withinEffectiveWindow = (!policy.effectiveTo || policy.effectiveTo >= event.recordedAt) && policy.effectiveFrom <= event.recordedAt;
 
-  for (const violation of violations) {
-    const exception = await prisma.exception.create({
-      data: {
-        tenantId,
-        vehicleId,
-        description: violation.description,
-        severity: violation.severity,
-        requiresSupervisorApproval: violation.severity === "HIGH",
-        raisedByUserId: actorUserId,
-      },
-    });
-    await recordAudit({
-      tenantId,
-      userId: actorUserId,
-      action: "telematics.policyViolationRaised",
-      entityType: "Exception",
-      entityId: exception.id,
-      afterValue: { type: violation.type, severity: violation.severity },
-    });
+    if (withinEffectiveWindow) {
+      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } });
+      const timezone = tenant?.timezone ?? "Africa/Johannesburg";
+
+      const lookbackStart = new Date(event.recordedAt.getTime() - DISTANCE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+      const readings = await prisma.telematicsEvent.findMany({
+        where: { tenantId, vehicleId, recordedAt: { gte: lookbackStart, lte: event.recordedAt } },
+        orderBy: { recordedAt: "asc" },
+        select: { recordedAt: true, odometerKm: true, ignitionOn: true },
+      });
+      const distanceSoFar = computeDistanceSoFar({ readings, at: event.recordedAt, timezone });
+
+      violations = evaluatePolicyCompliance({
+        position: event.latitude != null && event.longitude != null ? { latitude: event.latitude, longitude: event.longitude } : null,
+        at: event.recordedAt,
+        timezone,
+        policy: {
+          permittedDaysOfWeek: policy.permittedDaysOfWeek,
+          permittedStartTime: policy.permittedStartTime,
+          permittedEndTime: policy.permittedEndTime,
+          allowAfterHours: policy.allowAfterHours,
+          allowWeekend: policy.allowWeekend,
+          approvedGeofence: policy.approvedGeofence,
+          kmLimitPerTrip: policy.kmLimitPerTrip,
+          kmLimitPerDay: policy.kmLimitPerDay,
+          kmLimitPerWeek: policy.kmLimitPerWeek,
+          kmLimitPerMonth: policy.kmLimitPerMonth,
+        },
+        distanceSoFar,
+      });
+    }
   }
 
-  return violations;
+  // Always reconciled, even with an empty violations list — that's exactly
+  // what auto-clears any previously-open episode when the vehicle no longer
+  // has an active/effective policy at all (compliance is trivially true
+  // when there's nothing left to violate).
+  return reconcileTelematicsViolations(tenantId, vehicleId, violations, actorUserId, event.recordedAt);
 }
 
 // --- GPS-002: manual GPS confirmation (mirrors ManualFacialVerificationFallback exactly) ---

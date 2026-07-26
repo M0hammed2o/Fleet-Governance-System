@@ -204,6 +204,17 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - `Exception.gateEventId` made nullable, `Exception.vehicleId` added — see the Phase 3 Exception entry
   above and DECISIONS.md D-020.
 
+## Phase 8A entities (engineering hardening — implemented)
+- `Exception` gained `violationType` (nullable string — the `PolicyViolationType` an open telematics episode
+  is tracking; null for every gate-event/reconciliation exception), `observationCount`
+  (`Int @default(1)` — consecutive syncs that re-observed the same still-open violation, used to escalate a
+  continuing violation to HIGH/supervisor-approval), and `lastObservedAt` (nullable — when an open episode
+  was last reconfirmed, distinct from `raisedAt`), plus an index on `[vehicleId, violationType, resolvedAt]`
+  for the dedup lookup. See ARCHITECTURE.md "GPS-exception deduplication" and HARD-006.
+- `Tenant.timezone` (Phase 1 field, previously unused beyond documentation) is now actually read by
+  `evaluateVehiclePolicyCompliance()` and passed through to `evaluatePolicyCompliance()`/
+  `computeDistanceSoFar()` — no schema change needed, HARD-004 was a behavioural gap, not a missing column.
+
 ## Phase 7 entities (platform support-access — implemented)
 - **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
   to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
@@ -272,9 +283,14 @@ each is actually migrated, not in advance.
   only discovered while writing SUPPORT-001's health summary, after the first Phase 7 migration had
   already been applied to the dev database; see WORKLOG.md Session 12 for the checksum-mismatch lesson
   this avoided repeating).
+- `20260726120000_phase8a_telematics_exception_dedup` (applied): added `Exception.violationType`/
+  `observationCount`/`lastObservedAt` + a `[vehicleId, violationType, resolvedAt]` index (HARD-006).
+  Purely additive — no data migration needed, every pre-existing row gets `violationType: null`,
+  `observationCount: 1` (the column default), `lastObservedAt: null`.
 
-All twelve migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
-(`gate_fleet_governance_test`), same local Postgres container, different databases.
+All thirteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+(`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
+cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 
 **Note for future schema changes:** `npx prisma migrate dev --name <name>` works normally in this
 environment's shell as of the Phase 5B session (2026-07-23/24) — the earlier note that it didn't was

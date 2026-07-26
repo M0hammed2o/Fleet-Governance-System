@@ -266,9 +266,45 @@ creation, the first `vehicleUsePolicy:APPROVE`-holder to approve becomes the man
 Every non-stale `TelematicsEvent` for a vehicle with an `ACTIVE` policy assignment is compared against it
 via the pure `evaluatePolicyCompliance()` — geofence deviation, day/hour restrictions, distance-limit
 breaches — never concluding fraud/theft/criminal conduct (POLICY-002/GPS-005), only naming which configured
-rule a reading fell outside of. Per-trip distance accumulation isn't wired up in this phase (no
-trip-boundary tracking yet — see TODO.md); the per-trip km-limit check simply doesn't fire rather than
-guessing at a distance, a documented gap rather than a silently wrong one.
+rule a reading fell outside of.
+
+**Timezone-aware evaluation (Phase 8A, HARD-004).** Day-of-week/hour/weekend checks are evaluated in the
+tenant's configured IANA timezone (`Tenant.timezone`, a Phase 1 field that sat unused until this phase —
+default `Africa/Johannesburg`), not the server's local/UTC clock — `getWallClockParts()` uses
+`Intl.DateTimeFormat` with `hourCycle: "h23"` against the target `timeZone` rather than `Date.getDay()`/
+`getHours()`. A reading recorded late at night UTC can already be the next calendar day locally; evaluating
+against the wrong clock would silently misjudge permitted-day/hour compliance.
+
+**Real distance accumulation (Phase 8A, HARD-005, closing the TODO.md gap this phase).**
+`lib/telematics/distance-engine.ts` is a second pure module (same "pure, DB-free" family as
+`geofence-engine.ts`) that computes trip/daily/weekly/monthly distance travelled from a vehicle's ordered
+`TelematicsEvent` odometer readings: **trip** distance is measured from the most recent ignition-off→on
+transition found in the lookback window (falling back to the earliest available reading if ignition has
+been on throughout, or `null` if no ignition signal exists at all — never guessed); **daily/weekly/monthly**
+distance is measured from the last known odometer reading at/before the start of that calendar
+day/week/month **in the tenant's timezone** to the latest reading, clamped to zero rather than reported
+negative on an odometer rollback/vehicle swap. A missing baseline (no reading exists before the window
+started) returns `null`, not zero — a fabricated zero could silently mask a real violation.
+`evaluateVehiclePolicyCompliance()` fetches a 45-day lookback of `TelematicsEvent` rows (wide enough to
+always contain a full month) and feeds them to `computeDistanceSoFar()` before calling the geofence engine,
+so all four of `kmLimitPerTrip/Day/Week/Month` are now real checks, not the previous hardcoded `null`.
+
+**GPS-exception deduplication (Phase 8A, HARD-006).** Before this phase, every `syncVehicleTelematics()` call
+that found a violation created a brand-new `Exception` row — a vehicle stuck outside its approved geofence
+for a week of hourly syncs would raise ~168 open exceptions for the same underlying fact.
+`reconcileTelematicsViolations()` (`telematics-repository.ts`) instead treats each violation type as an
+*episode*: `Exception.violationType` (new column, nullable — only telematics/policy exceptions set it)
+identifies which `PolicyViolationType` an open row is tracking; a repeat sync that still finds the same
+violation type updates that same row (`observationCount++`, `lastObservedAt`) instead of creating a
+duplicate; a violation type no longer present in the latest sync's results is automatically resolved
+(`resolvedAt` set, `resolutionNotes: "Automatically cleared — vehicle telemetry showed compliance..."`,
+audit-logged as `telematics.policyViolationCleared` — distinct from a human resolving it) — including when
+the vehicle's policy assignment is removed/suspended/expired entirely, since "nothing left to violate" is
+itself a return to compliance. A violation re-observed across `ESCALATION_OBSERVATION_THRESHOLD` (3)
+consecutive syncs is escalated to `HIGH`/`requiresSupervisorApproval: true` even if it started `MEDIUM`
+(audit-logged as `telematics.policyViolationEscalated`) — a continuing violation deserves escalated human
+review, not indefinite silent repetition at its original severity. A gate-event/reconciliation exception
+(`violationType: null`) is never touched by this reconciliation.
 
 **Reusing (not parallelling) the Exception model (GPS-005/POLICY-002, see DECISIONS.md D-020).**
 `Exception.gateEventId` became nullable and a new `Exception.vehicleId` was added — a telematics/policy

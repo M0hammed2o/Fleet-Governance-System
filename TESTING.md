@@ -303,6 +303,42 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
       ended state → an ordinary customer-tenant Company Administrator got 403 on every support-access
       endpoint (zero grant, confirming the platform/customer boundary holds) → both UI pages render (200).
 
+## Phase 8A coverage (engineering hardening, added 2026-07-26)
+- [x] `tests/distance-engine.test.ts` (11 cases): timezone window boundaries (`startOfDayInTimeZone`/
+      `startOfWeekInTimeZone`/`startOfMonthInTimeZone`) crossing the UTC calendar-day boundary; daily/weekly/
+      monthly distance as baseline-to-latest odometer delta; `null` (not zero) when no baseline reading exists
+      before the window; clamped to zero on an odometer rollback; trip-boundary detection via ignition
+      off→on transitions, excluding an earlier completed trip; fallback to the earliest reading when ignition
+      has been on throughout; `null` when no ignition signal exists at all.
+- [x] `tests/telematics-repository.test.ts` "timezone boundary" suite (3 cases): permitted-day and
+      permitted-hours evaluation uses the tenant's IANA timezone, not UTC/server-local — an instant that is
+      Monday 23:30 UTC but already Tuesday 01:30 in `Africa/Johannesburg` is evaluated as Tuesday; the same
+      instant against a different tenant timezone is evaluated differently, proving the timezone parameter is
+      actually used, not vestigial.
+- [x] `tests/telematics-repository.test.ts` "GPS-exception deduplication" suite (4 cases): three repeated
+      syncs against the same unresolved violation produce exactly one `Exception` row with
+      `observationCount: 3`, not three rows; a violation persisting past the escalation threshold flips
+      MEDIUM→HIGH with `requiresSupervisorApproval: true` and an audit event; suspending the vehicle's policy
+      (nothing left to violate) auto-clears the previously-open episode with a distinct resolution note and
+      audit event, and no new exception is created afterward; a manually-raised exception
+      (`violationType: null`) is left untouched by the reconciliation.
+- [x] Manually verified end-to-end via curl against a running dev server: created a geofence + approved
+      vehicle-use policy, synced the same vehicle three times — confirmed via `psql` exactly one open
+      `OUTSIDE_APPROVED_GEOFENCE` exception (`observationCount: 3`) and the co-occurring `MEDIUM`
+      `WEEKEND_USE_NOT_PERMITTED` violation escalated to `HIGH`/`requiresSupervisorApproval: true` with a
+      `telematics.policyViolationEscalated` audit row; suspended the assigned policies and synced once more —
+      confirmed both open exceptions transitioned to `resolvedAt` set with the automatic-clearing resolution
+      note and a `telematics.policyViolationCleared` audit row each, and the sync response's `violations`
+      array was empty.
+- [x] `npm run verify:clean-migrations` (HARD-001): all 13 migrations, including this phase's, apply cleanly
+      to a genuinely empty database created fresh on the same local Postgres container — no manual checksum
+      edits.
+- [x] Root-caused (not just silenced) the pg concurrent-query deprecation warning — see KNOWN_BUGS.md BUG-004
+      for the underlying N+1 fan-out defect (fixed, verified 396/396→416/416 passing under the same
+      1,283-tenant test database that previously caused intermittent timeouts) and the residual, functionally
+      inert warning traced to Prisma's own runtime (left open, documented, not chased with an unconfirmed
+      dependency upgrade).
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

@@ -438,6 +438,52 @@ customer's behalf" use case is specified, wire `elevated` into that *one* specif
 `getActiveSupportAccessSession()` inside that resource's own repository function — not a generic
 cross-cutting mechanism built ahead of a real need.
 
+## D-022 — 2026-07-26 — GPS-exception deduplication reuses `Exception` with three new nullable columns, not a new episode-tracking model
+**Context:** Phase 8A (HARD-006) required that a continuing telematics/policy violation not raise a
+duplicate open exception on every sync, that a persisting violation escalate, and that a violation clear
+itself once the vehicle becomes compliant again — none of which the original "one Exception per violation
+per sync" wiring (Phase 6) did.
+**Decision:** Add `Exception.violationType` (nullable — the `PolicyViolationType` an open telematics episode
+tracks), `observationCount` (`Int @default(1)`), and `lastObservedAt` (nullable) directly to the existing
+`Exception` table, rather than a new `TelematicsViolationEpisode`-style model. `reconcileTelematicsViolations()`
+(`telematics-repository.ts`) does the reconciliation: an already-open row for the same `(vehicleId,
+violationType)` is updated in place (count/timestamp, and severity/`requiresSupervisorApproval` once
+escalated); a violation type no longer present is auto-resolved (`resolvedAt` set, a distinct
+`resolutionNotes` prefix, audited as `telematics.policyViolationCleared` — never confused with a human
+`resolveException()` call, which telematics exceptions still can't go through per D-020).
+**Alternatives considered:** A parallel episode-tracking table — rejected for the same reason D-018/D-020
+rejected a parallel Exception mechanism: the whole point of GPS-005/POLICY-002 is "reuse the existing
+Exception workflow," and three nullable columns are a far smaller footprint than a second table that would
+need its own tenant-isolation/audit/UI treatment. Time-based escalation (e.g. "escalate after 24 hours
+open") — rejected in favour of a count-based threshold (`ESCALATION_OBSERVATION_THRESHOLD = 3` consecutive
+syncs): deterministic and directly testable without mocking elapsed wall-clock time, and syncs are the only
+unit of "has this been checked again" this system actually has.
+**Consequences:** `violationType`/`observationCount`/`lastObservedAt` are meaningless (stay null/1/null) for
+every gate-event/reconciliation exception — `reconcileTelematicsViolations()` only ever queries/updates rows
+where `violationType` is already telematics-set, so it can never touch one of those.
+**Revisit condition:** If a future requirement needs per-episode history (not just "currently open vs.
+resolved-with-a-note"), promote to a dedicated table then — not speculatively now.
+
+## D-023 — 2026-07-26 — Trip boundary is defined by ignition-off→on transitions, not GateEvent departure/return
+**Context:** HARD-005 required a real `kmLimitPerTrip` check. `TODO.md` had flagged the two candidate
+trip-boundary signals: the vehicle's own GateEvent departure/return pairing (Phase 5B reconciliation), or
+telematics ignition state.
+**Decision:** `lib/telematics/distance-engine.ts`'s `computeDistanceSoFar()` defines "trip start" as the most
+recent ignition-off→on transition found in the TelematicsEvent lookback window (falling back to the earliest
+available reading if ignition has been on throughout the window, or `null` — not zero — if no ignition
+signal exists at all).
+**Alternatives considered:** Anchoring trip boundaries to `GateEvent`/`Reconciliation` — rejected: a
+`VehicleUsePolicy`-covered vehicle (the sales-rep/private-use case POLICY-001 targets) very often never
+passes through a gate at all in a given trip, so a gate-anchored definition would leave `tripKmSoFar: null`
+for exactly the fleet segment this feature matters most for. Ignition state is reported by every telematics
+provider (mock or real) regardless of whether the vehicle ever sees a gate, making it the more general
+signal.
+**Consequences:** A vehicle whose provider never reports ignition state (or one not yet reporting at all)
+gets `tripKmSoFar: null` — the per-trip check simply doesn't fire, same "null skips it, never guessed"
+convention as every other distance-limit check here.
+**Revisit condition:** If a production telematics vendor's actual data doesn't reliably report ignition
+state, revisit against that vendor's real signal shape once selected (GPS-BLOCKED).
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

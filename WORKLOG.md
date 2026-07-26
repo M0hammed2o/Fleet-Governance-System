@@ -1171,3 +1171,125 @@ instruction. When the user is ready to scope further work, the two named next ca
 billing (real payment/invoicing, replacing the `Tenant.subscriptionStatus` placeholder) and full
 investigation-case management (case creation/findings/disposition, building on the existing External
 Reviewer/Internal Investigator evidence-access profiles from Phase 5A).
+
+---
+
+## 2026-07-26 — Session 13 — Phase 8A: engineering hardening (HARD-001..006)
+**Objective:** User instructed autonomous work through all of Phase 8 (Pilot Hardening, Cost-Efficient
+Evidence Storage, Retention Management). This entry covers 8A only — the engineering-hardening subphase:
+clean-database migration verification, the Postgres concurrent-query deprecation warning, the obsolete
+`vite-tsconfig-paths` plugin, tenant-timezone-aware vehicle-use-policy evaluation, real distance
+accumulation, and GPS-exception deduplication.
+
+**Baseline check before any change:** re-ran tsc/lint/test/build against the untouched repository first,
+per this project's own "confirm before trusting WORKLOG's claims" convention. `npm test` surfaced two
+genuine intermittent timeouts in `tests/support-access-repository.test.ts`'s SUPPORT-001 cases — not present
+in prior sessions' recorded runs, and not present when that file is run in isolation. Investigated rather
+than re-running until it passed.
+
+**Root cause found (KNOWN_BUGS.md BUG-004):** the shared test-Postgres database has accumulated 1,283
+fixture tenants across every prior test session (by design — TESTING.md's tenant-isolation approach creates
+fresh fixtures per test and relies on isolation, not teardown). `getCustomerHealthSummaries()` (SUPPORT-001)
+fired `tenants.map(async tenant => Promise.all([9 queries]))` — an unbounded 9-times-tenant-count concurrent
+query fan-out in one tick. At 1,283 tenants that's over 11,000 simultaneous queries against a small
+connection pool, which is what actually produced pg's "client already executing a query" deprecation
+warning and the timeouts, not a cosmetic artifact. Fixed by rewriting the function to use one
+`groupBy({ by: ["tenantId"] })` query per metric (9 total, regardless of tenant count) instead of 9 per
+tenant — same output shape, same tests, now 396/396 to 416/416 passing reliably. A second, separate instance
+of the same warning text remains (traced via `--trace-deprecation` into `@prisma/client`'s own generated
+runtime batching a nested-array-create's statements onto one transaction connection — not application code,
+zero observed functional effect, and the only two fixes available, an unconfirmed dependency upgrade or a
+broad rewrite of every nested-create call site, are disproportionate to a warning with no correctness
+impact); documented in KNOWN_BUGS.md rather than chased further. Experimentally bumped prisma/
+@prisma/client/@prisma/adapter-pg 7.8.0 to 7.9.0 to check whether it was fixed upstream; reverted without
+adopting it — introduced new `npm audit` "high" findings (later confirmed pre-existing at 7.8.0 too, not
+caused by the bump, but the fix wasn't confirmed either) and this project has an explicit prior precedent
+(Session 6) against upgrading dependencies opportunistically.
+
+**vite-tsconfig-paths removal:** `vitest.config.ts`'s own console output flagged the plugin as superseded by
+Vite's native `resolve.tsconfigPaths` option (Vite 8.1.5, already installed transitively). Swapped the
+plugin for the native option, uninstalled the package, and confirmed `@/` path aliases still resolve in
+tests.
+
+**Tenant-timezone-aware evaluation (HARD-004) and real distance accumulation (HARD-005) — see DECISIONS.md
+D-023 for the trip-boundary design call:** `Tenant.timezone` already existed (Phase 1 schema, default
+Africa/Johannesburg) but was read nowhere in the codebase — `lib/telematics/geofence-engine.ts`'s day/hour/
+weekend checks used `Date.getDay()`/`getHours()` (server-local clock), an explicitly-documented gap since
+Phase 6. Added `getWallClockParts()` (`Intl.DateTimeFormat` with `hourCycle: "h23"` against the tenant's IANA
+timezone) and threaded a `timezone` parameter through `evaluatePolicyCompliance()`. Built a second pure
+module, `lib/telematics/distance-engine.ts` — trip distance from the most recent ignition off-to-on
+transition (D-023), daily/weekly/monthly distance from the last odometer reading at/before the local
+calendar-window start to the latest reading (clamped to zero, null when no baseline exists) — and wired it
+into `evaluateVehiclePolicyCompliance()` with a 45-day `TelematicsEvent` lookback. `PolicyLike` gained
+`kmLimitPerDay/Week/Month` (previously present on the Prisma model but never actually evaluated); added
+`DAILY_/WEEKLY_/MONTHLY_DISTANCE_LIMIT_EXCEEDED` violation types alongside a renamed
+`TRIP_DISTANCE_LIMIT_EXCEEDED` (was `DISTANCE_LIMIT_EXCEEDED` — renamed for clarity now that four distinct
+distance checks exist, one test reference updated).
+
+**GPS-exception deduplication (HARD-006) — see DECISIONS.md D-022:** `evaluateVehiclePolicyCompliance()`
+previously created a brand-new `Exception` on every sync for every detected violation — a vehicle stuck
+outside its approved geofence across a week of hourly syncs would raise roughly 168 open exceptions for the
+same fact. Added `Exception.violationType`/`observationCount`/`lastObservedAt` (migration
+`20260726120000_phase8a_telematics_exception_dedup`, purely additive) and `reconcileTelematicsViolations()`:
+an already-open episode for the same vehicleId+violationType pair is updated in place, not duplicated;
+`observationCount` increments each re-observation and escalates the episode to HIGH/supervisor-approval past
+3 consecutive syncs; a violation type no longer present (including when the assigned policy is
+suspended/removed/expired entirely) is auto-resolved with a distinct resolution note and
+`telematics.policyViolationCleared` audit event, never touching a non-telematics exception
+(`violationType: null`).
+
+**Clean-database migration verification (HARD-001):** `scripts/verify-clean-migrations.mjs`
+(`npm run verify:clean-migrations`) creates a genuinely empty throwaway database on the same local
+container, runs `prisma migrate deploy` against it from zero, and always drops it afterward. Ran it: all 13
+migrations (including this session's) applied cleanly, no manual checksum changes.
+
+**Files changed:**
+- `prisma/schema.prisma` — `Exception.violationType`/`observationCount`/`lastObservedAt` +
+  `[vehicleId, violationType, resolvedAt]` index; migration
+  `prisma/migrations/20260726120000_phase8a_telematics_exception_dedup/`.
+- `src/lib/telematics/geofence-engine.ts` — `getWallClockParts()`; `PolicyLike`/
+  `EvaluatePolicyComplianceInput` gained `timezone`, `kmLimitPerDay/Week/Month`, `DistanceSoFar` (replacing
+  `tripKmSoFar`); new violation types.
+- `src/lib/telematics/distance-engine.ts` (new) — pure timezone-aware distance-window engine.
+- `src/lib/repositories/telematics-repository.ts` — `evaluateVehiclePolicyCompliance()` fetches tenant
+  timezone plus a 45-day `TelematicsEvent` lookback and computes real distances; new
+  `reconcileTelematicsViolations()` replacing the old unconditional create-loop.
+- `src/lib/repositories/support-access-repository.ts` — `getCustomerHealthSummaries()` rewritten to grouped
+  aggregate queries (BUG-004 fix).
+- `vitest.config.ts` — native `resolve.tsconfigPaths` instead of the `vite-tsconfig-paths` plugin;
+  `package.json`/`package-lock.json` — plugin uninstalled, `verify:clean-migrations` script added.
+- `scripts/verify-clean-migrations.mjs` (new).
+- `tests/distance-engine.test.ts` (new, 11 cases), `tests/telematics-repository.test.ts` (rewrote the pure
+  geofence-engine block for the new timezone/distanceSoFar API, added a "timezone boundary" suite and a
+  "GPS-exception deduplication" suite, 4 cases).
+- Docs: `PRODUCT_REQUIREMENTS.md` (new HARD-001..006 table), `ARCHITECTURE.md` (Telematics architecture
+  section extended), `DATA_MODEL.md` (Phase 8A entities + migration history), `DECISIONS.md` (D-022, D-023),
+  `TESTING.md` (Phase 8A coverage), `KNOWN_BUGS.md` (BUG-004 + the residual-warning note), `TODO.md`.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — clean.
+- `npm test` — **416/416 passing** (30 files; 396 baseline + 20 new: 11 distance-engine + 9 telematics
+  additions net of the 1 renamed violation-type reference), including the previously-intermittent
+  support-access-repository cases now passing reliably against the same 1,283-tenant test database.
+- `npm run build` — clean.
+- `npm run verify:clean-migrations` — PASS, all 13 migrations against a genuinely empty database.
+- Manual curl verification against a running dev server: created a geofence + approved vehicle-use policy
+  for a demo vehicle, synced three times — confirmed via psql exactly one open `OUTSIDE_APPROVED_GEOFENCE`
+  exception (`observationCount: 3`) and the co-occurring `WEEKEND_USE_NOT_PERMITTED` violation escalated
+  MEDIUM to HIGH/`requiresSupervisorApproval: true` with a `telematics.policyViolationEscalated` audit row;
+  suspended the assigned policies (including an unrelated leftover ACTIVE policy on the same demo vehicle
+  from an earlier session's manual testing, discovered along the way) and synced once more — confirmed both
+  open exceptions auto-cleared with the expected resolution note and a `telematics.policyViolationCleared`
+  audit row each, empty `violations` array thereafter. No raw 500s at any step.
+
+**Bugs found this session:** BUG-004 (see KNOWN_BUGS.md) — a real, high-severity scalability defect, not
+previously caught because no prior test run had accumulated enough fixture tenants to trigger it.
+
+**Remaining work:** Phase 8B (cost-efficient media architecture — `ObjectStorageProvider`,
+`R2CompatibleStorageProvider` boundary, presigned upload/download, compression rules, thumbnails, storage
+usage accounting) next.
+
+**Exact recommended next action:** Begin Phase 8B — the `ObjectStorageProvider` interface first (mirroring
+the existing `StorageProvider`/`FacialVerificationProvider`/`TelematicsProvider` adapter pattern), since
+presigned URLs, checksum verification, upload-status lifecycle, and storage accounting all build on it.

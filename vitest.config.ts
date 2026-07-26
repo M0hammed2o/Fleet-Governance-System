@@ -1,7 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { config as loadEnv } from "dotenv";
 
 loadEnv({ path: ".env.test" });
@@ -9,8 +8,8 @@ loadEnv({ path: ".env.test" });
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
   resolve: {
+    tsconfigPaths: true,
     alias: {
       "server-only": path.resolve(dirname, "./tests/mocks/server-only-noop.ts"),
     },

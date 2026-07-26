@@ -80,45 +80,70 @@ export interface CustomerHealthSummary {
  * (no driver names, no vehicle registrations, no gate event detail) crosses
  * this boundary, keeping it safely viewable by any `platformTenant:VIEW`
  * holder without first starting an audited support-access session.
+ *
+ * Deliberately computed as one grouped query per metric (`groupBy tenantId`),
+ * not a `Promise.all` fan-out of ~9 queries *per tenant* — the platform can
+ * hold hundreds of customer tenants, and firing that many concurrent queries
+ * at once saturates the connection pool and triggers pg's "client already
+ * executing a query" deprecation path (observed as intermittent test
+ * timeouts once enough fixture tenants had accumulated — see WORKLOG.md
+ * Phase 8A). This keeps the query count constant (9 total) regardless of
+ * how many tenants exist.
  */
 export async function getCustomerHealthSummaries(session: AuthenticatedSession): Promise<CustomerHealthSummary[]> {
   await requirePermission(session, "platformTenant", "VIEW");
 
   const tenants = await prisma.tenant.findMany({ where: { slug: { not: PLATFORM_TENANT_SLUG } }, orderBy: { createdAt: "asc" } });
+  const tenantIds = tenants.map((t) => t.id);
 
-  const summaries = await Promise.all(
-    tenants.map(async (tenant): Promise<CustomerHealthSummary> => {
-      const [siteCount, gateCount, vehicleCount, userCount, openCriticalExceptionCount, gpsActiveVehicleCount, enrolledDriverCount, storageAgg, lastAudit] =
-        await Promise.all([
-          prisma.site.count({ where: { tenantId: tenant.id } }),
-          prisma.gate.count({ where: { tenantId: tenant.id } }),
-          prisma.vehicle.count({ where: { tenantId: tenant.id } }),
-          prisma.user.count({ where: { tenantId: tenant.id } }),
-          prisma.exception.count({ where: { tenantId: tenant.id, resolvedAt: null, severity: { in: ["HIGH", "CRITICAL"] } } }),
-          prisma.vehicle.count({ where: { tenantId: tenant.id, gpsStatus: "ACTIVE" } }),
-          prisma.driver.count({ where: { tenantId: tenant.id, facialVerificationEnrolled: true } }),
-          prisma.mediaAsset.aggregate({ where: { tenantId: tenant.id }, _sum: { fileSizeBytes: true } }),
-          prisma.auditLog.findFirst({ where: { tenantId: tenant.id }, orderBy: { timestamp: "desc" }, select: { timestamp: true } }),
-        ]);
+  const [siteCounts, gateCounts, vehicleCounts, userCounts, openCriticalExceptionCounts, gpsActiveVehicleCounts, enrolledDriverCounts, storageSums, lastAudits] =
+    await Promise.all([
+      prisma.site.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+      prisma.gate.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+      prisma.vehicle.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+      prisma.user.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+      prisma.exception.groupBy({
+        by: ["tenantId"],
+        where: { tenantId: { in: tenantIds }, resolvedAt: null, severity: { in: ["HIGH", "CRITICAL"] } },
+        _count: { _all: true },
+      }),
+      prisma.vehicle.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds }, gpsStatus: "ACTIVE" }, _count: { _all: true } }),
+      prisma.driver.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds }, facialVerificationEnrolled: true }, _count: { _all: true } }),
+      prisma.mediaAsset.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _sum: { fileSizeBytes: true } }),
+      prisma.auditLog.groupBy({ by: ["tenantId"], where: { tenantId: { in: tenantIds } }, _max: { timestamp: true } }),
+    ]);
 
-      const onboardingStatus: CustomerHealthSummary["onboardingStatus"] =
-        siteCount === 0 ? "NOT_STARTED" : userCount <= 1 ? "IN_PROGRESS" : "ACTIVE";
+  const toCountMap = (rows: Array<{ tenantId: string; _count: { _all: number } }>) => new Map(rows.map((r) => [r.tenantId, r._count._all]));
+  const siteCountByTenant = toCountMap(siteCounts);
+  const gateCountByTenant = toCountMap(gateCounts);
+  const vehicleCountByTenant = toCountMap(vehicleCounts);
+  const userCountByTenant = toCountMap(userCounts);
+  const openCriticalExceptionCountByTenant = toCountMap(openCriticalExceptionCounts);
+  const gpsActiveVehicleCountByTenant = toCountMap(gpsActiveVehicleCounts);
+  const enrolledDriverCountByTenant = toCountMap(enrolledDriverCounts);
+  const storageBytesByTenant = new Map(storageSums.map((r) => [r.tenantId, r._sum.fileSizeBytes ?? 0]));
+  const lastActivityByTenant = new Map(lastAudits.map((r) => [r.tenantId, r._max.timestamp ?? null]));
 
-      return {
-        tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status, subscriptionStatus: tenant.subscriptionStatus },
-        siteCount,
-        gateCount,
-        vehicleCount,
-        userCount,
-        openCriticalExceptionCount,
-        gpsActiveVehicleCount,
-        facialVerificationEnrolledDriverCount: enrolledDriverCount,
-        storageUsageBytes: storageAgg._sum.fileSizeBytes ?? 0,
-        lastActivityAt: lastAudit?.timestamp ?? null,
-        onboardingStatus,
-      };
-    }),
-  );
+  const summaries: CustomerHealthSummary[] = tenants.map((tenant): CustomerHealthSummary => {
+    const siteCount = siteCountByTenant.get(tenant.id) ?? 0;
+    const userCount = userCountByTenant.get(tenant.id) ?? 0;
+    const onboardingStatus: CustomerHealthSummary["onboardingStatus"] =
+      siteCount === 0 ? "NOT_STARTED" : userCount <= 1 ? "IN_PROGRESS" : "ACTIVE";
+
+    return {
+      tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status, subscriptionStatus: tenant.subscriptionStatus },
+      siteCount,
+      gateCount: gateCountByTenant.get(tenant.id) ?? 0,
+      vehicleCount: vehicleCountByTenant.get(tenant.id) ?? 0,
+      userCount,
+      openCriticalExceptionCount: openCriticalExceptionCountByTenant.get(tenant.id) ?? 0,
+      gpsActiveVehicleCount: gpsActiveVehicleCountByTenant.get(tenant.id) ?? 0,
+      facialVerificationEnrolledDriverCount: enrolledDriverCountByTenant.get(tenant.id) ?? 0,
+      storageUsageBytes: storageBytesByTenant.get(tenant.id) ?? 0,
+      lastActivityAt: lastActivityByTenant.get(tenant.id) ?? null,
+      onboardingStatus,
+    };
+  });
 
   await recordAudit({
     tenantId: session.tenantId,

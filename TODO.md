@@ -1,10 +1,14 @@
 # TODO.md
 
 ## Now
-Phases 5B/5C/6/7 (this run's full scope, per the user's instruction to proceed autonomously through Phase
-7) are **all complete** — see the Revised build order below and WORKLOG.md Sessions 9-12. Per that same
-instruction, this is the deliberate stopping point: **subscription billing and the full Investigation Case
-Management module are explicitly not started.** Next planned work, when the user is ready to scope it:
+Phase 8A (engineering hardening — HARD-001..006) is **complete**, see WORKLOG.md Session 13. Phase 8B
+(cost-efficient media architecture), 8C (retention/archive/deletion), and 8D (platform storage dashboard)
+are next, per the user's instruction to proceed autonomously through all of Phase 8.
+
+Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
+WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
+scope: **subscription billing and the full Investigation Case Management module are explicitly not
+started.** Next planned work, when the user is ready to scope it:
 - Subscription billing — real payment/invoicing integration (`Tenant.subscriptionStatus`, added Phase 7,
   is a manually-set placeholder flag only, not a billing system — see DECISIONS.md D-021's sibling
   reasoning on scope boundaries).
@@ -36,7 +40,7 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Gate check-in UI polish: the guided-inspection page (`/gate/events/[id]`) is functionally complete (every state, every action, including Phase 4's per-item evidence upload) but has no dedicated Playwright e2e spec yet — `playwright.config.ts` has been wired since Phase 1 for exactly this and still has zero specs; worth adding one full-lifecycle spec now that a stable UI exists to drive | Priority: medium | Deps: none
 - [ ] Inspection template admin UI — API routes exist and are tested (`/api/admin/inspection-templates`, `.../new-version`) but there's no admin page yet to create/version templates or manage the `ExceptionType` catalogue (`/api/admin/exception-types`); currently only usable via curl/API or the one seeded default template | Priority: medium | Deps: none
 - [ ] Vehicle create/edit UI: tyrePositionConfigId picker and inline tyre (VehicleTyre) editing on the vehicle detail page — API routes already exist and are tested (`POST /api/vehicles/[id]/tyres`), just no UI affordance yet | Priority: low | Deps: none
-- [ ] Per-trip distance accumulation for the vehicle-use-policy km-limit check — `evaluateVehiclePolicyCompliance()` currently passes `tripKmSoFar: null` (no trip-boundary tracking wired up yet), so `kmLimitPerTrip` never actually fires; needs a trip-start reference (likely the vehicle's last EXIT GateEvent or last policy-reset point) to compute a real running total — see ARCHITECTURE.md "Telematics architecture" and DECISIONS.md D-020's revisit condition | Priority: medium | Deps: none
+- [x] ~~Per-trip distance accumulation for the vehicle-use-policy km-limit check~~ — done, Phase 8A (HARD-005), see ARCHITECTURE.md "Real distance accumulation" and `lib/telematics/distance-engine.ts`.
 - [ ] Manual GPS confirmation and geofences UI affordance on the vehicle detail page itself (currently reachable via `/admin/geofences`, `/admin/vehicle-use-policies`, and the API directly, but not from the vehicle detail page where a Fleet/GPS Manager would naturally look) | Priority: low | Deps: none
 - [ ] Wire `SupportAccessSession.elevated` into an actual write path once a real "platform support needs to make an authorised change" use case is specified — today elevation only records audit intent (DECISIONS.md D-021); do not build a generic cross-cutting elevated-write mechanism speculatively, wire the *one* specific resource that needs it | Priority: low | Deps: a concrete authorised-change use case from the user
 - [ ] SUPPORT-001's "failed integrations" health-summary field has no concrete signal to aggregate yet — no integration-attempt logging exists anywhere (facial-verification/telematics provider calls aren't logged as attempts, only their outcomes on the owning record); add one if/when a real production provider integration exists to actually fail | Priority: low | Deps: a production provider (currently blocked)
@@ -48,6 +52,8 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Automated test asserting the audit_logs UPDATE/DELETE Postgres trigger actually fires (currently only manually verified via psql) | Priority: low | Deps: none
 - [ ] Rate-limiting infrastructure (first real caller would be password-reset request endpoint once built) | Priority: low | Deps: none
 - [ ] Scheduled job to auto-transition APPROVED movements past `expectedDepartureAt` to EXPIRED (repository function `expireMovement` exists and is tested; nothing calls it on a schedule yet) | Priority: low | Deps: none
+- [ ] No self-service way to change `Tenant.timezone` from its seeded/schema default (`Africa/Johannesburg`) — the field is now genuinely used for vehicle-use-policy evaluation (Phase 8A, HARD-004), but there is no `tenant` permission resource or settings route/UI to update it; every tenant is evaluated against the default until one is added | Priority: low | Deps: none, deliberately not built speculatively — no route existed for any tenant self-service setting before this phase
+- [ ] `TRIP_DISTANCE_LIMIT_EXCEEDED`'s trip-boundary definition (ignition-off→on transitions, D-023) has not been validated against a real telematics vendor's actual ignition-signal reliability — only the mock provider, which always reports it | Priority: low | Deps: a production telematics provider (currently blocked, GPS-BLOCKED)
 
 ## Later
 - [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
@@ -63,6 +69,19 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 8A: Engineering hardening (HARD-001..006) — clean-database migration verification
+      (`npm run verify:clean-migrations`); root-caused and fixed the Postgres concurrent-query deprecation
+      warning's real underlying defect (`getCustomerHealthSummaries()`'s unbounded per-tenant query fan-out,
+      BUG-004 in KNOWN_BUGS.md — was causing genuine intermittent test timeouts, not just a cosmetic
+      warning); replaced the obsolete `vite-tsconfig-paths` plugin with Vite's native
+      `resolve.tsconfigPaths`; vehicle-use-policy day/hour/weekend evaluation now uses the tenant's IANA
+      timezone (`Tenant.timezone`, a Phase 1 field that had sat unused) instead of the server clock; real
+      per-trip/daily/weekly/monthly distance accumulation (`lib/telematics/distance-engine.ts`, pure,
+      timezone-aware); GPS-exception deduplication with episode tracking, escalation after 3 consecutive
+      re-observations, and automatic clearing on a return to compliance (`Exception.violationType`/
+      `observationCount`/`lastObservedAt`, migration `20260726120000_phase8a_telematics_exception_dedup`) —
+      416/416 tests passing (20 new), tsc/lint/build clean, full live curl verification of the dedup/
+      escalate/clear lifecycle against a running dev server — 2026-07-26.
 - [x] Phase 7: Platform support-access view (SUPPORT-001..004) — `getCustomerHealthSummaries()` (real
       aggregate counts, gated by existing `platformTenant:VIEW`), `SupportAccessSession` (60-minute TTL,
       mandatory reason, fully audited), a new "Platform Support Analyst" role (D-016) alongside Platform
