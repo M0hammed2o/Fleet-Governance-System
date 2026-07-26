@@ -111,6 +111,20 @@ const VEHICLE_USE_POLICY_ACTIONS = ["VIEW", "CREATE", "EDIT", "APPROVE"] as cons
 // and "can request elevated access" are independently grantable.
 const SUPPORT_ACCESS_SESSION_ACTIONS = ["VIEW", "CREATE", "CONFIGURE"] as const;
 
+// Phase 8C — retention, archive and deletion (PRODUCT_REQUIREMENTS.md
+// RETAIN-001..010). CONFIGURE manages RetentionPolicy rules and
+// legal-hold/investigation-hold flags and retention extensions; CREATE
+// covers a Company Administrator initiating a deletion or export request;
+// APPROVE is the deliberately separate second-authorised-user action that
+// approves/rejects a deletion request — split from CREATE the same way
+// movement/exception/reconciliation CREATE-vs-APPROVE already are, so
+// "who asked" and "who signed off" can never be the same permission grant
+// alone (the actual dual-control enforcement is a hard, user-id-based rule
+// in the repository layer, same as D-008 — this permission split makes the
+// boundary meaningfully testable, not the guarantee itself). EXPORT covers
+// viewing/downloading a ready export manifest.
+const RETENTION_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE", "EXPORT"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -133,6 +147,7 @@ export const PERMISSION_CATALOGUE = {
   telematics: TELEMATICS_ACTIONS,
   vehicleUsePolicy: VEHICLE_USE_POLICY_ACTIONS,
   supportAccessSession: SUPPORT_ACCESS_SESSION_ACTIONS,
+  retention: RETENTION_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

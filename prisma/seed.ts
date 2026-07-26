@@ -103,6 +103,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "reconciliation", action: "VIEW" },
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
+      // Company Administrator configures retention policy/holds and
+      // initiates deletion/export requests, but never APPROVEs its own
+      // deletion request — that's the deliberately separate second
+      // authorised user (Security Supervisor / Approving Manager, below).
+      { resource: "retention", action: "VIEW" }, { resource: "retention", action: "CREATE" }, { resource: "retention", action: "CONFIGURE" }, { resource: "retention", action: "EXPORT" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -182,6 +187,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // vehicle-use policies (POLICY-001).
       { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "APPROVE" },
       { resource: "vehicleUsePolicy", action: "VIEW" }, { resource: "vehicleUsePolicy", action: "APPROVE" },
+      // The second authorised user for deletion requests (dual-control) —
+      // deliberately not also granted retention:CREATE, so approving a
+      // deletion request can never be the same role that initiated it.
+      { resource: "retention", action: "VIEW" }, { resource: "retention", action: "APPROVE" },
     ],
   },
   // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
@@ -236,6 +245,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "reconciliation", action: "VIEW" },
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
+      // Compliance visibility into retention status and can view/download a
+      // ready export manifest, but never initiates or approves deletion.
+      { resource: "retention", action: "VIEW" }, { resource: "retention", action: "EXPORT" },
     ],
   },
   // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
@@ -259,6 +271,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "reconciliation", action: "VIEW" },
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
+      { resource: "retention", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the

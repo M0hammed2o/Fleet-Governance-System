@@ -529,6 +529,54 @@ until calling code is updated to categorise explicitly — a known, visible gap,
 **Revisit condition:** Update each existing capture-point UI to offer/set a real category as those pages are
 next revisited, not as a speculative batch change now.
 
+## D-026 — 2026-07-26 — Export request produces a signed manifest, not a server-generated zip archive
+**Context:** RETAIN-007 ("export and then delete") needs to hand a customer a complete copy of a batch of
+evidence before its deletion request proceeds. The obvious literal reading — generate a single downloadable
+archive file server-side — means buffering or streaming potentially many large video files through one
+request, needing a new archive-generation dependency (e.g. `archiver`) and a real async job
+queue/progress-tracking mechanism for anything beyond a trivially small batch.
+**Decision:** `createExportRequest()` builds a JSON manifest instead: one entry per matching asset
+(`mediaAssetId`, `fileName`, `category`, `checksumSha256`, `fileSizeBytes`, and a 24-hour expiring signed
+download URL via the existing `ObjectStorageProvider.getSignedReadUrl()`). The request is `READY`
+immediately — no async job, no progress polling.
+**Alternatives considered:** A server-generated zip — rejected for this pass given the scale risk above and
+because a signed-URL manifest satisfies "the customer got a verifiable, complete copy of their data" just as
+well (arguably better — each file's checksum is independently verifiable, not just a container's). A
+message-queue-backed async zip-building job — rejected as disproportionate infrastructure for a feature this
+codebase has no other precedent for (no job queue exists anywhere yet).
+**Consequences:** A customer receives N separate download links instead of one archive — a real UX
+difference, not a limitation of what's actually exported. The manifest's signed URLs expire in 24 hours
+(matching the request's own `expiresAt`), long enough to download a batch but not indefinite.
+**Revisit condition:** If the pilot customer specifically needs a single downloadable archive file (not
+just N links), revisit with a real archive-generation dependency and job queue at that time — not
+speculatively now.
+
+## D-027 — 2026-07-26 — Permanent deletion removes the binary but never the MediaAsset row itself
+**Context:** ARCHITECTURE.md already commits to "preserve structured operational records separately from
+large media files according to the applicable retention policy" and "never claim deleted binary evidence
+can be recovered after permanent deletion." These two statements together imply the database *metadata*
+(who captured what, when, its checksum, its category) has a different, generally much longer lifecycle than
+the large binary object itself.
+**Decision:** `completeDeletionRequest()` deletes the storage object(s) (`ObjectStorageProvider.delete()`)
+and sets `binaryDeletedAt`/`retentionStatus: DELETED`, but never issues a `prisma.mediaAsset.delete()`. The
+row survives forever as a tombstone — the `DeletionCertificate`'s `checksumManifest` and the surviving
+`MediaAsset` rows are the only trace of evidence that once existed, matching the "structured record
+preserved separately from the large file" principle literally, not just as a slogan.
+**Alternatives considered:** Hard-deleting the `MediaAsset` row too (true erasure) — rejected: it would
+destroy the audit trail this same phase is building (the deletion certificate would then reference an id
+that resolves to nothing), and nothing in RETAIN-001..010 actually requires row-level erasure — only the
+binary evidence itself needs to be genuinely unrecoverable. (A future genuine POPIA-erasure request, if it
+ever needs to remove the metadata row too, is a distinct, separately-scoped mechanism — see TODO.md's
+existing "MediaAsset retention-purge / hard-delete mechanism (POPIA erasure)" item, unaffected by this
+decision.)
+**Consequences:** A `binaryDeletedAt`-set `MediaAsset` row's `storageKey`/`thumbnailStorageKey`/
+`originalStorageKey` point at nothing readable — any future code path that tries to read one back must
+check `binaryDeletedAt` first rather than assuming a live object (not yet enforced defensively in
+`serveRawMediaAsset()`/`mintSignedUrlForMediaAsset()` in this pass — a documented, low-risk gap since no UI
+yet surfaces a "view" action for a deleted asset).
+**Revisit condition:** If a UI is later built that could plausibly link to a deleted asset's evidence
+view, add the `binaryDeletedAt` check to the read path at that time.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

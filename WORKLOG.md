@@ -1296,6 +1296,121 @@ presigned URLs, checksum verification, upload-status lifecycle, and storage acco
 
 ---
 
+## 2026-07-26 — Session 15 — Phase 8C: retention, archive and deletion (RETAIN-001..010)
+**Objective:** Continue the user's instructed autonomous run through Phase 8 with 8C — category-specific
+retention policies, legal/investigation holds, a dual-control deletion-request workflow with a 30-day
+recovery window and an immutable deletion certificate, an export-and-then-delete workflow, retention
+extension and paid-archive workflows, a storage billing-hook interface, the specified archive pricing
+configuration, and retention-expiry notification milestones.
+
+**Design (see DECISIONS.md D-026/D-027 for the two genuinely non-obvious calls):**
+- `RetentionPolicy` (tenant + `MediaCategory`, unique) replaces the single tenant-wide
+  `Tenant.retentionDays` — confirmed via codebase search that no application code had ever read or written
+  that column beyond its schema default (it predates any purge job, which was never built), so it was
+  removed outright in a follow-up migration rather than left dangling alongside the new mechanism.
+  `getEffectiveRetentionPolicy()` falls back to a hardcoded 12-month default when a tenant hasn't overridden
+  a category.
+- Deletion eligibility (`lib/retention/deletion-rules.ts`, pure) blocks on `legalHold`, `investigationHold`,
+  and a best-effort check for an unresolved `Exception` linked via the evidence's `GateEvent`
+  (`ownerType`/`ownerId`, the same polymorphic pair the rest of MediaAsset already uses). The brief's other
+  three blocking conditions — insurance claim, dispute, open audit — have no corresponding data model in
+  this codebase (MVP_SCOPE.md explicitly scopes full investigation-case management out) and are honestly
+  not enforced, documented as a gap rather than silently promised.
+- `DeletionRequest` scopes a *batch* (category + optional date range), not a single asset — matching the
+  certificate's "categories, date range, volume" requirement as one unit. Three-layer defense in depth: at
+  creation, every currently-eligible matching asset is snapshotted in (ineligible ones excluded, reported as
+  `excludedCount`, never failing the whole request); at approval, eligibility is re-checked (a hold applied
+  since creation excludes that one asset); at completion, re-checked a third time (a hold applied *during*
+  the 30-day recovery window means that asset is skipped, not deleted). The hard, unconditional
+  self-approval rule (`SelfApprovalNotAllowedError`) mirrors D-008/D-020's existing "raiser cannot be
+  resolver" family exactly, reinforced by the permission catalogue itself: the new `retention` resource
+  splits `CREATE` (Company Administrator) from `APPROVE` (Security Supervisor / Approving Manager) across
+  different seeded roles, so self-approval is blocked by two independent layers, not just one.
+- Permanent deletion (`completeDeletionRequest()`) removes the storage object(s) but never the `MediaAsset`
+  row — see D-027. The row survives forever as a metadata tombstone (`retentionStatus: DELETED`,
+  `binaryDeletedAt` set, its original `checksumSha256` intact), satisfying ARCHITECTURE.md's own "preserve
+  structured operational records separately from large media files" commitment literally. A
+  `DeletionCertificate` (immutable by convention) records the checksum manifest of everything actually
+  deleted, computed before each asset's bytes were removed.
+- Export request (`createExportRequest()`, see D-026) produces a signed manifest — per-asset metadata plus
+  a 24-hour expiring signed download URL — rather than a server-generated zip archive, avoiding a new
+  archive-generation dependency and async job infrastructure this codebase has no other precedent for.
+- Archive (`moveAssetsToArchive()`) and retention extension (`extendRetention()`) are simple, audited,
+  single-step actions — no dual-control needed for these (only deletion is genuinely irreversible enough to
+  warrant it). Archive usage is reported through a new `StorageBillingHookProvider` interface (no-op — no
+  billing vendor chosen, payment collection explicitly out of scope) alongside the exact archive pricing
+  schedule the user specified (`lib/retention/archive-pricing.ts`, config data, not scattered UI literals).
+- Retention-expiry notifications are computed (`currentRetentionMilestone()`, pure — picks the tightest
+  applicable 90/60/30/7/0-day threshold) but never delivered — no notification provider exists yet
+  (INTEGRATIONS.md), same status as every other not-yet-built notification channel in this codebase.
+
+**Files changed:**
+- `prisma/schema.prisma` — `RetentionAssetStatus`/`DeletionRequestStatus`/`ExportRequestStatus` enums;
+  `RetentionPolicy`, `DeletionRequest`, `DeletionRequestAsset`, `DeletionCertificate`, `ExportRequest` (new
+  models); `MediaAsset` gained `legalHold`/`investigationHold`/`retentionStatus`/`scheduledDeletionAt`/
+  `binaryDeletedAt`; `Tenant.retentionDays` removed; two migrations (
+  `20260726150000_phase8c_retention_archive_deletion`, `20260726151500_phase8c_drop_tenant_retention_days`
+  — kept separate since the column removal was decided after the first had already been applied, never
+  hand-editing an applied migration).
+- `src/lib/auth/permissions.ts` — new `retention` resource (VIEW/CREATE/APPROVE/CONFIGURE/EXPORT);
+  `prisma/seed.ts` — grants added across the roles that plausibly touch retention (Company Administrator:
+  VIEW/CREATE/CONFIGURE/EXPORT; Security Supervisor / Approving Manager: VIEW/APPROVE; Accountant/Finance:
+  VIEW/EXPORT; Internal Investigator/Auditor: VIEW; External Reviewer and Executive Read-Only Viewer:
+  none, consistent with their existing more-restricted evidence access).
+- `src/lib/retention/deletion-rules.ts`, `archive-pricing.ts`, `storage-billing-hook.ts` (new) — pure
+  engines/config/interface.
+- `src/lib/repositories/retention-policy-repository.ts`, `retention-repository.ts` (new) — the full
+  workflow: holds, extension, archive, deletion-request lifecycle (create/approve/reject/cancel/complete/
+  batch-complete-due), export-request lifecycle, notification computation.
+- `src/lib/repositories/media-asset-repository.ts` — exported `getDefaultObjectStorageProvider()` so
+  `retention-repository.ts` reuses the same `STORAGE_PROVIDER`-driven provider selection.
+- `src/lib/validation/retention.ts` (new) — zod schemas.
+- Routes (new): `GET/POST /api/admin/retention-policies`, `PATCH /api/media/[id]/{legal-hold,
+  investigation-hold,extend-retention}`, `POST /api/retention/archive`, `GET/POST
+  /api/retention/deletion-requests` (+ `[id]`, `[id]/{approve,reject,cancel,complete}`), `POST
+  /api/admin/retention/process-due-deletions` (platform-admin-gated cross-tenant batch), `GET/POST
+  /api/retention/export-requests` (+ `[id]`).
+- `tests/retention-repository.test.ts` (new, 31 cases), `tests/retention-authorization.test.ts` (new, 4
+  cases).
+- Docs: `PRODUCT_REQUIREMENTS.md` (new RETAIN-001..010 table), `ARCHITECTURE.md` (new "Retention
+  architecture" section), `DATA_MODEL.md` (Phase 8C entities + migration history + `Tenant.retentionDays`
+  removal note), `DECISIONS.md` (D-026, D-027), `SECURITY_AND_POPIA.md` ("Retention configuration" section
+  rewritten, legal-review item updated), `TESTING.md` (Phase 8C coverage), `TODO.md`.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean throughout (large files — the schema, the ~700-line retention-repository.ts —
+  compiled cleanly on first pass each time).
+- `npm run lint` — clean (fixed one unused-parameter warning in the no-op billing hook along the way).
+- `npm test` — **478/478 passing** (33 files; 35 net new over Phase 8B's 443).
+- `npm run build` — clean (14 new routes).
+- `npm run verify:clean-migrations` — PASS, all 16 migrations (including both of this phase's) against a
+  genuinely empty database.
+- Manual curl verification against a running dev server, full lifecycle: uploaded evidence as Fleet and GPS
+  Manager, applied a legal hold as Company Administrator, confirmed a deletion request scoped to that
+  category correctly 409s (`EmptyDeletionScopeError` — nothing eligible); released the hold, created the
+  deletion request (201); Company Administrator's own approval attempt 403s (blocked at the permission
+  layer — the seeded role never gets `retention:APPROVE`, a second independent layer beyond the hard rule
+  itself, which is directly exercised by the automated tests using two same-permission actors); Security
+  Supervisor (genuinely different user) approved successfully, receiving a 30-day `recoveryExpiresAt`;
+  completing immediately correctly 409s (`RecoveryPeriodNotElapsedError`); back-dated `recoveryExpiresAt`
+  directly via `psql` (disposable local dev data) to simulate elapsed recovery, then completed
+  successfully — confirmed via `psql`/filesystem that the storage object was actually removed from
+  `.data/media/` while the `MediaAsset` row survives with `retentionStatus: DELETED` and its original
+  checksum intact; created an export request and confirmed its manifest contains a real, working signed
+  URL. No raw 500s at any step.
+
+**Bugs found this session:** none.
+
+**Remaining work:** Phase 8D (platform-admin and customer-admin storage dashboards) next — the final Phase
+8 subphase.
+
+**Exact recommended next action:** Begin Phase 8D — the platform-admin storage dashboard first (real
+DB-backed aggregates across all the Phase 8B/8C data already built: `getStorageUsageForTenant()`, deletion
+requests, export requests, evidence approaching expiry via `getDueRetentionNotifications()`, failed
+uploads), then the customer-admin storage page scoped to one tenant's own data.
+
+---
+
 ## 2026-07-26 — Session 14 — Phase 8B: cost-efficient object-storage architecture (MEDIA-001..012)
 **Objective:** Continue the user's instructed autonomous run through Phase 8 with 8B — a provider-neutral
 object-storage architecture, presigned upload/download, ten evidence categories with per-category

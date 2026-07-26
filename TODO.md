@@ -1,10 +1,9 @@
 # TODO.md
 
 ## Now
-Phase 8A (engineering hardening — HARD-001..006) and Phase 8B (cost-efficient object-storage architecture —
-MEDIA-001..012) are **complete**, see WORKLOG.md Sessions 13-14. Phase 8C (retention/archive/deletion) and
-8D (platform storage dashboard) are next, per the user's instruction to proceed autonomously through all of
-Phase 8.
+Phase 8A (engineering hardening), 8B (cost-efficient object-storage architecture), and 8C (retention,
+archive and deletion — RETAIN-001..010) are **complete**, see WORKLOG.md Sessions 13-15. Phase 8D (platform
+storage dashboard) is next, per the user's instruction to proceed autonomously through all of Phase 8.
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -58,6 +57,10 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy already defined in `lib/storage/video-compression.ts`) — currently a documented passthrough (D-024); needs ffmpeg or an equivalent installed and verified in this environment | Priority: medium | Deps: none, but must be verified end-to-end before claiming it works, not just installed
 - [ ] Most existing `uploadMediaAsset()` call sites (gate inspection evidence, manual facial-verification fallback evidence, compliance-document attachments, movement documents — everything predating Phase 8B) still default to `category: OTHER_DOCUMENT` rather than passing a real category (D-025) — update each capture-point's call site to pass an appropriate category as those pages are next revisited | Priority: medium | Deps: none
 - [ ] No admin UI to browse/act on `MediaAsset.uploadStatus` (e.g. a "failed uploads" list, a manual "retry cleanup now" button) — `cleanupFailedUploads()` exists and is tested but nothing calls it on a schedule yet, same category of gap as the existing "Scheduled job to auto-transition APPROVED movements" item above | Priority: low | Deps: none
+- [ ] No admin UI for the Phase 8C retention/deletion/export/archive workflows — every route is fully wired, tested, and curl-verified end-to-end, but there's no dedicated admin page yet (matches this project's existing precedent of API-first, UI-later for tightly-scoped phases, e.g. D-012's driver-portrait upload); the Phase 8D platform/customer storage dashboards will surface *viewing* this data, but not necessarily every action (initiate/approve/reject/archive/export) | Priority: medium | Deps: none
+- [ ] `completeDeletionRequest()`/`completeDueDeletionRequests()` and `cleanupFailedUploads()` are not wired to any scheduler — both are callable on demand via their routes, same documented gap as the pre-existing `expireMovement` auto-transition item | Priority: low | Deps: a scheduling mechanism, none exists in this codebase yet
+- [ ] Deletion eligibility only checks legal hold, investigation hold, and an unresolved linked Exception — the brief's "insurance claim, dispute, or open audit" conditions have no corresponding data model in this codebase (MVP_SCOPE.md explicitly scopes full investigation-case management out) and are not enforced (D-025's sibling gap, lib/retention/deletion-rules.ts) | Priority: medium | Deps: an investigation-case/claims data model, out of scope for this run
+- [ ] `serveRawMediaAsset()`/`mintSignedUrlForMediaAsset()` do not yet check `MediaAsset.binaryDeletedAt` before attempting a read — a deleted asset's storage key simply 404s at the provider level today rather than a purpose-built "this evidence was permanently deleted on [date]" response (D-027) | Priority: low | Deps: none, add when a UI surfaces a "view" action for a deleted/archived asset
 
 ## Later
 - [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
@@ -73,6 +76,21 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 
 ## Completed recently
+- [x] Phase 8C: Retention, archive and deletion (RETAIN-001..010) — per-category `RetentionPolicy`
+      (12-month rolling default, overridable), replacing the never-enforced single tenant-wide
+      `Tenant.retentionDays` (removed); legal-hold/investigation-hold hard blockers plus a best-effort
+      unresolved-linked-exception check; a dual-control `DeletionRequest` workflow (Company Administrator
+      initiates, a different authorised user approves, eligibility re-checked at creation/approval/
+      completion) with a configurable 30-day recovery window before permanent deletion; an immutable
+      `DeletionCertificate` with a checksum manifest issued on completion, the `MediaAsset` metadata row
+      itself always surviving as the historical record (D-027); an `ExportRequest` workflow producing a
+      signed per-file manifest (D-026); retention extension and paid-archive workflows; a
+      `StorageBillingHookProvider` interface (no-op, no billing vendor chosen) and the specified
+      ZAR-excl-VAT archive pricing configuration; retention-expiry milestone computation for 90/60/30/7/0
+      days (no real notification delivery — no provider exists). 478/478 tests passing (35 net new),
+      tsc/lint/build clean, clean-migration verification passing, full live curl verification of the
+      legal-hold-prevention → dual-approval → recovery-window → permanent-deletion → certificate lifecycle
+      and the export-request workflow against a running dev server — 2026-07-26.
 - [x] Phase 8B: Cost-efficient object-storage architecture (MEDIA-001..012) — `ObjectStorageProvider`
       interface extended with presigned upload/confirm; `R2CompatibleStorageProvider` (real
       `@aws-sdk/client-s3` client, blocked — no Cloudflare account); ten `MediaCategory` values with

@@ -376,6 +376,48 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] `npm run verify:clean-migrations` — all 14 migrations, including this phase's, apply cleanly to a
       genuinely empty database.
 
+## Phase 8C coverage (retention, archive and deletion, added 2026-07-26)
+- [x] `tests/retention-repository.test.ts` (31 cases): pure `deletion-rules.ts`/`archive-pricing.ts` engine
+      tests (eligibility blocking for each of legal-hold/investigation-hold/unresolved-exception
+      independently, `computeScheduledDeletionAt`, `currentRetentionMilestone` boundary sweep across every
+      90/60/30/7/0 threshold plus "too far out" and "already past" cases, archive-tier boundary matches
+      against the exact ZAR-excl-VAT pricing schedule); `RetentionPolicy` default-fallback and per-category
+      override with tenant isolation; legal hold and investigation hold each independently exclude an asset
+      from a deletion request's scope, and releasing a hold restores eligibility; an unresolved `Exception`
+      linked via a real `GateEvent` blocks deletion; `extendRetention` is audit-logged;
+      `moveAssetsToArchive` respects a category's `archiveEligible` policy flag and reports usage through a
+      spy billing hook; **dual-control deletion workflow**: the initiator cannot approve *or* reject their
+      own request (`SelfApprovalNotAllowedError`), only the initiator can cancel their own pending request
+      (`NotRequestInitiatorError`), approving/rejecting/completing a request in the wrong status is
+      rejected, completing before the recovery period elapses is rejected
+      (`RecoveryPeriodNotElapsedError`), completing an unapproved request is rejected
+      (`DeletionRequestNotApprovedError`); permanent deletion after the recovery period issues a
+      `DeletionCertificate` with an exact checksum manifest match, deletes the storage object, and leaves
+      the `MediaAsset` row itself intact as a metadata tombstone (`retentionStatus: DELETED`,
+      `binaryDeletedAt` set); an asset that gains a hold *during* the recovery window is skipped at
+      completion time, not deleted (three-layer defense in depth: creation, approval, completion); deletion
+      never touches another tenant's assets; export requests generate a manifest with a valid signed URL
+      and checksum per asset and never include another tenant's evidence; retention-notification milestone
+      computation finds assets due within 90 days and excludes archived ones.
+- [x] `tests/retention-authorization.test.ts` (4 cases): VIEW-only role cannot CREATE/APPROVE/CONFIGURE/
+      EXPORT; a Company-Administrator-style role (CREATE+CONFIGURE+EXPORT) cannot APPROVE; an
+      approver-style role (VIEW+APPROVE) cannot CREATE or CONFIGURE; no-grant role cannot even VIEW.
+- [x] Manually verified end-to-end via curl against a running dev server: uploaded evidence, applied a
+      legal hold as Company Administrator, confirmed a deletion request scoped to that category correctly
+      409s with `EmptyDeletionScopeError` (nothing eligible); released the hold, created the deletion
+      request (201); Company Administrator's own self-approval attempt correctly 403s at the permission
+      layer (the seeded role grants CREATE/CONFIGURE but never APPROVE, structurally mirroring the hard
+      self-approval rule as an additional layer); Security Supervisor (a genuinely different user, holding
+      `retention:APPROVE`) approved successfully, receiving a `recoveryExpiresAt` 30 days out; completing
+      immediately correctly 409s (`RecoveryPeriodNotElapsedError`); back-dated `recoveryExpiresAt` directly
+      via `psql` (disposable local dev data) to simulate elapsed recovery, then completed successfully —
+      confirmed via `psql` the storage object was actually removed from `.data/media/` and the `MediaAsset`
+      row survives with `retentionStatus: DELETED`, `binaryDeletedAt` set, and its original
+      `checksumSha256` intact; created an export request and confirmed its manifest contains a real,
+      fetchable signed URL. No raw 500s at any step.
+- [x] `npm run verify:clean-migrations` — all 16 migrations, including both of this phase's, apply cleanly
+      to a genuinely empty database.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

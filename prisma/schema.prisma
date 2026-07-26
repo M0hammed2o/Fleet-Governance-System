@@ -21,7 +21,6 @@ model Tenant {
   slug                     String                   @unique
   timezone                 String                   @default("Africa/Johannesburg")
   currency                 String                   @default("ZAR")
-  retentionDays            Int                      @default(365)
   status                   TenantStatus             @default(ACTIVE)
   // Movement-approval policy (build brief 7.5/7.7: "must not approve their own
   // movement request where tenant policy prohibits self-approval"). Default is
@@ -70,6 +69,10 @@ model Tenant {
   supportAccessSessionsAsCustomerTenant SupportAccessSession[]             @relation("SupportAccessSessionCustomerTenant")
   supportNotesAsAuthorTenant            SupportNote[]                      @relation("SupportNoteAuthorTenant")
   supportNotesAsCustomerTenant          SupportNote[]                      @relation("SupportNoteCustomerTenant")
+  retentionPolicies                     RetentionPolicy[]
+  deletionRequests                      DeletionRequest[]
+  deletionCertificates                  DeletionCertificate[]
+  exportRequests                        ExportRequest[]
 
   @@map("tenants")
 }
@@ -191,6 +194,10 @@ model User {
   vehicleUsePoliciesApproving         VehicleUsePolicy[]                 @relation("VehicleUsePolicyApprovingManager")
   supportAccessSessionsAsActor        SupportAccessSession[]             @relation("SupportAccessSessionActor")
   supportNotesAuthored                SupportNote[]                      @relation("SupportNoteAuthor")
+  deletionRequestsInitiated           DeletionRequest[]                  @relation("DeletionRequestInitiatedBy")
+  deletionRequestsApproved            DeletionRequest[]                  @relation("DeletionRequestApprovedBy")
+  deletionRequestsRejected            DeletionRequest[]                  @relation("DeletionRequestRejectedBy")
+  exportRequestsRequested             ExportRequest[]                    @relation("ExportRequestRequestedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1343,16 +1350,37 @@ model MediaAsset {
   // opaque JSON, never used for access control, purely descriptive.
   captureMetadata     Json?
 
+  // --- Phase 8C: retention, archive and deletion ---------------------------
+  // Both hard, unconditional blockers on deletion regardless of role/permission
+  // — see DECISIONS.md and lib/retention/deletion-rules.ts.
+  legalHold         Boolean              @default(false)
+  investigationHold Boolean              @default(false)
+  retentionStatus   RetentionAssetStatus @default(ACTIVE)
+  // Derived from the applicable RetentionPolicy at capture time
+  // (capturedAt + retentionDays); recalculated when the policy or a hold
+  // changes. Null means "not yet computed" (no policy existed at capture
+  // time) — never treated as "never expires".
+  scheduledDeletionAt DateTime?
+  // Set only once the underlying binary is permanently deleted — the row
+  // itself (this structured metadata) is preserved as the historical
+  // record even after the bytes are gone (ARCHITECTURE.md "Preserve
+  // structured operational records separately from large media files").
+  // Once set, storageKey/thumbnailStorageKey/originalStorageKey no longer
+  // point at anything readable.
+  binaryDeletedAt DateTime?
+
   createdAt DateTime @default(now())
 
   inspectionItemEvidenceFor       GateEventInspectionItem?          @relation("InspectionItemEvidence")
   manualFallbackEvidenceFor       ManualFacialVerificationFallback? @relation("ManualFallbackEvidence")
   driverPortraitFor               Driver?                           @relation("DriverPortrait")
   complianceDocumentAttachmentFor ComplianceDocument?               @relation("ComplianceDocumentAttachment")
+  deletionRequestLinks            DeletionRequestAsset[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
   @@index([tenantId, ownerType, ownerId])
+  @@index([tenantId, retentionStatus, scheduledDeletionAt])
   @@map("media_assets")
 }
 
@@ -1762,4 +1790,190 @@ model SupportNote {
 
   @@index([customerTenantId])
   @@map("support_notes")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8C — Retention, archive and deletion. See PRODUCT_REQUIREMENTS.md
+// RETAIN-001..010 and ARCHITECTURE.md "Retention architecture". Replaces the
+// single tenant-wide Tenant.retentionDays assumption with per-category
+// policies; deletion requires a second, different, authorised user
+// (dual-control, same hard-rule pattern as D-008/D-020) and a 30-day
+// recovery window before anything is permanently removed.
+// ---------------------------------------------------------------------------
+
+enum RetentionAssetStatus {
+  ACTIVE
+  ARCHIVED
+  PENDING_DELETION
+  DELETED
+}
+
+enum DeletionRequestStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  IN_RECOVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum ExportRequestStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+}
+
+// Tenant + category-scoped retention rule. Falls back to a hardcoded
+// 12-month (365-day) default (lib/retention/policy-repository.ts
+// DEFAULT_RETENTION_DAYS) when no row exists for a given category — a
+// tenant only needs a row here to *override* the default, not to have one
+// at all times.
+model RetentionPolicy {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  category MediaCategory
+
+  retentionDays                 Int     @default(365)
+  includedStorageAllowanceBytes Float?
+  archiveEligible                Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, category])
+  @@index([tenantId])
+  @@map("retention_policies")
+}
+
+// A batch deletion request scoped by category/date-range, not a single
+// asset — matches the deletion-certificate requirement of recording
+// "categories, date range, volume" as one unit. Company Administrator
+// initiates (status starts PENDING_APPROVAL); a *different* authorised user
+// approves or rejects (hard rule, lib/retention/deletion-repository.ts,
+// same "raiser cannot be resolver" family as D-008/D-020) before anything
+// enters the 30-day recovery window.
+model DeletionRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  categories     MediaCategory[]
+  dateRangeStart DateTime?
+  dateRangeEnd   DateTime?
+
+  status DeletionRequestStatus @default(PENDING_APPROVAL)
+
+  initiatedByUserId String
+  initiatedBy       User     @relation("DeletionRequestInitiatedBy", fields: [initiatedByUserId], references: [id])
+  initiatedAt       DateTime @default(now())
+
+  approvedByUserId String?
+  approvedBy       User?     @relation("DeletionRequestApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+
+  rejectedByUserId String?
+  rejectedBy       User?     @relation("DeletionRequestRejectedBy", fields: [rejectedByUserId], references: [id])
+  rejectedAt       DateTime?
+  rejectionReason  String?
+
+  recoveryDays      Int       @default(30)
+  recoveryExpiresAt DateTime?
+  completedAt       DateTime?
+
+  // Snapshotted at approval time (how many assets/how many bytes this
+  // request actually covered) — the certificate reports these even after
+  // the underlying MediaAsset rows' own bytes are gone.
+  assetCount Int?
+  totalBytes Float?
+
+  assets      DeletionRequestAsset[]
+  certificate DeletionCertificate?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("deletion_requests")
+}
+
+// Snapshot of exactly which MediaAsset rows this request covers, captured at
+// initiation time — so a new upload matching the same category/date-range
+// filter after the request was submitted is never silently swept in.
+model DeletionRequestAsset {
+  id                String          @id @default(cuid())
+  deletionRequestId String
+  deletionRequest   DeletionRequest @relation(fields: [deletionRequestId], references: [id], onDelete: Cascade)
+  mediaAssetId      String
+  mediaAsset        MediaAsset      @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([deletionRequestId, mediaAssetId])
+  @@map("deletion_request_assets")
+}
+
+// Issued once a DeletionRequest's recovery window elapses and permanent
+// deletion actually runs. Immutable by convention (no update path in
+// application code — same append-only spirit as AuditLog, not backed by a
+// DB trigger in this pass). "Never claim deleted binary evidence can be
+// recovered after permanent deletion" (ARCHITECTURE.md) — this certificate,
+// plus the surviving MediaAsset metadata rows, is the only trace that
+// remains.
+model DeletionCertificate {
+  id                String          @id @default(cuid())
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deletionRequestId String          @unique
+  deletionRequest   DeletionRequest @relation(fields: [deletionRequestId], references: [id], onDelete: Cascade)
+
+  categories     MediaCategory[]
+  dateRangeStart DateTime?
+  dateRangeEnd   DateTime?
+  assetCount     Int
+  totalBytes     Float
+
+  initiatedByUserId String
+  approvedByUserId  String
+
+  // One entry per deleted asset: { mediaAssetId, fileName, checksumSha256 }
+  // — the "checksum manifest" proving exactly what was deleted, computed
+  // from each asset's own recorded checksum before its binary was removed.
+  checksumManifest Json
+
+  issuedAt DateTime @default(now())
+
+  @@map("deletion_certificates")
+}
+
+// "Export and then delete" (one of the four customer retention choices).
+// Deliberately a signed manifest of the matching evidence (metadata +
+// per-file expiring signed download links), not a server-generated zip
+// archive — avoids adding a heavy archive-generation dependency/pipeline
+// for a batch that could be very large, while still giving the customer a
+// complete, checksum-verifiable export before deletion proceeds.
+model ExportRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  categories     MediaCategory[]
+  dateRangeStart DateTime?
+  dateRangeEnd   DateTime?
+
+  status ExportRequestStatus @default(PENDING)
+
+  requestedByUserId String
+  requestedBy       User     @relation("ExportRequestRequestedBy", fields: [requestedByUserId], references: [id])
+  requestedAt       DateTime @default(now())
+
+  // { assets: [{ mediaAssetId, fileName, category, checksumSha256, fileSizeBytes, signedUrl }], generatedAt }
+  manifest   Json?
+  expiresAt  DateTime?
+
+  assetCount Int?
+  totalBytes Float?
+
+  @@index([tenantId])
+  @@map("export_requests")
 }

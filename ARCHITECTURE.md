@@ -169,6 +169,67 @@ provider call per asset; a `FAILED` one is cleanup-eligible, not billable) — s
 discipline as `security-dashboard-repository.ts`/`support-access-repository.ts`. Feeds the Phase 8D storage
 dashboards, not built as a route/UI in this subphase.
 
+## Retention architecture (Phase 8C, see PRODUCT_REQUIREMENTS.md RETAIN-001..010)
+Replaces the single tenant-wide `Tenant.retentionDays` assumption (never actually enforced — no purge job
+existed, and no code ever read it) with per-`MediaCategory` `RetentionPolicy` rows, falling back to a
+hardcoded 12-month (365-day) default when a tenant hasn't overridden a category
+(`getEffectiveRetentionPolicy()`, `lib/repositories/retention-policy-repository.ts`).
+
+**Deletion eligibility (`lib/retention/deletion-rules.ts`, pure, DB-free — same family as
+`gate-events/state-machine.ts`).** `evaluateDeletionEligibility()` blocks deletion for three conditions this
+codebase can actually evaluate: `MediaAsset.legalHold`, `MediaAsset.investigationHold`, and an unresolved
+`Exception` linked to the evidence's `GateEvent` (traversed via the existing `ownerType`/`ownerId` pair for
+`GATE_EVENT`/`GATE_EVENT_INSPECTION_ITEM` evidence). The brief's other three conditions — insurance claim,
+dispute, open audit — have no corresponding data model in this codebase (`MVP_SCOPE.md` explicitly scopes
+full investigation-case management out) and are **not** programmatically enforced; a disclosed gap
+(TODO.md), not a silent omission.
+
+**Deletion request workflow (dual-control, three-layer defense in depth).** `DeletionRequest` scopes a
+*batch* (category/date-range), not a single asset — matching the deletion-certificate requirement to record
+"categories, date range, volume" as one unit. `createDeletionRequest()` (Company Administrator,
+`retention:CREATE`) snapshots every currently-eligible matching asset into `DeletionRequestAsset`, silently
+excluding ineligible ones (reported as `excludedCount`) rather than failing the whole batch.
+`approveDeletionRequest()` (`retention:APPROVE`, a deliberately separate permission grant — see D-026)
+enforces the hard, unconditional rule that the approver can never be the request's own initiator
+(`SelfApprovalNotAllowedError`, same family as D-008/D-020), and re-checks eligibility for every linked
+asset a second time (a hold applied between creation and approval excludes that asset, not the whole
+request) before setting `recoveryExpiresAt` (default 30 days) and moving eligible assets to
+`PENDING_DELETION`. `completeDeletionRequest()` re-checks eligibility a *third* time — an asset that gained
+a hold during the recovery window is skipped, not deleted — deletes each remaining asset's storage
+object(s) (primary, thumbnail, original), sets `binaryDeletedAt`/`retentionStatus: DELETED`, and issues an
+immutable `DeletionCertificate` with a `checksumManifest` (computed from each asset's own recorded checksum
+before its bytes are removed). **The MediaAsset row itself survives permanently as a structured metadata
+record even after its binary is gone** (ARCHITECTURE.md's own "preserve structured operational records
+separately from large media files" requirement) — never claim the *binary* is recoverable after this point,
+but the *fact that it existed and what it was* remains auditable forever via the row + certificate.
+`completeDeletionRequest()`/`completeDueDeletionRequests()` are not yet wired to any scheduler (no
+scheduling infrastructure exists in this codebase — same documented gap as the pre-existing
+`expireMovement` auto-transition) — callable on demand via
+`POST /api/retention/deletion-requests/[id]/complete` or the cross-tenant batch
+`POST /api/admin/retention/process-due-deletions` (platform-admin-gated, since it operates across every
+tenant by design).
+
+**Export request ("export and then delete").** `createExportRequest()` builds a signed manifest — per-file
+metadata plus a 24-hour expiring signed download URL (`ObjectStorageProvider.getSignedReadUrl()`) — rather
+than a server-generated zip archive: avoids adding a heavy archive-generation pipeline for a batch that
+could be very large, while still giving the customer a complete, checksum-verifiable export before deletion
+proceeds.
+
+**Archive and retention extension.** `moveAssetsToArchive()` sets `retentionStatus: ARCHIVED` for eligible
+assets (respecting the category's `RetentionPolicy.archiveEligible` flag) and reports the resulting usage
+through `StorageBillingHookProvider` — a boundary for a future real billing system, same "interface +
+no-op, real integration blocked" pattern as every other unselected vendor; payment collection is explicitly
+not implemented. `extendRetention()` pushes `scheduledDeletionAt` out, audit-logged.
+
+**Archive pricing (`lib/retention/archive-pricing.ts`).** Configuration data, not scattered UI literals —
+`ARCHIVE_PRICING_TIERS` (R149/R1,500 up to 100GB through R899/R9,000 for 501GB-1TB, custom quotation beyond
+1TB, all ZAR excluding VAT) and `getArchiveTierForBytes()`.
+
+**Retention-expiry notifications.** `currentRetentionMilestone()` (pure) computes which of 90/60/30/7/0
+days-before-expiry applies to a given `scheduledDeletionAt`; `getDueRetentionNotifications()` finds every
+`ACTIVE` asset currently due. No email/SMS is actually sent — no notification provider exists yet
+(INTEGRATIONS.md) — this only computes *which* milestone applies, "preparing for" each one per RETAIN-010.
+
 ## Movement authorisation architecture (Phase 2)
 `MovementAuthorisation` has its own state machine — a pure, DB-free transition table in
 `lib/movements/state-machine.ts` (`isValidMovementTransition`, `assertValidMovementTransition`), the same

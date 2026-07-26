@@ -21,6 +21,11 @@ function createDefaultProvider(): { provider: ObjectStorageProvider; name: strin
 const { provider: defaultProvider, name: defaultProviderName } = createDefaultProvider();
 const videoCompressionProvider = new PassthroughVideoCompressionProvider();
 
+/** Shared default provider selection — reused by retention-repository.ts so both files route through the same STORAGE_PROVIDER env-driven choice. */
+export function getDefaultObjectStorageProvider(): ObjectStorageProvider {
+  return defaultProvider;
+}
+
 // Short-lived on purpose (SECURITY_AND_POPIA.md "short-lived signed URLs") —
 // long enough for a browser to actually load an <img>/<video> src in one
 // round trip, short enough that a leaked URL (e.g. copy-pasted, cached

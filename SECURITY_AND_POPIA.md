@@ -65,9 +65,16 @@ through the existing Phase 3 workflow; the system must never state or imply that
 fraud, theft, or a crime — a violation is a fact pattern for a human to review, not a conclusion.
 
 ## Retention configuration
-Tenant-level `retentionDays` setting exists on `Tenant` (Phase 1 schema) as the config point; the
-scheduled-purge job enforcing it is not yet built — tracked in TODO.md. Until built, no data is
-auto-deleted.
+Phase 8C replaced the single tenant-wide `Tenant.retentionDays` assumption (removed — it was never actually
+read by any purge job, since none existed) with per-`MediaCategory` `RetentionPolicy` rows, falling back to
+a 12-month (365-day) default. Deletion is not automatic: a Company Administrator explicitly initiates a
+scoped `DeletionRequest`, a second, different, authorised user approves it, evidence enters a 30-day
+recovery window, and only then is the underlying binary permanently removed — see ARCHITECTURE.md
+"Retention architecture" and PRODUCT_REQUIREMENTS.md RETAIN-001..010. Legal hold, investigation hold, and
+an unresolved linked exception are hard, unconditional blockers on deletion; the brief's "insurance claim,
+dispute, or open audit" conditions have no corresponding data model in this codebase yet and are not
+enforced (documented gap, TODO.md). No scheduled/automatic purge runs on its own — completion is manually
+triggered until a real scheduler exists, same status as the pre-existing `expireMovement` gap.
 
 ## Encryption expectations
 Transport: HTTPS everywhere in any non-local environment. At rest: relies on the hosting provider's
@@ -132,8 +139,9 @@ flow that pauses for a second factor when `mfaEnabled` is true. Not scheduled fo
 ## Items requiring professional legal / Information Officer review before production use
 - POPIA lawful-basis analysis for storing driver facial reference data and biometric verification
   results.
-- Retention periods per data category (current `retentionDays` is a single tenant-wide config; may need
-  to be per data category).
+- Retention periods per data category — the mechanism is now built (Phase 8C `RetentionPolicy`, per-category,
+  defaulting to 12 months) but the *actual durations chosen* for each category still need legal/Information
+  Officer sign-off, not just an engineering default.
 - Cross-border storage location if a cloud region outside South Africa is used.
 - Data subject access/erasure request process (drivers are data subjects, not just system users).
 - Consent/notice wording shown to drivers regarding facial verification and video capture at gates.

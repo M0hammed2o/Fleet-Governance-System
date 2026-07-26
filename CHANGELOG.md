@@ -1,5 +1,20 @@
 # CHANGELOG.md
 
+## 2026-07-26 (Phase 8C)
+### Added
+- Phase 8C — retention, archive and deletion (RETAIN-001..010): per-category retention policies (12-month
+  rolling default, overridable), replacing the never-enforced single tenant-wide `Tenant.retentionDays`
+  (removed); legal-hold and investigation-hold as hard, unconditional deletion blockers; a dual-control
+  deletion-request workflow (a Company Administrator initiates, a different authorised user approves,
+  eligibility re-checked at every stage) with a configurable 30-day recovery window before anything is
+  permanently deleted; an immutable deletion certificate with a checksum manifest, the evidence's structured
+  metadata always surviving as the historical record even after its binary is gone; an export-and-then-
+  delete workflow producing a signed per-file manifest; retention-extension and paid-archive workflows; a
+  storage billing-hook interface (no billing vendor chosen yet) and the specified archive pricing
+  configuration (R149-R899/month, R1,500-R9,000/year across four tiers, custom quotation beyond 1TB, all ZAR
+  excluding VAT); retention-expiry notification milestones computed for 90/60/30/7 days and expiry (no real
+  delivery — no notification provider exists yet). 35 net new tests (478/478 total).
+
 ## 2026-07-26 (Phase 8B)
 ### Added
 - Phase 8B — cost-efficient object-storage architecture (MEDIA-001..012): `ObjectStorageProvider` extended

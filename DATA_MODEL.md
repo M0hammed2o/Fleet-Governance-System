@@ -232,6 +232,34 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   unambiguous mapping; every other pre-existing row keeps the `OTHER_DOCUMENT` column default rather than a
   guessed category.
 
+## Phase 8C entities (retention, archive and deletion — implemented)
+- **RetentionPolicy** — tenant + `MediaCategory` scoped rule (`@@unique([tenantId, category])`). A tenant
+  only needs a row to *override* the hardcoded 12-month default, not to have one for every category.
+  `retentionDays`, `includedStorageAllowanceBytes` (nullable), `archiveEligible`.
+- **MediaAsset** gained: `legalHold`/`investigationHold` (both `Boolean @default(false)`, hard unconditional
+  deletion blockers), `retentionStatus` (`RetentionAssetStatus`: ACTIVE/ARCHIVED/PENDING_DELETION/DELETED),
+  `scheduledDeletionAt` (nullable — derived from the applicable policy at capture time),
+  `binaryDeletedAt` (nullable — set only once the underlying object is permanently deleted; the row itself
+  is never removed, surviving as the structured historical record).
+- **DeletionRequest** — a *batch* deletion scoped by category/date-range, not a single asset.
+  `categories` (`MediaCategory[]`), `dateRangeStart`/`dateRangeEnd` (nullable), `status`
+  (`DeletionRequestStatus`: PENDING_APPROVAL/APPROVED/REJECTED/IN_RECOVERY/COMPLETED/CANCELLED),
+  `initiatedByUserId`/`At`, `approvedByUserId`/`At`, `rejectedByUserId`/`At`/`rejectionReason`,
+  `recoveryDays` (default 30), `recoveryExpiresAt`, `completedAt`, snapshotted `assetCount`/`totalBytes`.
+- **DeletionRequestAsset** — join table snapshotting exactly which `MediaAsset` rows a request covers at
+  initiation time, so a new upload matching the same filter afterward is never silently swept in.
+- **DeletionCertificate** — one per completed `DeletionRequest` (`@unique` on `deletionRequestId`).
+  `categories`/`dateRangeStart`/`dateRangeEnd`/`assetCount`/`totalBytes` (snapshot), `initiatedByUserId`/
+  `approvedByUserId`, `checksumManifest` (`Json` — `{mediaAssetId, fileName, checksumSha256}[]`), `issuedAt`.
+  Immutable by application convention (no update path exists), same append-only spirit as `AuditLog` — not
+  yet backed by a DB trigger in this pass.
+- **ExportRequest** — "export and then delete." `categories`/`dateRangeStart`/`dateRangeEnd`, `status`
+  (`ExportRequestStatus`: PENDING/READY/FAILED/EXPIRED), `requestedByUserId`/`At`, `manifest` (`Json` — per-
+  asset metadata + a signed download URL, not a server-generated zip archive — see DECISIONS.md),
+  `expiresAt`, snapshotted `assetCount`/`totalBytes`.
+- `Tenant.retentionDays` (Phase 1 field) **removed** — confirmed via codebase search that no application
+  code ever read or wrote it beyond its schema default; superseded by `RetentionPolicy`.
+
 ## Phase 7 entities (platform support-access — implemented)
 - **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
   to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
@@ -309,8 +337,18 @@ each is actually migrated, not in advance.
   `thumbnailStorageKey`/`compressionProfile`/`captureMetadata` (MEDIA-001..012). Includes one backfill
   UPDATE (`category = 'DRIVER_PORTRAIT' WHERE ownerType = 'DRIVER_PORTRAIT'`) — every other pre-existing row
   keeps the column default.
+- `20260726150000_phase8c_retention_archive_deletion` (applied): `RetentionAssetStatus`/
+  `DeletionRequestStatus`/`ExportRequestStatus` enums; `RetentionPolicy`, `DeletionRequest`,
+  `DeletionRequestAsset`, `DeletionCertificate`, `ExportRequest` (new tables); added
+  `MediaAsset.legalHold`/`investigationHold`/`retentionStatus`/`scheduledDeletionAt`/`binaryDeletedAt`
+  (RETAIN-001..010). Purely additive.
+- `20260726151500_phase8c_drop_tenant_retention_days` (applied): dropped `Tenant.retentionDays` — confirmed
+  via codebase search that no application code read or wrote it beyond its schema default, superseded by
+  `RetentionPolicy`. A separate migration, not folded into the one above, since it was already applied by
+  the time the removal was decided (DATA_MODEL.md's own hard rule against hand-editing an applied
+  migration).
 
-All fourteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All sixteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 
