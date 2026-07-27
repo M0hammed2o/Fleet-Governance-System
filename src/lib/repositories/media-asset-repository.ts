@@ -174,6 +174,9 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "MOVEMENT_DOCUMENT":
       found = await prisma.movementAuthorisation.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
+    case "INVOICE":
+      found = await prisma.invoice.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
+      break;
   }
   if (!found) throw new MediaOwnerNotFoundError(ownerType, ownerId);
 }
@@ -216,7 +219,8 @@ async function runCompressionPipeline(
 
 export interface UploadMediaAssetInput {
   tenantId: string;
-  actorUserId: string;
+  /** Null/omitted for a system/job-generated artifact (e.g. a recurring-billing-job invoice PDF) — no human captured it. */
+  actorUserId?: string | null;
   ownerType: MediaAssetOwnerType;
   ownerId: string;
   fileName: string;
@@ -288,7 +292,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: O
         tenantId: input.tenantId,
         ownerType: input.ownerType,
         ownerId: input.ownerId,
-        capturedByUserId: input.actorUserId,
+        capturedByUserId: input.actorUserId ?? null,
         capturedAt,
         fileName: input.fileName,
         contentType: processed.contentType,

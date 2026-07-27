@@ -145,6 +145,53 @@ const FACIAL_TEMPLATE_ACTIONS = ["VIEW", "CREATE", "DELETE"] as const;
 // new verification attempt during check-in/check-out.
 const FACIAL_VERIFICATION_ATTEMPT_ACTIONS = ["VIEW", "CREATE"] as const;
 
+// Phase 10 — subscriptions, billing and invoicing (PRODUCT_REQUIREMENTS.md
+// P10A..P10P). Deliberately split into narrow resources (the same
+// "who asked vs who signed off" / "least privilege" convention as
+// `retention`/`exception`/`movement` above) rather than one broad `billing`
+// resource, so a role like Accountant can hold exactly the tenant-side
+// slice it needs without also getting platform-wide or pricing-negotiation
+// rights, and Security Guard/Dispatch roles can hold none of it at all
+// (P10J "should not receive unnecessary billing permissions").
+//
+// tenantBilling: the tenant's own billing profile/contacts (P10C). VIEW =
+// see it; EDIT = update contact/registration details (not pricing, which is
+// its own resource below and platform-controlled).
+const TENANT_BILLING_ACTIONS = ["VIEW", "EDIT"] as const;
+// pricingAgreement: tenant-specific negotiated pricing (P10B/I) — platform
+// Administrator only in the seed data; never granted to a customer-tenant
+// role, since pricing negotiation is a platform-commercial decision.
+const PRICING_AGREEMENT_ACTIONS = ["VIEW", "EDIT"] as const;
+// invoice: VIEW covers seeing/downloading an invoice (mirrors mediaAsset:
+// VIEW covering signed-URL mint, D-014); CREATE covers generating a new
+// invoice (the recurring job, or a platform admin's manual
+// generate/void/reissue); EDIT covers void/reissue/correction actions
+// distinct from ordinary generation.
+const INVOICE_ACTIONS = ["VIEW", "CREATE", "EDIT"] as const;
+// payment: VIEW covers seeing payment/payment-attempt history; CREATE
+// covers both a customer Accountant initiating a self-service
+// provider/mock payment AND an authorised platform finance user recording
+// a manual payment (two different call sites, same permission key — the
+// business logic, not the permission grant, is what distinguishes a
+// MANUAL-method payment's extra requirements, same pattern as
+// reconciliation:APPROVE being held by a different role than
+// reconciliation:CREATE for a different purpose).
+const PAYMENT_ACTIONS = ["VIEW", "CREATE"] as const;
+// billingEmail: VIEW covers seeing delivery history; CREATE covers
+// requesting an authorised resend.
+const BILLING_EMAIL_ACTIONS = ["VIEW", "CREATE"] as const;
+// tenantSubscription: VIEW covers seeing subscription/access status;
+// CONFIGURE covers suspending/restoring access — deliberately separate from
+// tenantBilling so "can see my subscription" (Accountant/Company
+// Administrator) and "can suspend/restore a tenant" (Platform Administrator
+// only) are independently grantable.
+const TENANT_SUBSCRIPTION_ACTIONS = ["VIEW", "CONFIGURE"] as const;
+// platformBilling: platform-wide billing dashboard/configuration
+// (P10B/P10I) — Platform Administrator only, never Platform Support Analyst
+// (billing operations are a first-class platform-admin function, not a
+// support-access-session concern — mirrors platformTenant, D-005).
+const PLATFORM_BILLING_ACTIONS = ["VIEW", "CONFIGURE"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -170,6 +217,13 @@ export const PERMISSION_CATALOGUE = {
   retention: RETENTION_ACTIONS,
   facialTemplate: FACIAL_TEMPLATE_ACTIONS,
   facialVerificationAttempt: FACIAL_VERIFICATION_ATTEMPT_ACTIONS,
+  tenantBilling: TENANT_BILLING_ACTIONS,
+  pricingAgreement: PRICING_AGREEMENT_ACTIONS,
+  invoice: INVOICE_ACTIONS,
+  payment: PAYMENT_ACTIONS,
+  billingEmail: BILLING_EMAIL_ACTIONS,
+  tenantSubscription: TENANT_SUBSCRIPTION_ACTIONS,
+  platformBilling: PLATFORM_BILLING_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

@@ -115,6 +115,13 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // verification attempts at the gate — that's Gate Security Officer).
       { resource: "facialTemplate", action: "VIEW" }, { resource: "facialTemplate", action: "CREATE" }, { resource: "facialTemplate", action: "DELETE" },
       { resource: "facialVerificationAttempt", action: "VIEW" },
+      // Phase 10 — oversight visibility only, same posture as mediaAsset
+      // above: sees the company's own billing/subscription/invoice status
+      // but does not manage negotiated pricing or record payments (that's
+      // Accountant / Finance and Compliance Officer, below).
+      { resource: "tenantBilling", action: "VIEW" },
+      { resource: "invoice", action: "VIEW" },
+      { resource: "tenantSubscription", action: "VIEW" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -260,6 +267,20 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Compliance visibility into retention status and can view/download a
       // ready export manifest, but never initiates or approves deletion.
       { resource: "retention", action: "VIEW" }, { resource: "retention", action: "EXPORT" },
+      // Phase 10 (P10J) — the operational owner of this tenant's own billing:
+      // views/downloads invoices, views payment history, initiates a
+      // mock/configured-provider payment, updates authorised billing-contact
+      // info, and requests an authorised invoice-email resend. Deliberately
+      // no invoice:CREATE/EDIT (generation/void/reissue is a platform-admin
+      // function, P10I) and no pricingAgreement/platformBilling/
+      // tenantSubscription:CONFIGURE — this role can see its own
+      // subscription status but cannot suspend/restore access or negotiate
+      // pricing.
+      { resource: "tenantBilling", action: "VIEW" }, { resource: "tenantBilling", action: "EDIT" },
+      { resource: "invoice", action: "VIEW" },
+      { resource: "payment", action: "VIEW" }, { resource: "payment", action: "CREATE" },
+      { resource: "billingEmail", action: "VIEW" }, { resource: "billingEmail", action: "CREATE" },
+      { resource: "tenantSubscription", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
@@ -284,6 +305,12 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
       { resource: "retention", action: "VIEW" },
+      // Phase 10 — full internal read-only visibility, consistent with this
+      // role's remit; never CREATE/EDIT/CONFIGURE anything billing-related.
+      { resource: "tenantBilling", action: "VIEW" },
+      { resource: "invoice", action: "VIEW" },
+      { resource: "payment", action: "VIEW" },
+      { resource: "tenantSubscription", action: "VIEW" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the
@@ -322,6 +349,12 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // reporting only (SECURITY_AND_POPIA.md "Internal" classification),
       // never raw evidence, mirroring their existing lack of
       // complianceDocument access.
+      // Phase 10 — high-level financial/subscription visibility for
+      // executive reporting; view-only, same posture as everything else
+      // this role holds.
+      { resource: "tenantBilling", action: "VIEW" },
+      { resource: "invoice", action: "VIEW" },
+      { resource: "tenantSubscription", action: "VIEW" },
     ],
   },
 };
@@ -377,6 +410,34 @@ async function main() {
       update: {},
       create: { roleId: platformAdminRole.id, permissionId },
     });
+  }
+
+  // Phase 10 (P10I/P10M) — full platform-wide billing management: pricing
+  // negotiation, invoice generation/void/reissue, manual payment recording,
+  // billing-email resend, subscription suspend/restore, platform billing
+  // configuration, and editing a customer's billing profile on its behalf.
+  // Never granted to Platform Support Analyst below — billing operations
+  // are a first-class platform-admin function, not a support-access-session
+  // concern (mirrors platformTenant itself, D-005).
+  const platformAdminBillingGrants: Array<[string, readonly string[]]> = [
+    ["tenantBilling", ["VIEW", "EDIT"]],
+    ["pricingAgreement", ["VIEW", "EDIT"]],
+    ["invoice", ["VIEW", "CREATE", "EDIT"]],
+    ["payment", ["VIEW", "CREATE"]],
+    ["billingEmail", ["VIEW", "CREATE"]],
+    ["tenantSubscription", ["VIEW", "CONFIGURE"]],
+    ["platformBilling", ["VIEW", "CONFIGURE"]],
+  ];
+  for (const [resource, actions] of platformAdminBillingGrants) {
+    for (const action of actions) {
+      const permissionId = permissionIdByKey.get(permissionKey(resource, action));
+      if (!permissionId) continue;
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: platformAdminRole.id, permissionId } },
+        update: {},
+        create: { roleId: platformAdminRole.id, permissionId },
+      });
+    }
   }
 
   const platformAdminUser = await upsertUser({
@@ -491,6 +552,7 @@ async function main() {
   }
 
   await seedMasterData(demoTenant.id, site.id, usersByRole);
+  await seedBilling(demoTenant.id);
 
   console.log("\nSeed complete. Dev-only fictional accounts (all share the same dev password):");
   console.log(`  Password: ${DEV_PASSWORD}`);
@@ -595,6 +657,82 @@ const DEFAULT_EXPIRY_RULES: { documentType: "DRIVER_LICENCE" | "PDP" | "VEHICLE_
   { documentType: "INSURANCE", action: "REQUIRE_SUPERVISOR_APPROVAL" },
   { documentType: "OTHER", action: "WARN" },
 ];
+
+/**
+ * Phase 10 — platform billing configuration + the demo tenant's own
+ * subscription/billing profile. Deliberately does not fabricate any
+ * Invoice/Payment rows directly (unlike the static master-data fixtures
+ * above) — those are generated for real via the actual billing repository
+ * functions (the recurring job, or the platform-admin dashboard), so a
+ * demo invoice is never out of sync with the real generation logic's
+ * invariants (sequential numbering, PDF attachment, line-item shape).
+ */
+async function seedBilling(tenantId: string) {
+  console.log("Seeding billing configuration...");
+
+  await prisma.platformBillingSettings.upsert({
+    where: { id: "platform" },
+    update: {},
+    create: {
+      id: "platform",
+      legalName: "Gate Fleet Governance (Pty) Ltd",
+      tradingName: "Gate Fleet Governance",
+      registrationNumber: "2026/123456/07",
+      vatEnabled: false, // no VAT registration number configured yet — see BILLING_AND_SUBSCRIPTIONS.md "still-blocked"
+      addressLine1: "1 Fictional Way",
+      city: "Johannesburg",
+      postalCode: "2000",
+      country: "South Africa",
+      billingEmail: "billing@example.test",
+      invoicePrefix: "INV",
+      currency: "ZAR",
+      defaultPaymentTermsDays: 30,
+      defaultGracePeriodDays: 14,
+      defaultBaseFeeMinorUnits: 199_900, // R1,999.00 — approved commercial-model default
+      defaultPerVehicleFeeMinorUnits: 29_900, // R299.00 — approved commercial-model default
+    },
+  });
+
+  const plan = await prisma.subscriptionPlan.upsert({
+    where: { name: "Standard" },
+    update: {},
+    create: { name: "Standard", description: "The platform's single V1 commercial plan — base fee plus per-active-vehicle fee." },
+  });
+
+  await prisma.tenantSubscription.upsert({
+    where: { tenantId },
+    update: {},
+    create: { tenantId, planId: plan.id, status: "ACTIVE", startedAt: new Date() },
+  });
+
+  await prisma.tenantBillingProfile.upsert({
+    where: { tenantId },
+    update: {},
+    create: {
+      tenantId,
+      registeredBusinessName: "Acme Logistics (Pty) Ltd",
+      tradingName: "Acme Logistics",
+      registrationNumber: "2019/987654/07",
+      billingAddressLine1: "1 Fictional Way",
+      billingCity: "Johannesburg",
+      billingPostalCode: "2000",
+      billingCountry: "South Africa",
+      billingEmail: "accounts@acme-logistics.example.test",
+      accountsContactName: "Nomvula Khumalo",
+      accountsContactEmail: "accounts@acme-logistics.example.test",
+      paymentTermsDays: 30,
+      gracePeriodDays: 14,
+      subscriptionStartDate: new Date(),
+    },
+  });
+
+  const existingContact = await prisma.customerBillingContact.findFirst({ where: { tenantId, email: "finance@acme-logistics.example.test" } });
+  if (!existingContact) {
+    await prisma.customerBillingContact.create({
+      data: { tenantId, name: "Nomvula Khumalo", email: "finance@acme-logistics.example.test" },
+    });
+  }
+}
 
 async function seedMasterData(tenantId: string, siteId: string, usersByRole: Map<string, { id: string; email: string }>) {
   console.log("Seeding tyre-position configs, expiry rules, drivers, vehicles, movements...");

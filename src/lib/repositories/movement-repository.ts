@@ -6,12 +6,30 @@ import { assertValidMovementTransition, type MovementStatus } from "@/lib/moveme
 import { generateMovementReferenceCode } from "@/lib/movements/reference-code";
 import { isDriverAvailableForMovement } from "@/lib/repositories/driver-repository";
 import { isVehicleAvailableForMovement } from "@/lib/repositories/vehicle-repository";
+import { getTenantAccessStatus } from "@/lib/repositories/subscription-repository";
 import type { MovementType, Prisma } from "@/generated/prisma/client";
 
 export class SelfApprovalNotAllowedError extends Error {
   constructor() {
     super("This company's policy does not allow approving your own movement request.");
     this.name = "SelfApprovalNotAllowedError";
+  }
+}
+
+/**
+ * Phase 10 (P10K) — the one and only access boundary a suspended
+ * subscription enforces (see subscription-repository.ts's module
+ * docstring for the full "continuity mode" reasoning): a suspended tenant
+ * cannot start *new* business by creating a new movement. Every other
+ * workflow — gate check-in/check-out for movements already in flight,
+ * evidence capture, exception handling, reconciliation, billing/payment
+ * screens — remains fully available regardless of subscription status, so
+ * suspension for non-payment can never silently create a safety risk.
+ */
+export class TenantAccessSuspendedError extends Error {
+  constructor() {
+    super("This company's account is currently suspended for non-payment. New movements cannot be created until the outstanding balance is resolved — see the billing section for payment options.");
+    this.name = "TenantAccessSuspendedError";
   }
 }
 
@@ -97,6 +115,9 @@ export interface CreateMovementInput {
  * driverId/vehicleId belong to this tenant (see /api/movements POST).
  */
 export async function createMovement(input: CreateMovementInput) {
+  const accessStatus = await getTenantAccessStatus(input.tenantId);
+  if (accessStatus.blocksNewMovementCreation) throw new TenantAccessSuspendedError();
+
   const [driver, vehicle] = await Promise.all([
     prisma.driver.findUniqueOrThrow({ where: { id: input.driverId } }),
     prisma.vehicle.findUniqueOrThrow({ where: { id: input.vehicleId } }),

@@ -78,6 +78,19 @@ model Tenant {
   facialVerificationAttempts             FacialVerificationAttempt[]
   cloudFallbackInvocations               CloudFallbackInvocation[]
 
+  // --- Phase 10: subscriptions, billing and invoicing ---------------------
+  billingProfile             TenantBillingProfile?
+  customerBillingContacts    CustomerBillingContact[]
+  pricingAgreements          TenantPricingAgreement[]
+  subscription               TenantSubscription?
+  billingPeriods             BillingPeriod[]
+  billableVehicleSnapshots   BillableVehicleSnapshot[]
+  invoices                   Invoice[]
+  payments                   Payment[]
+  paymentAttempts            PaymentAttempt[]
+  billingEmailDeliveries     BillingEmailDelivery[]
+  creditAdjustments          CreditAdjustment[]
+
   @@map("tenants")
 }
 
@@ -206,6 +219,19 @@ model User {
   driverFacialTemplatesEnrolled       DriverFacialTemplate[]              @relation("DriverFacialTemplateEnrolledBy")
   driverFacialTemplatesRevoked        DriverFacialTemplate[]              @relation("DriverFacialTemplateRevokedBy")
   facialVerificationAttemptsAsOfficer FacialVerificationAttempt[]         @relation("FacialVerificationAttemptOfficer")
+
+  // --- Phase 10: subscriptions, billing and invoicing ---------------------
+  platformPricingVersionsCreated     PlatformPricingVersion[]   @relation("PlatformPricingVersionCreatedBy")
+  platformBillingSettingsUpdated     PlatformBillingSettings[]  @relation("PlatformBillingSettingsUpdatedBy")
+  tenantPricingAgreementsCreated     TenantPricingAgreement[]   @relation("TenantPricingAgreementCreatedBy")
+  tenantSubscriptionsSuspended       TenantSubscription[]       @relation("TenantSubscriptionSuspendedBy")
+  tenantSubscriptionsRestored        TenantSubscription[]       @relation("TenantSubscriptionRestoredBy")
+  billableVehicleSnapshotsGenerated  BillableVehicleSnapshot[]  @relation("BillableVehicleSnapshotGeneratedBy")
+  invoicesCreated                    Invoice[]                  @relation("InvoiceCreatedBy")
+  invoicesVoided                     Invoice[]                  @relation("InvoiceVoidedBy")
+  paymentsRecorded                   Payment[]                  @relation("PaymentRecordedBy")
+  billingEmailDeliveriesTriggered    BillingEmailDelivery[]     @relation("BillingEmailDeliveryTriggeredBy")
+  creditAdjustmentsCreated           CreditAdjustment[]         @relation("CreditAdjustmentCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1414,6 +1440,10 @@ enum MediaAssetOwnerType {
   // documents), unlike DRIVER_PORTRAIT's implicit 1:1 — no unique constraint
   // needed, same (ownerType, ownerId) polymorphic pattern as GATE_EVENT.
   MOVEMENT_DOCUMENT
+  // Phase 10 (P10E) — a generated invoice PDF. 1:1 with its Invoice
+  // (Invoice.pdfMediaAssetId), reusing the existing signed-URL/object-storage
+  // architecture rather than a new "documents" store — see D-035.
+  INVOICE
 }
 
 enum MediaDataClassification {
@@ -1474,8 +1504,11 @@ model MediaAsset {
   ownerType MediaAssetOwnerType
   ownerId   String
 
-  capturedByUserId String
-  capturedBy       User     @relation("MediaAssetCapturedBy", fields: [capturedByUserId], references: [id])
+  // Nullable since Phase 10: a system/job-generated artifact (e.g. a
+  // recurring-billing-job invoice PDF) has no human capturing officer —
+  // distinct from every human-driven upload, which always sets this.
+  capturedByUserId String?
+  capturedBy       User?    @relation("MediaAssetCapturedBy", fields: [capturedByUserId], references: [id])
   capturedAt       DateTime @default(now())
 
   fileName       String
@@ -1553,6 +1586,7 @@ model MediaAsset {
   complianceDocumentAttachmentFor ComplianceDocument?               @relation("ComplianceDocumentAttachment")
   deletionRequestLinks            DeletionRequestAsset[]
   retentionNotifications          RetentionNotificationRecord[]
+  invoiceAsPdf                    Invoice?                          @relation("InvoicePdf")
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
@@ -2247,4 +2281,491 @@ model JobRun {
 
   @@index([jobName, startedAt])
   @@map("job_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — Subscriptions, Billing and Invoicing (PRODUCT_REQUIREMENTS.md
+// P10A-P10P). See BILLING_AND_SUBSCRIPTIONS.md for the full commercial
+// model. All money fields are integer minor currency units (e.g. ZAR cents)
+// — never a JS float, per the approved commercial-model instruction. VAT
+// rates are integer basis points for the same reason. Pricing is
+// append-only/versioned: PlatformPricingVersion and TenantPricingAgreement
+// rows are never edited or deleted, only superseded by a newer row, so an
+// already-issued Invoice's snapshot fields remain historically accurate
+// even after prices, vehicle counts, or addresses later change (D-035).
+// ---------------------------------------------------------------------------
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  PROVIDER
+  MANUAL
+}
+
+enum InvoiceLineItemKind {
+  BASE_FEE
+  VEHICLE_FEE
+  ARCHIVE_STORAGE
+  ADJUSTMENT
+  OTHER
+}
+
+enum BillingPeriodStatus {
+  PENDING
+  SNAPSHOTTED
+  INVOICED
+}
+
+enum BillingEmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum BillingEmailTriggerEvent {
+  PAYMENT_SUCCESS
+  MANUAL_APPROVAL
+  RESEND
+}
+
+enum PaymentProviderEventResult {
+  ACCEPTED
+  REJECTED_INVALID_SIGNATURE
+  REJECTED_AMOUNT_MISMATCH
+  REJECTED_CURRENCY_MISMATCH
+  DUPLICATE
+  ERROR
+}
+
+// Platform-wide (not tenant-scoped) named commercial plan container. V1
+// seeds exactly one plan ("Standard") — the model exists so a future
+// multi-plan offering doesn't require a schema migration.
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  currency    String   @default("ZAR")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  tenantSubscriptions TenantSubscription[]
+
+  @@map("subscription_plans")
+}
+
+// Append-only — a new row is added whenever the platform's own default
+// pricing changes; never edited or deleted (D-035). The current default
+// price is the row with the latest effectiveFrom <= now.
+model PlatformPricingVersion {
+  id                      String    @id @default(cuid())
+  baseFeeMinorUnits       Int
+  perVehicleFeeMinorUnits Int
+  currency                String    @default("ZAR")
+  effectiveFrom           DateTime  @default(now())
+  note                    String?
+  createdByUserId         String?
+  createdBy               User?     @relation("PlatformPricingVersionCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt               DateTime  @default(now())
+
+  @@index([effectiveFrom])
+  @@map("platform_pricing_versions")
+}
+
+// Singleton row (fixed id "platform") — legal/trading identity, invoice
+// numbering, VAT configuration, and platform-wide billing defaults (P10B).
+// Managed exclusively by Platform Administrator; ordinary client users
+// (even Company Administrator) can never edit this.
+model PlatformBillingSettings {
+  id                             String   @id @default("platform")
+  legalName                      String   @default("")
+  tradingName                    String?
+  registrationNumber             String?
+  vatRegistrationNumber          String?
+  vatEnabled                     Boolean  @default(false)
+  // Integer basis points (1/100th of a percent), e.g. 1500 = 15.00%.
+  vatRateBasisPoints             Int?
+  addressLine1                   String?
+  addressLine2                   String?
+  city                           String?
+  postalCode                     String?
+  country                        String   @default("South Africa")
+  billingEmail                   String?
+  telephone                      String?
+  bankingInstructions            String?
+  invoicePrefix                  String   @default("INV")
+  nextInvoiceSequence            Int      @default(1)
+  currency                       String   @default("ZAR")
+  defaultPaymentTermsDays        Int      @default(30)
+  defaultGracePeriodDays         Int      @default(14)
+  defaultBaseFeeMinorUnits       Int      @default(199900)
+  defaultPerVehicleFeeMinorUnits Int      @default(29900)
+  updatedAt                      DateTime @updatedAt
+  updatedByUserId                String?
+  updatedBy                      User?    @relation("PlatformBillingSettingsUpdatedBy", fields: [updatedByUserId], references: [id])
+
+  @@map("platform_billing_settings")
+}
+
+// Tenant-scoped commercial/contact/registration details (P10C). Deliberately
+// does not store negotiated fee amounts directly — those are append-only
+// versioned rows on TenantPricingAgreement (D-035) so an issued invoice's
+// historical price is never affected by a later negotiation.
+model TenantBillingProfile {
+  id                     String    @id @default(cuid())
+  tenantId               String    @unique
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  registeredBusinessName String?
+  tradingName            String?
+  registrationNumber     String?
+  vatNumber              String?
+  billingAddressLine1    String?
+  billingAddressLine2    String?
+  billingCity            String?
+  billingPostalCode      String?
+  billingCountry         String    @default("South Africa")
+  billingEmail           String?
+  accountsContactName    String?
+  accountsContactEmail   String?
+  accountsContactPhone   String?
+  poRequired             Boolean   @default(false)
+  customerReference      String?
+  paymentTermsDays       Int?
+  gracePeriodDays        Int?
+  subscriptionStartDate  DateTime?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("tenant_billing_profiles")
+}
+
+// Additional billing-email recipients beyond TenantBillingProfile's single
+// accountsContactEmail — invoice email delivery (P10H) fans out to every
+// active row here plus the profile's own accountsContactEmail/billingEmail.
+model CustomerBillingContact {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String?
+  email     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("customer_billing_contacts")
+}
+
+// Append-only tenant-specific negotiated pricing (P10A/B — "a tenant may
+// have a negotiated base fee or per-vehicle fee"). Never edited or deleted;
+// the current agreement is the row with the latest effectiveFrom <= now.
+// When no row exists for a tenant, PlatformBillingSettings' defaults apply.
+model TenantPricingAgreement {
+  id                      String   @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  baseFeeMinorUnits       Int
+  perVehicleFeeMinorUnits Int
+  currency                String   @default("ZAR")
+  effectiveFrom           DateTime @default(now())
+  note                    String?
+  createdByUserId         String?
+  createdBy               User?    @relation("TenantPricingAgreementCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt               DateTime @default(now())
+
+  @@index([tenantId, effectiveFrom])
+  @@map("tenant_pricing_agreements")
+}
+
+// One row per tenant — subscription lifecycle state, distinct from the
+// legacy Tenant.subscriptionStatus manual flag (Phase 7), kept unchanged for
+// backward compatibility of the existing SUPPORT-001 health summary — see
+// D-035 for why this is a new model rather than repurposing that field.
+model TenantSubscription {
+  id                String             @id @default(cuid())
+  tenantId          String             @unique
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId            String
+  plan              SubscriptionPlan   @relation(fields: [planId], references: [id])
+  status            SubscriptionStatus @default(PENDING)
+  startedAt         DateTime?
+  // Null actor = an automated suspension/restoration (P10K "automated
+  // suspension behind a configurable, tested policy") rather than a human
+  // platform-admin action — both are equally audited (see recordAudit()
+  // call sites in tenant-subscription-repository.ts), this only
+  // distinguishes who/what performed it.
+  suspendedAt       DateTime?
+  suspendedReason   String?
+  suspendedByUserId String?
+  suspendedBy       User?              @relation("TenantSubscriptionSuspendedBy", fields: [suspendedByUserId], references: [id])
+  restoredAt        DateTime?
+  restoredByUserId  String?
+  restoredBy        User?              @relation("TenantSubscriptionRestoredBy", fields: [restoredByUserId], references: [id])
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@map("tenant_subscriptions")
+}
+
+// One row per tenant per calendar month — the anchor billing cycle
+// (P10D/P10L). A hard uniqueness constraint prevents the recurring job (or
+// a manual retry) from ever creating two periods for the same tenant+month.
+model BillingPeriod {
+  id          String              @id @default(cuid())
+  tenantId    String
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  status      BillingPeriodStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+
+  billableVehicleSnapshot BillableVehicleSnapshot?
+  invoice                 Invoice?
+
+  @@unique([tenantId, periodStart])
+  @@map("billing_periods")
+}
+
+// Deterministic, immutable-once-created monthly billing snapshot (P10D).
+// Exact vehicle IDs/count and the price actually applied are recorded here
+// so a later vehicle activation/deactivation or price change can never
+// rewrite what an already-generated invoice was based on.
+model BillableVehicleSnapshot {
+  id                             String        @id @default(cuid())
+  tenantId                       String
+  tenant                         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  billingPeriodId                String        @unique
+  billingPeriod                  BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  vehicleIds                     String[]
+  vehicleCount                   Int
+  baseFeeMinorUnitsApplied       Int
+  perVehicleFeeMinorUnitsApplied Int
+  currency                       String        @default("ZAR")
+  generatedAt                    DateTime      @default(now())
+  generatedByUserId              String?
+  generatedBy                    User?         @relation("BillableVehicleSnapshotGeneratedBy", fields: [generatedByUserId], references: [id])
+
+  @@map("billable_vehicle_snapshots")
+}
+
+model Invoice {
+  id              String         @id @default(cuid())
+  tenantId        String
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  billingPeriodId String?        @unique
+  billingPeriod   BillingPeriod? @relation(fields: [billingPeriodId], references: [id])
+  invoiceNumber   String         @unique
+  status          InvoiceStatus  @default(DRAFT)
+  issueDate       DateTime       @default(now())
+  dueDate         DateTime
+  currency        String         @default("ZAR")
+
+  subtotalMinorUnits  Int
+  vatRateBasisPoints  Int?
+  vatAmountMinorUnits Int @default(0)
+  totalMinorUnits     Int
+
+  // Immutable snapshots of supplier/customer identity at issue time (D-035)
+  // — an issued invoice must remain historically accurate even if the
+  // tenant's billing profile or the platform's own registration details
+  // change later. Shape documented in BILLING_AND_SUBSCRIPTIONS.md.
+  supplierSnapshot Json
+  customerSnapshot Json
+
+  customerPoReference String?
+  paymentReference    String?
+
+  pdfMediaAssetId String?     @unique
+  pdfMediaAsset   MediaAsset? @relation("InvoicePdf", fields: [pdfMediaAssetId], references: [id])
+
+  voidedAt       DateTime?
+  voidedByUserId String?
+  voidedBy       User?     @relation("InvoiceVoidedBy", fields: [voidedByUserId], references: [id])
+  voidReason     String?
+
+  // Self-relation lineage for a controlled reissue (P10E "no silent
+  // regeneration — a controlled void/reissue/adjustment process with an
+  // audit trail"): the new invoice points back at the one it replaces.
+  reissueOfInvoiceId String?  @unique
+  reissueOfInvoice   Invoice? @relation("InvoiceReissue", fields: [reissueOfInvoiceId], references: [id])
+  reissuedByInvoice  Invoice? @relation("InvoiceReissue")
+
+  // Null = generated by the automated recurring billing job (P10L);
+  // non-null = a platform admin generated/regenerated it manually.
+  createdByUserId String?
+  createdBy       User?    @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  lineItems              InvoiceLineItem[]
+  payments               Payment[]
+  paymentAttempts        PaymentAttempt[]
+  billingEmailDeliveries BillingEmailDelivery[]
+  creditAdjustments      CreditAdjustment[]
+
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id                  String              @id @default(cuid())
+  invoiceId           String
+  invoice             Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  kind                InvoiceLineItemKind
+  description         String
+  quantity            Int                 @default(1)
+  unitPriceMinorUnits Int
+  lineTotalMinorUnits Int
+  sortOrder           Int                 @default(0)
+
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  tenantId         String
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId        String
+  invoice          Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amountMinorUnits Int
+  currency         String        @default("ZAR")
+  status           PaymentStatus @default(PENDING)
+  method           PaymentMethod
+
+  providerName      String?
+  providerReference String?
+
+  // Guarantees a genuine retry (same key) never creates a second Payment row
+  // — the idempotency boundary this model exists to enforce (P10G).
+  idempotencyKey String @unique
+
+  // Set only for method: MANUAL — an authorised platform finance user's own
+  // proof/reference for a payment received outside the payment provider
+  // (e.g. an EFT reference), enforced at the application layer (never a
+  // card number, CVV, or online-banking credential — P10G).
+  recordedByUserId    String?
+  recordedBy          User?   @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id])
+  manualProofReference String?
+  manualNote           String?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  billingEmailDeliveries BillingEmailDelivery[]
+
+  @@index([tenantId, invoiceId])
+  @@map("payments")
+}
+
+// A payment-provider checkout/session in flight, before it resolves to a
+// confirmed Payment (P10F/G) — e.g. MockPaymentProvider's synthetic
+// checkout session.
+model PaymentAttempt {
+  id                String        @id @default(cuid())
+  tenantId          String
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId         String
+  invoice           Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  provider          String
+  status            PaymentStatus @default(PENDING)
+  checkoutReference String?
+  idempotencyKey    String        @unique
+  resolvedPaymentId String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([tenantId, invoiceId])
+  @@map("payment_attempts")
+}
+
+// Inbound payment-provider webhook/event records (P10G). tenantId/invoiceId
+// are resolved from the provider's own reference and nullable until that
+// resolution succeeds. The (provider, externalEventId) uniqueness
+// constraint is the hard duplicate-webhook-processing guarantee — a second
+// delivery of the same event collides on a real Postgres constraint, not a
+// best-effort check.
+model PaymentProviderEvent {
+  id               String                      @id @default(cuid())
+  provider         String
+  externalEventId  String
+  eventType        String
+  tenantId         String?
+  invoiceId        String?
+  payload          Json
+  processingResult PaymentProviderEventResult?
+  processedAt      DateTime?
+  createdAt        DateTime                    @default(now())
+
+  @@unique([provider, externalEventId])
+  @@map("payment_provider_events")
+}
+
+// One row per invoice-email delivery attempt (P10H). A partial unique index
+// (applied via this model's own migration SQL, same pattern as JobRun/
+// DriverFacialTemplate — Prisma's @@unique has no WHERE clause) enforces at
+// most one PAYMENT_SUCCESS-or-MANUAL_APPROVAL delivery per
+// (invoiceId, relatedPaymentId) — duplicate webhooks/approvals can never
+// send the invoice email twice. A RESEND is a deliberate new row every time.
+model BillingEmailDelivery {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  invoiceId        String
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  relatedPaymentId String?
+  relatedPayment   Payment? @relation(fields: [relatedPaymentId], references: [id])
+
+  recipientEmail String
+  status         BillingEmailDeliveryStatus @default(PENDING)
+  triggerEvent   BillingEmailTriggerEvent
+
+  triggeredByUserId String?
+  triggeredBy       User?   @relation("BillingEmailDeliveryTriggeredBy", fields: [triggeredByUserId], references: [id])
+
+  provider     String
+  errorMessage String?
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, invoiceId])
+  @@map("billing_email_deliveries")
+}
+
+// A manual credit or debit adjustment against a tenant's billing (P10A) —
+// always a deliberate, audited, human-initiated correction (e.g. a
+// goodwill credit, or a correction line to include on the next invoice).
+model CreditAdjustment {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId        String?
+  invoice          Invoice? @relation(fields: [invoiceId], references: [id])
+  amountMinorUnits Int
+  currency         String   @default("ZAR")
+  reason           String
+  createdByUserId  String
+  createdBy        User     @relation("CreditAdjustmentCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt        DateTime @default(now())
+
+  @@map("credit_adjustments")
 }

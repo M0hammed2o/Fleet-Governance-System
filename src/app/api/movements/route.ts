@@ -5,6 +5,7 @@ import {
   createMovement,
   DriverNotAvailableError,
   VehicleNotAvailableError,
+  TenantAccessSuspendedError,
 } from "@/lib/repositories/movement-repository";
 import { getVehicleInTenant } from "@/lib/repositories/vehicle-repository";
 import { getDriverInTenant } from "@/lib/repositories/driver-repository";
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
   } catch (err) {
     if (err instanceof DriverNotAvailableError || err instanceof VehicleNotAvailableError) {
       return apiErrorResponse(new ApiError(409, err.message));
+    }
+    if (err instanceof TenantAccessSuspendedError) {
+      return apiErrorResponse(new ApiError(403, err.message));
     }
     return apiErrorResponse(err);
   }
