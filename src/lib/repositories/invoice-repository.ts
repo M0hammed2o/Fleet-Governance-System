@@ -10,7 +10,7 @@ import { formatBillingPeriodLabel } from "@/lib/billing/billing-period";
 import { allocateNextInvoiceNumber, getPlatformBillingSettingsUnchecked } from "@/lib/repositories/platform-billing-repository";
 import { getTenantBillingProfileUnchecked } from "@/lib/repositories/tenant-billing-repository";
 import { activateTenantSubscription, markTenantPastDue } from "@/lib/repositories/subscription-repository";
-import { uploadMediaAsset } from "@/lib/repositories/media-asset-repository";
+import { uploadMediaAsset, mintSignedUrlForMediaAsset } from "@/lib/repositories/media-asset-repository";
 
 /**
  * Phase 10 (P10E) — invoice generation from an already-snapshotted
@@ -359,6 +359,33 @@ export async function getInvoiceForTenant(session: AuthenticatedSession, tenantI
   await recordAudit({ tenantId, userId: session.userId, action: "invoice.viewed", entityType: "Invoice", entityId: invoiceId });
 
   return invoice;
+}
+
+export class InvoicePdfNotReadyError extends Error {
+  constructor() {
+    super("This invoice's PDF has not been generated yet.");
+    this.name = "InvoicePdfNotReadyError";
+  }
+}
+
+/**
+ * Mints a short-lived signed URL for downloading an invoice's PDF — reuses
+ * the existing MediaAsset signed-URL architecture (never a public/
+ * permanent URL, P10E). `invoice:VIEW` is checked (via getInvoiceForTenant)
+ * before the signed URL is ever minted, and the download itself is
+ * audited both at the MediaAsset layer (mintSignedUrlForMediaAsset) and
+ * here.
+ */
+export async function getInvoicePdfDownloadUrl(session: AuthenticatedSession, tenantId: string, invoiceId: string) {
+  const invoice = await getInvoiceForTenant(session, tenantId, invoiceId);
+  if (!invoice.pdfMediaAssetId) throw new InvoicePdfNotReadyError();
+
+  const result = await mintSignedUrlForMediaAsset(tenantId, session.userId, invoice.pdfMediaAssetId);
+  if (!result) throw new InvoicePdfNotReadyError();
+
+  await recordAudit({ tenantId, userId: session.userId, action: "invoice.pdfDownloaded", entityType: "Invoice", entityId: invoiceId });
+
+  return result;
 }
 
 /** Internal, unchecked read — used by callers (invoice generation itself, the recurring job) that already established their own authorisation boundary. */

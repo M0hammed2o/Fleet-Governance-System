@@ -175,3 +175,65 @@ export async function getCurrentPlatformPricing(at: Date = new Date()): Promise<
   const settings = await getPlatformBillingSettings();
   return { baseFeeMinorUnits: settings.defaultBaseFeeMinorUnits, perVehicleFeeMinorUnits: settings.defaultPerVehicleFeeMinorUnits, currency: settings.currency };
 }
+
+export interface PlatformBillingDashboardRow {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  subscriptionStatus: string;
+  activeVehicleCount: number;
+  currentPricing: { baseFeeMinorUnits: number; perVehicleFeeMinorUnits: number; currency: string; source: "TENANT_NEGOTIATED" | "PLATFORM_DEFAULT" };
+  outstandingInvoiceTotalMinorUnits: number;
+  overdueInvoiceCount: number;
+  lastSuccessfulPaymentAt: Date | null;
+  failedPaymentAttemptCount: number;
+  failedBillingEmailCount: number;
+}
+
+/**
+ * Phase 10 (P10I) — the platform-admin billing dashboard's data: every
+ * client tenant (excluding the platform tenant itself) with subscription
+ * status, active-vehicle count, current pricing, outstanding/overdue
+ * invoice totals, last successful payment, and failed payment/email
+ * counts — all real DB-backed aggregate queries, following the same
+ * batched-not-per-tenant-loop lesson as getCustomerHealthSummaries()
+ * (BUG-004) where practical.
+ */
+export async function getPlatformBillingDashboard(session: AuthenticatedSession): Promise<PlatformBillingDashboardRow[]> {
+  await requirePermission(session, "platformBilling", "VIEW");
+
+  const tenants = await prisma.tenant.findMany({ where: { slug: { not: "platform" } }, orderBy: { name: "asc" } });
+
+  const rows: PlatformBillingDashboardRow[] = [];
+  for (const tenant of tenants) {
+    const [subscription, activeVehicleCount, outstandingInvoices, lastPayment, failedAttempts, failedEmails, pricingAgreement] = await Promise.all([
+      prisma.tenantSubscription.findUnique({ where: { tenantId: tenant.id } }),
+      prisma.vehicle.count({ where: { tenantId: tenant.id, archivedAt: null, operationalStatus: { not: "DECOMMISSIONED" } } }),
+      prisma.invoice.findMany({ where: { tenantId: tenant.id, status: { in: ["ISSUED", "OVERDUE"] } }, select: { totalMinorUnits: true, status: true } }),
+      prisma.payment.findFirst({ where: { tenantId: tenant.id, status: "SUCCESSFUL" }, orderBy: { occurredAt: "desc" } }),
+      prisma.paymentAttempt.count({ where: { tenantId: tenant.id, status: "FAILED" } }),
+      prisma.billingEmailDelivery.count({ where: { tenantId: tenant.id, status: "FAILED" } }),
+      prisma.tenantPricingAgreement.findFirst({ where: { tenantId: tenant.id, effectiveFrom: { lte: new Date() } }, orderBy: { effectiveFrom: "desc" } }),
+    ]);
+
+    const currentPricing = pricingAgreement
+      ? { baseFeeMinorUnits: pricingAgreement.baseFeeMinorUnits, perVehicleFeeMinorUnits: pricingAgreement.perVehicleFeeMinorUnits, currency: pricingAgreement.currency, source: "TENANT_NEGOTIATED" as const }
+      : { ...(await getCurrentPlatformPricing()), source: "PLATFORM_DEFAULT" as const };
+
+    rows.push({
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      subscriptionStatus: subscription?.status ?? "PENDING",
+      activeVehicleCount,
+      currentPricing,
+      outstandingInvoiceTotalMinorUnits: outstandingInvoices.reduce((sum, i) => sum + i.totalMinorUnits, 0),
+      overdueInvoiceCount: outstandingInvoices.filter((i) => i.status === "OVERDUE").length,
+      lastSuccessfulPaymentAt: lastPayment?.occurredAt ?? null,
+      failedPaymentAttemptCount: failedAttempts,
+      failedBillingEmailCount: failedEmails,
+    });
+  }
+
+  return rows;
+}

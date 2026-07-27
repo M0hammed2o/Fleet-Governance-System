@@ -5,7 +5,7 @@ import { tenantWhere } from "@/lib/db/tenant-scope";
 import { requirePermission } from "@/lib/auth/authorize";
 import { recordAudit } from "@/lib/audit/record-audit";
 import type { AuthenticatedSession } from "@/lib/auth/session";
-import { getDefaultPaymentProvider, InvalidWebhookSignatureError, type PaymentProvider } from "@/lib/billing/payment-provider";
+import { getDefaultPaymentProvider, InvalidWebhookSignatureError, MockPaymentProvider, type PaymentProvider, type PaymentProviderPaymentStatus } from "@/lib/billing/payment-provider";
 import type { InvoiceStatus } from "@/generated/prisma/client";
 import { restoreTenantSubscription } from "@/lib/repositories/subscription-repository";
 import { sendInvoiceEmailForPayment } from "@/lib/repositories/billing-email-repository";
@@ -84,6 +84,52 @@ export async function initiateProviderPayment(session: AuthenticatedSession, inv
   });
 
   return { attempt, checkoutUrl: checkout.checkoutUrl, providerReference: checkout.providerReference };
+}
+
+export class MockSimulationNotAvailableError extends Error {
+  constructor() {
+    super("Payment simulation is only available when the mock payment provider is active (PAYMENT_PROVIDER=mock) — never in production.");
+    this.name = "MockSimulationNotAvailableError";
+  }
+}
+
+export class NoPendingPaymentAttemptError extends Error {
+  constructor() {
+    super("No pending payment attempt was found for this invoice — initiate a payment first.");
+    this.name = "NoPendingPaymentAttemptError";
+  }
+}
+
+/**
+ * Dev/test-only: drives the *same* webhook-processing path a real provider
+ * would asynchronously call, using the deterministic mock provider — this
+ * is what the customer Accountant portal's "simulate mock payment" action
+ * (and Playwright's P10O minimum-coverage spec) uses to exercise the real
+ * success/failure logic without a real payment gateway. Refuses to run
+ * unless the mock provider is genuinely the configured default — never
+ * available against a production payment-provider configuration.
+ */
+export async function simulateMockPaymentCompletion(session: AuthenticatedSession, invoiceId: string, outcome: Extract<PaymentProviderPaymentStatus, "SUCCESSFUL" | "FAILED"> = "SUCCESSFUL") {
+  await requirePermission(session, "payment", "CREATE");
+  const provider = getDefaultPaymentProvider();
+  if (!(provider instanceof MockPaymentProvider)) throw new MockSimulationNotAvailableError();
+
+  const invoice = await prisma.invoice.findFirst({ where: tenantWhere(session.tenantId, { id: invoiceId }) });
+  if (!invoice) throw new InvoiceForPaymentNotFoundError();
+
+  const attempt = await prisma.paymentAttempt.findFirst({ where: { invoiceId, provider: provider.name, status: "PENDING" }, orderBy: { createdAt: "desc" } });
+  if (!attempt || !attempt.checkoutReference) throw new NoPendingPaymentAttemptError();
+
+  const { rawBody, headers } = provider.buildWebhookRequest({
+    externalEventId: `sim_${attempt.id}_${outcome}`,
+    eventType: "payment.simulated",
+    providerReference: attempt.checkoutReference,
+    status: outcome,
+    amountMinorUnits: invoice.totalMinorUnits,
+    currency: invoice.currency,
+  });
+
+  return processPaymentProviderEvent(rawBody, headers, provider);
 }
 
 async function getPlatformTenantId(): Promise<string> {
