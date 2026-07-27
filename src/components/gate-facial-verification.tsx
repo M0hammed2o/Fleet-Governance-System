@@ -27,6 +27,12 @@ import {
 
 type Phase = "idle" | "starting-camera" | "challenge" | "verifying" | "result" | "error";
 
+// Short, non-technical categories recorded on the audited attempt when the
+// on-device provider itself could not run (camera denied, unsupported
+// browser, or the biometric model failed to load) — never a raw error
+// message or stack trace, just enough for later audit review (P9F-001).
+type ProviderUnavailableReason = "browser_unsupported" | "camera_unavailable" | "model_load_failed";
+
 const CHALLENGE_LABELS: Record<LivenessChallengeType, string> = {
   BLINK: "Please blink",
   TURN_LEFT: "Please turn your head left",
@@ -64,6 +70,8 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
     livenessResult: "PASSED" | "FAILED" | "NOT_REQUIRED" | "SKIPPED";
     livenessChallenge?: string;
     captureFailed?: boolean;
+    providerUnavailable?: boolean;
+    deviceLabel?: string;
   }) {
     setPhase("verifying");
     try {
@@ -74,6 +82,10 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
       });
       const data = await res.json();
       if (!res.ok) {
+        // A genuine failure to reach/complete the API call — distinct from a
+        // recorded PROVIDER_UNAVAILABLE attempt below, which always reaches
+        // the server and is audited. No technical detail (status text,
+        // stack trace) is shown here, only the server's own safe message.
         setError(data.error ?? "Verification failed");
         setPhase("error");
         return;
@@ -97,11 +109,25 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
     }
   }
 
+  /**
+   * P9F-001: whenever the on-device provider itself cannot run (camera
+   * permission denied, unsupported browser, or the biometric model failing
+   * to load), this reports a real, audited PROVIDER_UNAVAILABLE attempt via
+   * the same API path as every other outcome — never a silent local-only
+   * error state. The gate event is never advanced (submitAttempt only
+   * advances on a genuine MATCH), and the officer is shown a safe, generic
+   * message plus a retry/escalate/manual-fallback route — never a stack
+   * trace, secret, or raw confidence value.
+   */
+  async function reportProviderUnavailable(reason: ProviderUnavailableReason) {
+    stopCamera();
+    await submitAttempt({ livenessResult: "NOT_REQUIRED", providerUnavailable: true, deviceLabel: reason });
+  }
+
   async function startChallenge() {
     setError(null);
     if (!isFacialCaptureSupported()) {
-      setPhase("error");
-      setError("Camera capture is not supported in this browser. Use manual fallback.");
+      await reportProviderUnavailable("browser_unsupported");
       return;
     }
     setPhase("starting-camera");
@@ -113,8 +139,7 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
         await videoRef.current.play().catch(() => {});
       }
     } catch {
-      setPhase("error");
-      setError("Camera access was denied or is unavailable. Use manual fallback.");
+      await reportProviderUnavailable("camera_unavailable");
       return;
     }
 
@@ -122,7 +147,13 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
     setChallenge(selectedChallenge);
     setPhase("challenge");
 
-    const landmarker = await loadFaceLandmarker();
+    let landmarker;
+    try {
+      landmarker = await loadFaceLandmarker();
+    } catch {
+      await reportProviderUnavailable("model_load_failed");
+      return;
+    }
     const frames: LivenessFrameSignal[] = [];
     const areaRatios: number[] = [];
     let lastBoundingBox: { x: number; y: number; width: number; height: number } | null = null;
@@ -198,6 +229,26 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
         <div className="space-y-3">
           {resultLabel === "MATCH" ? (
             <p className="text-2xl font-bold text-emerald-700">Verified</p>
+          ) : resultLabel === "PROVIDER_UNAVAILABLE" ? (
+            // P9F-001: never rendered as a success or a plain "not verified"
+            // failure — a clearly distinct, safe state. The attempt has
+            // already been recorded server-side (audited); this is not a
+            // silent local-only error. No technical detail is shown.
+            <>
+              <p className="text-2xl font-bold text-amber-700">Facial verification unavailable</p>
+              <p className="text-sm text-slate-600">
+                This device could not complete facial verification. This attempt has been recorded. Retry, or ask a
+                supervisor to complete manual verification.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={retry} className="rounded-md border border-slate-300 px-4 py-2 text-sm">
+                  Try again
+                </button>
+                <span className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Escalate to a supervisor for manual fallback if this continues.
+                </span>
+              </div>
+            </>
           ) : (
             <>
               <p className="text-2xl font-bold text-red-700">Not verified</p>

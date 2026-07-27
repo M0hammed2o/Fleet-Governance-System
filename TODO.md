@@ -3,10 +3,60 @@
 ## Now
 Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
 8A-8E all done, see WORKLOG.md Sessions 13-17. Phase 9 (on-device one-to-one facial verification and
-basic liveness with a cloud fallback interface) is also **complete** — see WORKLOG.md Session 18. Next
-planned work, when the user is ready to scope it: subscription billing, full investigation-case
-management, and a production hosting/scheduler/vendor decision (see "Blocked" below — several items now
-depend on the same underlying hosting choice).
+basic liveness with a cloud fallback interface) is also **complete** — see WORKLOG.md Session 18.
+Session 19 closes the two remaining Phase 9 browser follow-ups (P9F-001/002 below) and begins Phase 10
+(Subscriptions, Billing and Invoicing, P10A-P10P below).
+
+## Phase 9 follow-ups (P9F) — Session 19
+- [x] **P9F-001** — Gate facial-verification interface: PROVIDER_UNAVAILABLE must never render as success,
+      must never silently advance/approve a gate event, must offer a clear retry/supervisor-escalation/
+      manual-fallback route, must be audited, and must never expose technical detail (stack traces,
+      secrets, raw confidence values) to the security officer | Priority: high | Deps: none — done, see
+      WORKLOG.md Session 19
+- [x] **P9F-002** — Remove seed-data-ordering dependencies from `e2e/facial-verification-gate-smoke.spec.ts`
+      and `e2e/video-capture-smoke.spec.ts`; each test must build its own deterministic tenant-scoped
+      fixture | Priority: high | Deps: none — done, see WORKLOG.md Session 19
+
+## Phase 10 (P10) — Subscriptions, Billing and Invoicing — Session 19+
+- [ ] **P10A** — Tenant-safe billing data model + migration (SubscriptionPlan, TenantSubscription,
+      versioned pricing/TenantPricingAgreement, BillableVehicleSnapshot, BillingPeriod, Invoice,
+      InvoiceLineItem, Payment, PaymentAttempt, PaymentProviderEvent, BillingEmailDelivery,
+      CreditAdjustment, PlatformBillingSettings, TenantBillingProfile, CustomerBillingContact); integer
+      minor-currency-unit amounts, never JS floats | Priority: high | Deps: none
+- [ ] **P10B** — Platform-admin billing configuration (legal/trading name, registration/VAT numbers,
+      address, invoice prefix/sequence, currency, VAT rate, default fees, archive-storage price), audited,
+      not editable by ordinary client users | Priority: high | Deps: P10A
+- [ ] **P10C** — Tenant billing profile (registered/trading name, VAT, billing contacts, negotiated
+      pricing, payment terms, grace period, subscription dates), tenant-scoped and permission-controlled |
+      Priority: high | Deps: P10A
+- [ ] **P10D** — Deterministic monthly billable-vehicle snapshot (documented active-vehicle rule, exact
+      vehicle IDs/count/price stored, VAT-aware subtotal/total, no duplicate snapshot per tenant+period,
+      audited) | Priority: high | Deps: P10A
+- [ ] **P10E** — Invoice generation (sequential numbers, immutable snapshot, PDF via existing
+      object-storage/signed-URL architecture, controlled void/reissue) | Priority: high | Deps: P10D
+- [ ] **P10F** — `PaymentProvider` interface + `NoOpPaymentProvider` + `MockPaymentProvider` (no real
+      gateway; structured for a later PayFast/Peach/Yoco/Stitch addition) | Priority: high | Deps: P10A
+- [ ] **P10G** — Payment processing/idempotency (duplicate/out-of-order webhooks safe, amount/currency
+      matched, manual payment approval for authorised finance users) | Priority: high | Deps: P10E, P10F
+- [ ] **P10H** — Invoice email workflow (`NoOpBillingEmailProvider`/`MockBillingEmailProvider`, idempotent
+      per successful-payment event, authorised resend) | Priority: medium | Deps: P10G
+- [ ] **P10I** — Platform-admin billing dashboard (all tenants, pricing config, invoice/payment actions,
+      suspend/restore, audit history, reuses existing SupportAccessSession) | Priority: high | Deps:
+      P10C-P10H
+- [ ] **P10J** — Customer Accountant billing portal (subscription/pricing/invoices/payment
+      history/mock-payment/contact updates), tenant-isolated | Priority: high | Deps: P10E-P10G
+- [ ] **P10K** — Access control and suspension (ACTIVE/PAST_DUE/SUSPENDED behaviour, grace period, never
+      destroys evidence, audited) | Priority: high | Deps: P10C
+- [ ] **P10L** — Idempotent recurring billing job (reuses `lib/jobs/` architecture) | Priority: high | Deps:
+      P10D, P10E
+- [ ] **P10M** — New billing permissions + audit coverage per the existing permission catalogue pattern |
+      Priority: high | Deps: P10A
+- [ ] **P10N** — Security/tenant-isolation proof (cross-tenant, webhook authenticity, invoice-number
+      concurrency, no secrets in logs) | Priority: high | Deps: P10A-P10L
+- [ ] **P10O** — Comprehensive automated + Playwright test coverage, deterministic dedicated fixtures |
+      Priority: high | Deps: P10A-P10N
+- [ ] **P10P** — Documentation: update existing docs + new `BILLING_AND_SUBSCRIPTIONS.md` | Priority: high
+      | Deps: P10A-P10O
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -69,10 +119,14 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] No production scheduler (cron/queue) is actually configured to call the Phase 8E-004 job endpoints (`src/app/api/jobs/*`) on a timer — the endpoints, service-token auth, CLI (`npm run job`), concurrency protection, and JobRun audit trail all exist and are tested/live-verified, but nothing invokes them periodically yet | Priority: medium | Deps: a hosting/scheduler decision (blocked, see "Blocked" below)
 - [ ] `RetentionNotificationProvider` has no real email/SMS implementation — only `DevConsoleRetentionNotificationProvider` (logs) and `NoOpRetentionNotificationProvider` exist (Phase 8E-003); every 90/60/30/7/0-day retention notice is generated and "delivered" (idempotently, with retry-on-failure) but never actually reaches a customer inbox | Priority: medium | Deps: an email/SMS vendor selection (none chosen, no paid account created)
 - [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy) is still a documented server-side passthrough (D-024) — Phase 8E-006 added real client-side capture *restrictions* (720p/24-30fps target, configurable 30-60s max with countdown/auto-stop, configurable bitrate, live size estimate, policy rejection, honest actual-codec/resolution/duration/bitrate/size metadata) via the browser's native MediaRecorder, but no server-side transcoder exists in this environment | Priority: medium | Deps: ffmpeg (or equivalent) installed and verified end-to-end, not just installed
-- [ ] `e2e/video-capture-smoke.spec.ts` (Phase 8E-006 live verification) is flaky when run alongside other e2e specs or on repeat — it depends on a specific seeded gate event being in `VEHICLE_CHECKS_IN_PROGRESS` status, and the dev-seeded gate events' ordering from `GET /api/gate/gate-events` was observed to vary between runs; it correctly `test.skip()`s rather than false-failing when that precondition isn't met, but is not yet a fully deterministic test | Priority: low | Deps: a dedicated e2e fixture (a freshly created, driven-to-VEHICLE_CHECKS_IN_PROGRESS gate event per test run) instead of relying on seed-data state
-- [ ] `e2e/facial-verification-gate-smoke.spec.ts` (Phase 9 live verification) has the same seed-data-ordering dependency/flakiness as the video-capture one above, and for the same reason — same fix applies to both once built | Priority: low | Deps: same dedicated e2e fixture item above
+- [x] ~~`e2e/video-capture-smoke.spec.ts` seed-data-ordering flakiness~~ — fixed, P9F-002 (Session 19): now
+      builds its own dedicated driver/movement/gate event via real API calls and drives it to
+      VEHICLE_CHECKS_IN_PROGRESS deterministically (`e2e/helpers/gate-fixtures.ts`), no `test.skip()`.
+- [x] ~~`e2e/facial-verification-gate-smoke.spec.ts` seed-data-ordering flakiness~~ — fixed, P9F-002
+      (Session 19), same dedicated-fixture approach; also gained a second test proving the P9F-001
+      provider-unavailable path.
 - [ ] Face-recognition accuracy without face-api.js's own alignment step is not benchmarked in this codebase — Phase 9B deliberately skips face-api.js's 68-point-landmark alignment (its training data excludes commercial use, FACIAL_VERIFICATION_LICENSING.md) and computes the descriptor from an unaligned MediaPipe-located crop instead; the dlib project's own 99.38% LFW accuracy figure assumes its own alignment pipeline, which this codebase does not replicate — real-world match-rate impact is unverified with actual driver photos | Priority: medium | Deps: real pilot enrolment data to benchmark against, or accept the disclosed trade-off
-- [ ] `GateFacialVerification` doesn't yet distinguish "camera permission denied" from "on-device model failed to load" when reporting to the server — the repository layer now supports an explicit `providerUnavailable` signal distinct from `CAPTURE_FAILED` (Phase 9I tested directly via the API), but the browser component's own error-handling path doesn't yet set it automatically | Priority: low | Deps: none, straightforward follow-up wiring
+- [x] ~~`GateFacialVerification` doesn't yet distinguish "camera permission denied" from "on-device model failed to load"~~ — fixed, P9F-001 (Session 19): unsupported browser, camera-permission failure, and model-load failure all now report a real, audited `PROVIDER_UNAVAILABLE` attempt (`reportProviderUnavailable()`, short non-technical `deviceLabel` category, never a raw error/stack trace), with a distinct "Facial verification unavailable" UI state offering retry/manual-fallback and never rendered as a successful verification.
 - [ ] `@vladmandic/face-api`'s GitHub repository is archived (no longer maintained, per the author's own notes) — the MIT licence and CC0-equivalent model weights remain fully valid and usable regardless (FACIAL_VERIFICATION_LICENSING.md), but no future security patches or TensorFlow.js compatibility updates will come from this exact package | Priority: medium | Deps: periodic re-evaluation of whether a newer, equally-clearly-licensed alternative has emerged
 
 ## Later

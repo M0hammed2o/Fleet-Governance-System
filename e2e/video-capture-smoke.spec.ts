@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { loginAllRoles, createDedicatedGateEventAtIdentityPending, advanceToVehicleChecksInProgress } from "./helpers/gate-fixtures";
 
 /**
  * Phase 8E-006 verification — a real (headless Chromium, fake-camera-device)
@@ -18,10 +19,13 @@ import { test, expect } from "@playwright/test";
  * deterministic unit coverage instead (tests/video-capture-policy.test.ts).
  * This test's job is narrower and complementary: prove the real-browser
  * camera-acquisition half of the flow actually works.
+ *
+ * P9F-002: builds its own dedicated gate event, driven all the way to
+ * VEHICLE_CHECKS_IN_PROGRESS via real API calls (see
+ * e2e/helpers/gate-fixtures.ts), instead of depending on a specific seeded
+ * gate event's status — no `test.skip()` fallback for a missing
+ * precondition, because the precondition is now guaranteed by construction.
  */
-
-const DEV_PASSWORD = "GateFleet!Dev1";
-const TENANT_SLUG = "acme-logistics";
 
 // Chromium flags for a synthetic camera/mic device and auto-accepted
 // getUserMedia prompts — lets this test acquire a real MediaStream in a
@@ -33,30 +37,22 @@ test.use({
 });
 
 test("VideoCaptureRecorder acquires a real (fake-device) camera stream and reaches the ready-to-record state", async ({ browser }) => {
-  const context = await browser.newContext({ permissions: ["camera", "microphone"] });
-  const page = await context.newPage();
+  const roles = await loginAllRoles(browser, { permissions: ["camera", "microphone"] });
+  const fixture = await createDedicatedGateEventAtIdentityPending(roles, 800);
+  await advanceToVehicleChecksInProgress(roles.officerPage, fixture);
 
-  await page.goto("/login");
-  await page.getByLabel("Company").fill(TENANT_SLUG);
-  await page.getByLabel("Email").fill("gate.security.officer@example.test");
-  await page.getByLabel("Password").fill(DEV_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL("**/dashboard");
+  await roles.officerPage.goto(`/gate/events/${fixture.gateEventId}`);
 
-  const eventsRes = await page.request.get("/api/gate/gate-events");
-  const { items: gateEvents } = await eventsRes.json();
-  test.skip(!gateEvents || gateEvents.length === 0, "No seeded gate events to attach evidence to.");
-
-  await page.goto(`/gate/events/${gateEvents[0].id}`);
-
-  const recordButton = page.getByRole("button", { name: "Record video" }).first();
-  test.skip((await recordButton.count()) === 0, "This gate event is not in VEHICLE_CHECKS_IN_PROGRESS, where inspection-item evidence capture renders.");
+  const recordButton = roles.officerPage.getByRole("button", { name: "Record video" }).first();
+  await expect(recordButton).toBeVisible({ timeout: 15_000 });
 
   await recordButton.click();
-  await page.getByRole("button", { name: "Start camera" }).click();
+  await roles.officerPage.getByRole("button", { name: "Start camera" }).click();
 
   // Reaching "ready" (the "Start recording" button appearing) proves
   // getUserMedia actually resolved with a live MediaStream from the fake
   // camera device, not just that the click handler ran.
-  await expect(page.getByRole("button", { name: /start recording/i })).toBeVisible({ timeout: 10_000 });
+  await expect(roles.officerPage.getByRole("button", { name: /start recording/i })).toBeVisible({ timeout: 10_000 });
+
+  for (const context of roles.contexts) await context.close();
 });
