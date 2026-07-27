@@ -28,6 +28,7 @@ const JOB_ROUTES = {
   "retention.reportArchiveUsage": "/api/jobs/retention/report-archive-usage",
   "supportAccess.expireDueSessions": "/api/jobs/support-access/expire-due-sessions",
   "storage.recalculateUsageSummaries": "/api/jobs/storage/recalculate-usage-summaries",
+  "billing.runRecurringCycle": "/api/jobs/billing/run-recurring-cycle",
 };
 
 const jobName = process.argv[2];

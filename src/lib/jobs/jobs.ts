@@ -5,6 +5,7 @@ import { completeDueDeletionRequests, expireOldExportRequests, reportArchiveUsag
 import { cleanupFailedUploads } from "@/lib/repositories/media-asset-repository";
 import { expireDueSupportAccessSessions } from "@/lib/repositories/support-access-repository";
 import { recalculateStorageUsageSummaries } from "@/lib/repositories/storage-dashboard-repository";
+import { runRecurringBillingCycle } from "@/lib/repositories/recurring-billing-repository";
 
 /**
  * The full list of idempotent background jobs this platform needs (8E-004),
@@ -26,6 +27,7 @@ export const JOB_NAMES = [
   "retention.reportArchiveUsage",
   "supportAccess.expireDueSessions",
   "storage.recalculateUsageSummaries",
+  "billing.runRecurringCycle",
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -64,6 +66,10 @@ export function recalculateStorageUsageSummariesJob() {
   return runJob("storage.recalculateUsageSummaries", () => recalculateStorageUsageSummaries());
 }
 
+export function runRecurringBillingCycleJob() {
+  return runJob("billing.runRecurringCycle", () => runRecurringBillingCycle());
+}
+
 export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "retention.generateNotifications": generateRetentionNotificationsJob,
   "retention.deliverNotifications": deliverRetentionNotificationsJob,
@@ -73,4 +79,5 @@ export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "retention.reportArchiveUsage": reportArchiveUsageJob,
   "supportAccess.expireDueSessions": expireSupportAccessSessionsJob,
   "storage.recalculateUsageSummaries": recalculateStorageUsageSummariesJob,
+  "billing.runRecurringCycle": runRecurringBillingCycleJob,
 };
