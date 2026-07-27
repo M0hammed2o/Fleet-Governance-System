@@ -260,6 +260,30 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - `Tenant.retentionDays` (Phase 1 field) **removed** — confirmed via codebase search that no application
   code ever read or wrote it beyond its schema default; superseded by `RetentionPolicy`.
 
+## Phase 8E entities (retention operationalisation and corrections — implemented)
+- **MediaAsset** gained: `retentionExtendedAt` (nullable `DateTime`) — set only when a Company Administrator
+  explicitly extends this asset's `scheduledDeletionAt` (`extendRetention()`); a hard marker so automatic
+  assignment/backfill (8E-001) never overwrites a deliberate human decision. Every MediaAsset now also gets
+  `scheduledDeletionAt` computed automatically at the moment it reaches `READY` (both the direct-upload and
+  presigned-upload-confirmation paths) — previously computed only where 8C's retention-repository functions
+  happened to be called, now guaranteed at the point of upload itself.
+- **RetentionNotificationRecord** — tracks exactly which (asset, milestone, scheduled-deletion-date)
+  combination has already had a retention-expiry notice generated/delivered, so a scheduler that runs more
+  than once (or re-runs after a crash) can never send the same "90 days left" notice twice.
+  `mediaAssetId`/`milestone` (Int: 90/60/30/7/0)/`scheduledDeletionAt`, hard-unique on all three together;
+  `status` (`RetentionNotificationStatus`: PENDING/SENT/FAILED), `channel` (`RetentionNotificationChannel`:
+  DEV_CONSOLE/NOOP/EMAIL — null until a delivery attempt actually runs), `attemptedAt`/`deliveredAt`/
+  `failureReason`. Grouped by (tenant, category, milestone) into one outbound message at delivery time —
+  one row per asset here for precise idempotency bookkeeping, not one email per asset.
+- **JobRun** — background-job execution bookkeeping (8E-004). Deliberately not an `AuditLog` row: tracks
+  *system*-job execution (did the notification sweep run, did it succeed), not a tenant-scoped business
+  action a human took, so it carries no `tenantId` and no append-only guarantee. `jobName`, `status`
+  (`JobRunStatus`: RUNNING/SUCCEEDED/FAILED), `startedAt`/`finishedAt`, `resultSummary` (`Json`, the job
+  function's own return value), `errorMessage`. Concurrency is a hard database guarantee, not a
+  best-effort application check: a partial unique index (`WHERE status = 'RUNNING'`) enforces at most one
+  RUNNING row per `jobName` at any time — not expressible in Prisma's schema DSL (no `WHERE` clause on
+  `@@unique`), so it's applied directly in this model's migration SQL.
+
 ## Phase 7 entities (platform support-access — implemented)
 - **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
   to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
@@ -347,8 +371,19 @@ each is actually migrated, not in advance.
   `RetentionPolicy`. A separate migration, not folded into the one above, since it was already applied by
   the time the removal was decided (DATA_MODEL.md's own hard rule against hand-editing an applied
   migration).
+- `20260727090000_phase8e_retention_extension_and_backfill` (applied): added `MediaAsset.retentionExtendedAt`;
+  backfills `scheduledDeletionAt` for every pre-existing ACTIVE row where it's still null, from `capturedAt`
+  + the tenant's effective per-category `RetentionPolicy` (or the 365-day default) — excludes non-ACTIVE,
+  held, and (by construction, since the column is brand new) already-extended rows. Forward-only and
+  idempotent: only ever touches rows where `scheduledDeletionAt IS NULL`.
+- `20260727100000_phase8e_retention_notifications` (applied): `RetentionNotificationStatus`/
+  `RetentionNotificationChannel` enums; `RetentionNotificationRecord` (new table, unique on
+  `[mediaAssetId, milestone, scheduledDeletionAt]`).
+- `20260727110000_phase8e_job_runs` (applied): `JobRunStatus` enum; `JobRun` (new table) plus a partial
+  unique index (`job_runs_one_running_per_job_name`, `WHERE status = 'RUNNING'`) enforcing the hard
+  one-job-at-a-time concurrency guarantee at the database level.
 
-All sixteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All nineteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 

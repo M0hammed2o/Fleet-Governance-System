@@ -3,9 +3,10 @@
 ## Now
 Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
 8A (engineering hardening), 8B (cost-efficient object-storage architecture), 8C (retention/archive/
-deletion), and 8D (platform/customer storage dashboards) all done, see WORKLOG.md Sessions 13-16. Next
-planned work, when the user is ready to scope it: Phase 9 (on-device one-to-one facial verification and
-basic liveness with a cloud fallback interface, per the user's own stated next-phase target).
+deletion), 8D (platform/customer storage dashboards), and 8E (retention operationalisation and
+corrections) all done, see WORKLOG.md Sessions 13-17. Now in progress: Phase 9 (on-device one-to-one
+facial verification and basic liveness with a cloud fallback interface, per the user's own stated
+next-phase target).
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -58,13 +59,17 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] `TRIP_DISTANCE_LIMIT_EXCEEDED`'s trip-boundary definition (ignition-off→on transitions, D-023) has not been validated against a real telematics vendor's actual ignition-signal reliability — only the mock provider, which always reports it | Priority: low | Deps: a production telematics provider (currently blocked, GPS-BLOCKED)
 - [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy already defined in `lib/storage/video-compression.ts`) — currently a documented passthrough (D-024); needs ffmpeg or an equivalent installed and verified in this environment | Priority: medium | Deps: none, but must be verified end-to-end before claiming it works, not just installed
 - [ ] Most existing `uploadMediaAsset()` call sites (gate inspection evidence, manual facial-verification fallback evidence, compliance-document attachments, movement documents — everything predating Phase 8B) still default to `category: OTHER_DOCUMENT` rather than passing a real category (D-025) — update each capture-point's call site to pass an appropriate category as those pages are next revisited | Priority: medium | Deps: none
-- [ ] No admin UI to browse/act on `MediaAsset.uploadStatus` (e.g. a "failed uploads" list, a manual "retry cleanup now" button) — `cleanupFailedUploads()` exists and is tested but nothing calls it on a schedule yet, same category of gap as the existing "Scheduled job to auto-transition APPROVED movements" item above | Priority: low | Deps: none
-- [ ] No admin UI for the Phase 8C retention/deletion/export/archive workflows — every route is fully wired, tested, and curl-verified end-to-end, but there's no dedicated admin page yet (matches this project's existing precedent of API-first, UI-later for tightly-scoped phases, e.g. D-012's driver-portrait upload); the Phase 8D platform/customer storage dashboards will surface *viewing* this data, but not necessarily every action (initiate/approve/reject/archive/export) | Priority: medium | Deps: none
-- [ ] `completeDeletionRequest()`/`completeDueDeletionRequests()` and `cleanupFailedUploads()` are not wired to any scheduler — both are callable on demand via their routes, same documented gap as the pre-existing `expireMovement` auto-transition item | Priority: low | Deps: a scheduling mechanism, none exists in this codebase yet
+- [x] ~~No admin UI to browse/act on `MediaAsset.uploadStatus`~~ — `cleanupFailedUploads()` is now wired as a callable, idempotent background job (`media.cleanupFailedUploads`, Phase 8E-004) with its own JobRun bookkeeping; still no dedicated "browse failed uploads" list page, only the job itself — that narrower UI gap remains, low priority.
+- [x] ~~No admin UI for the Phase 8C retention/deletion/export/archive workflows~~ — done, Phase 8E-005 (`/admin/retention`): policies, evidence browsing, legal/investigation holds, retention extension, archive selection, export requests, dual-control deletion requests (create/approve/reject/cancel/complete), recovery-period status, deletion certificates. Live-verified via Playwright (`e2e/retention-management.spec.ts`).
+- [x] ~~`completeDeletionRequest()`/`completeDueDeletionRequests()` and `cleanupFailedUploads()` are not wired to any scheduler~~ — a real job architecture now exists (Phase 8E-004: `lib/jobs/`, `src/app/api/jobs/*`, `npm run job`), with JobRun bookkeeping, a hard per-job-name concurrency guarantee (partial unique index), and a documented service-token scheduler boundary (`JOB_SCHEDULER_TOKEN`). **Still open:** no actual production scheduler (cron/queue) is configured to call these endpoints on a timer — see new item below.
 - [ ] Deletion eligibility only checks legal hold, investigation hold, and an unresolved linked Exception — the brief's "insurance claim, dispute, or open audit" conditions have no corresponding data model in this codebase (MVP_SCOPE.md explicitly scopes full investigation-case management out) and are not enforced (D-025's sibling gap, lib/retention/deletion-rules.ts) | Priority: medium | Deps: an investigation-case/claims data model, out of scope for this run
 - [ ] `serveRawMediaAsset()`/`mintSignedUrlForMediaAsset()` do not yet check `MediaAsset.binaryDeletedAt` before attempting a read — a deleted asset's storage key simply 404s at the provider level today rather than a purpose-built "this evidence was permanently deleted on [date]" response (D-027) | Priority: low | Deps: none, add when a UI surfaces a "view" action for a deleted/archived asset
-- [ ] The shared test-Postgres database has accumulated well over 1,000 fixture tenants across every session (by design — TESTING.md's tenant-isolation approach creates fresh fixtures per test, never tears down). A full-suite run intermittently produced one transient timeout in an unrelated, untouched test file during Phase 8D (passed cleanly both in isolation and on an immediate full-suite retry — not a real regression), but this is a growing operational risk to test-suite stability, not just performance, as the count keeps climbing session over session | Priority: medium | Deps: a decision on whether to add periodic test-DB resets/cleanup to the workflow, or just tolerate/retry occasional flakiness
+- [x] ~~The shared test-Postgres database has accumulated well over 1,000 fixture tenants across every session~~ — fixed, Phase 8E-007: deterministic per-test-file cleanup (`tests/setup/global-cleanup.ts`, a Vitest `setupFile`) plus a one-time backlog cleanup (4,461 stale tenants removed). Tenant count now confirmed to hold at exactly 1 (the canonical "platform" tenant) across repeated full-suite runs. One pre-existing, disclosed, low-severity intermittent flake remains in `reconciliation-repository.test.ts` under full-suite parallel load — see KNOWN_BUGS.md, unrelated to this fix.
 - [ ] "Monthly storage growth" on the Phase 8D dashboards is an approximation (last-30-days vs prior-30-days upload bytes from `MediaAsset.capturedAt`), not a true historical ledger — no `StorageUsageSnapshot`-style time-series table exists | Priority: low | Deps: none, build one if the pilot customer needs real historical trend charts, not just a point-in-time indicator
+- [ ] No production scheduler (cron/queue) is actually configured to call the Phase 8E-004 job endpoints (`src/app/api/jobs/*`) on a timer — the endpoints, service-token auth, CLI (`npm run job`), concurrency protection, and JobRun audit trail all exist and are tested/live-verified, but nothing invokes them periodically yet | Priority: medium | Deps: a hosting/scheduler decision (blocked, see "Blocked" below)
+- [ ] `RetentionNotificationProvider` has no real email/SMS implementation — only `DevConsoleRetentionNotificationProvider` (logs) and `NoOpRetentionNotificationProvider` exist (Phase 8E-003); every 90/60/30/7/0-day retention notice is generated and "delivered" (idempotently, with retry-on-failure) but never actually reaches a customer inbox | Priority: medium | Deps: an email/SMS vendor selection (none chosen, no paid account created)
+- [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy) is still a documented server-side passthrough (D-024) — Phase 8E-006 added real client-side capture *restrictions* (720p/24-30fps target, configurable 30-60s max with countdown/auto-stop, configurable bitrate, live size estimate, policy rejection, honest actual-codec/resolution/duration/bitrate/size metadata) via the browser's native MediaRecorder, but no server-side transcoder exists in this environment | Priority: medium | Deps: ffmpeg (or equivalent) installed and verified end-to-end, not just installed
+- [ ] `e2e/video-capture-smoke.spec.ts` (Phase 8E-006 live verification) is flaky when run alongside other e2e specs or on repeat — it depends on a specific seeded gate event being in `VEHICLE_CHECKS_IN_PROGRESS` status, and the dev-seeded gate events' ordering from `GET /api/gate/gate-events` was observed to vary between runs; it correctly `test.skip()`s rather than false-failing when that precondition isn't met, but is not yet a fully deterministic test | Priority: low | Deps: a dedicated e2e fixture (a freshly created, driven-to-VEHICLE_CHECKS_IN_PROGRESS gate event per test run) instead of relying on seed-data state
 
 ## Later
 - [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
@@ -78,8 +83,37 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Facial-verification production provider selection | Needs: user decision on vendor + budget approval
 - [ ] Telematics production provider selection | Needs: user decision on vendor + budget approval
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
+- [ ] Production scheduler/cron for the Phase 8E-004 background jobs | Needs: hosting decision (above) — the job endpoints, auth boundary, and CLI are ready for whichever scheduler the hosting choice implies
+- [ ] Retention-notification email/SMS provider | Needs: user decision on vendor + budget approval
 
 ## Completed recently
+- [x] Phase 8E: Retention operationalisation and corrections (8E-001..007) — automatic `scheduledDeletionAt`
+      assignment on every new MediaAsset reaching READY (direct and presigned-upload paths), plus a safe,
+      idempotent, forward-only backfill for pre-existing ACTIVE assets (`retentionExtendedAt` marker added
+      so a human's explicit extension is never overwritten); fixed a real zero-byte archive-billing defect
+      (a tenant with nothing archived was quoted the lowest paid tier's price instead of R0) and a related
+      1TB-boundary tier-selection bug (`archive-pricing.ts`); `RetentionNotificationRecord` with a hard
+      per-(asset, milestone, scheduledDeletionAt) uniqueness constraint plus a provider-neutral
+      `RetentionNotificationProvider` (dev-console/no-op; no paid vendor); a full background-job
+      architecture (`lib/jobs/`, `JobRun` bookkeeping, a hard partial-unique-index concurrency guarantee,
+      dual auth — service token or Platform Administrator session — `npm run job` CLI) covering
+      notification generation/delivery, due-deletion completion, failed-upload cleanup, export-link expiry,
+      archive-usage reporting, support-session expiry, and storage-summary recalculation; a full retention
+      management UI (`/admin/retention`) covering policies, evidence browsing, holds, extensions, archive
+      selection, export/deletion requests, dual-control approval, recovery status, and certificates;
+      browser video-capture cost controls (`VideoCaptureRecorder`, native MediaRecorder — 720p/24-30fps
+      target, configurable 30-60s max with countdown/auto-stop, configurable bitrate, live size estimate,
+      policy rejection, honest actual-codec/resolution/duration/bitrate/size metadata, never claims
+      transcoding that didn't happen) wired into the gate inspection evidence flow; deterministic
+      per-test-file database cleanup fixing unbounded fixture-tenant growth across repeated test runs
+      (4,461-row one-time backlog cleanup). 539/539 tests passing (53 net new), tsc/lint/build clean, clean-
+      migration verification passing (3 new migrations), two consecutive clean full-suite runs, tenant count
+      confirmed to hold at exactly 1 across repeated runs, live Playwright browser verification of the
+      dual-control deletion-approval workflow through the real UI and a real second user session, and a live
+      Playwright fake-camera-device browser test of the video-capture component that caught and fixed a real
+      bug (a hard `frameRate: { min }` getUserMedia constraint threw `OverconstrainedError` and refused to
+      open the camera on devices that couldn't guarantee it; fixed to use `ideal`) — 2026-07-27. **This
+      completes Phase 8.**
 - [x] Phase 8D: Platform and customer storage dashboards (DASH-001..003) — real DB-backed aggregate
       dashboards computed via a fixed, batched set of `groupBy` queries across every tenant at once (never
       a per-tenant loop, directly applying the BUG-004 lesson); platform-admin view across every customer

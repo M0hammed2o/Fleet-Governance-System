@@ -67,14 +67,22 @@ fraud, theft, or a crime — a violation is a fact pattern for a human to review
 ## Retention configuration
 Phase 8C replaced the single tenant-wide `Tenant.retentionDays` assumption (removed — it was never actually
 read by any purge job, since none existed) with per-`MediaCategory` `RetentionPolicy` rows, falling back to
-a 12-month (365-day) default. Deletion is not automatic: a Company Administrator explicitly initiates a
-scoped `DeletionRequest`, a second, different, authorised user approves it, evidence enters a 30-day
-recovery window, and only then is the underlying binary permanently removed — see ARCHITECTURE.md
-"Retention architecture" and PRODUCT_REQUIREMENTS.md RETAIN-001..010. Legal hold, investigation hold, and
-an unresolved linked exception are hard, unconditional blockers on deletion; the brief's "insurance claim,
-dispute, or open audit" conditions have no corresponding data model in this codebase yet and are not
-enforced (documented gap, TODO.md). No scheduled/automatic purge runs on its own — completion is manually
-triggered until a real scheduler exists, same status as the pre-existing `expireMovement` gap.
+a 12-month (365-day) default. Phase 8E-001 made this concrete rather than merely computable: every piece of
+evidence now genuinely gets a `scheduledDeletionAt` the moment it's uploaded (not just when some other code
+path happened to compute it), and a Phase 8E-003 notification layer actually generates and delivers
+(dev-console/no-op today, no vendor selected — INTEGRATIONS.md) 90/60/30/7/0-day expiry notices, idempotent
+and deduplicated by a hard database constraint. Deletion itself is still not automatic: a Company
+Administrator explicitly initiates a scoped `DeletionRequest`, a second, different, authorised user
+approves it, evidence enters a 30-day recovery window, and only then is the underlying binary permanently
+removed — see ARCHITECTURE.md "Retention architecture" and PRODUCT_REQUIREMENTS.md RETAIN-001..017. Legal
+hold, investigation hold, and an unresolved linked exception are hard, unconditional blockers on deletion —
+and, as of Phase 8E-001, also block automatic retention-date assignment/backfill, so a held asset's
+deletion date is never silently computed while the hold is in force; the brief's "insurance claim, dispute,
+or open audit" conditions have no corresponding data model in this codebase yet and are not enforced
+(documented gap, TODO.md). Phase 8E-004 built the actual job infrastructure (idempotent, concurrency-
+protected, audited) that due-deletion completion and the notification sweep now run through — but no
+production scheduler (cron/queue) is configured to invoke it on a timer yet; completion remains callable on
+demand until a hosting/scheduler decision is made (TODO.md "Blocked").
 
 ## Encryption expectations
 Transport: HTTPS everywhere in any non-local environment. At rest: relies on the hosting provider's

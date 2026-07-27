@@ -202,12 +202,12 @@ before its bytes are removed). **The MediaAsset row itself survives permanently 
 record even after its binary is gone** (ARCHITECTURE.md's own "preserve structured operational records
 separately from large media files" requirement) — never claim the *binary* is recoverable after this point,
 but the *fact that it existed and what it was* remains auditable forever via the row + certificate.
-`completeDeletionRequest()`/`completeDueDeletionRequests()` are not yet wired to any scheduler (no
-scheduling infrastructure exists in this codebase — same documented gap as the pre-existing
-`expireMovement` auto-transition) — callable on demand via
-`POST /api/retention/deletion-requests/[id]/complete` or the cross-tenant batch
+`completeDeletionRequest()`/`completeDueDeletionRequests()` are wired as an idempotent background job
+(`retention.completeDueDeletions`, Phase 8E-004 — see "Background job architecture" below) as well as
+callable on demand via `POST /api/retention/deletion-requests/[id]/complete` or the cross-tenant batch
 `POST /api/admin/retention/process-due-deletions` (platform-admin-gated, since it operates across every
-tenant by design).
+tenant by design) — no *production scheduler* (cron/queue) actually invokes the job on a timer yet
+(TODO.md), but the job itself, its concurrency guarantee, and its auth boundary all exist and are tested.
 
 **Export request ("export and then delete").** `createExportRequest()` builds a signed manifest — per-file
 metadata plus a 24-hour expiring signed download URL (`ObjectStorageProvider.getSignedReadUrl()`) — rather
@@ -227,8 +227,76 @@ not implemented. `extendRetention()` pushes `scheduledDeletionAt` out, audit-log
 
 **Retention-expiry notifications.** `currentRetentionMilestone()` (pure) computes which of 90/60/30/7/0
 days-before-expiry applies to a given `scheduledDeletionAt`; `getDueRetentionNotifications()` finds every
-`ACTIVE` asset currently due. No email/SMS is actually sent — no notification provider exists yet
-(INTEGRATIONS.md) — this only computes *which* milestone applies, "preparing for" each one per RETAIN-010.
+`ACTIVE` asset currently due (unchanged, used by the storage dashboard). Phase 8E-003 built the actual
+generation/delivery layer on top — see "Retention notifications and automatic assignment" below.
+
+## Retention notifications and automatic assignment (Phase 8E-001/8E-003, see PRODUCT_REQUIREMENTS.md RETAIN-010)
+
+**Automatic `scheduledDeletionAt` assignment.** Phase 8C computed retention dates only where a
+retention-repository function happened to be called; Phase 8E-001 guarantees every MediaAsset gets one the
+moment it reaches `READY` — both `uploadMediaAsset()` (direct upload) and `confirmPresignedUpload()`
+(presigned-upload confirmation) now compute `computeScheduledDeletionAt(capturedAt,
+effectivePolicy.retentionDays)` inline, so "not yet computed" (`scheduledDeletionAt: null`) can no longer
+happen for ordinary new evidence. A new `MediaAsset.retentionExtendedAt` marker (set only by
+`extendRetention()`) distinguishes a policy-derived value from a deliberate human override — automatic
+(re)assignment and the backfill below both skip any asset with this set, never silently reverting a manual
+extension. `backfillMissingScheduledDeletionAt()` is the same logic exposed as a callable, re-runnable
+repository function (idempotent — only ever targets `scheduledDeletionAt IS NULL` rows) for pre-existing
+data; the one-time production backfill runs as SQL directly inside migration
+`20260727090000_phase8e_retention_extension_and_backfill`.
+
+**Idempotent notification generation and delivery (`lib/repositories/retention-notification-repository.ts`,
+`lib/retention/notification-provider.ts`).** `generateDueRetentionNotifications()` scans for the
+90/60/30/7/0-day milestone currently due on every `ACTIVE` asset and creates one
+`RetentionNotificationRecord` per (asset, milestone, `scheduledDeletionAt`) — the table's own unique
+constraint on that triple is the actual idempotency guarantee (a duplicate `create()` attempt is caught as
+the expected "already generated" outcome, not an error), not application-level deduplication logic.
+`deliverPendingRetentionNotifications()` groups PENDING/FAILED records by (tenant, category, milestone) into
+one `RetentionNotificationBatch` per group — a tenant crossing a milestone on many assets in one day gets
+one outbound message, not one per asset — and calls a provider-neutral `RetentionNotificationProvider`
+(`DevConsoleRetentionNotificationProvider` logs; `NoOpRetentionNotificationProvider` is silent; a real
+email/SMS implementation is a documented future boundary — no vendor selected, no paid account created, see
+INTEGRATIONS.md). Every batch identifies category, the scheduled-deletion date range, total storage amount,
+and the available customer actions (extend/archive/export/request-deletion) — deliberately never a file
+name, signed URL, or anything else that would let the notification itself reveal restricted evidence
+content. A FAILED delivery is retried on the next invocation (included in the same PENDING/FAILED scan),
+not stuck forever.
+
+## Background job architecture (Phase 8E-004)
+
+`lib/jobs/` provides the idempotent-job execution layer every scheduled/batch operation in this codebase
+now goes through. `runJob(jobName, fn)` wraps a job function with:
+- **A `JobRun` audit record** — RUNNING at start, then SUCCEEDED (with the job's own return value as
+  `resultSummary`) or FAILED (with the error message) at the end.
+- **A hard concurrency guarantee, not a best-effort check.** A partial unique index on `job_runs`
+  (`WHERE status = 'RUNNING'`, applied directly in the migration SQL since Prisma's schema DSL has no
+  `WHERE` clause for `@@unique`) means at most one RUNNING row can exist per `jobName` at the database
+  level — two overlapping invocations of the same job collide on a real Postgres unique-constraint
+  violation (`JobAlreadyRunningError`), not a race between two application-level checks.
+
+Eight jobs are wired (`lib/jobs/jobs.ts`): retention-notification generation and delivery, due
+deletion-request completion, failed-upload cleanup, export-link expiry (`expireOldExportRequests()` —
+marks lapsed `ExportRequest` rows `EXPIRED`), archive-usage reporting (`reportArchiveUsageForAllTenants()`
+— reports through `StorageBillingHookProvider`, skipping any tenant with zero archived bytes entirely,
+directly applying the 8E-002 "never a phantom zero-byte charge" lesson), support-access-session expiry
+(`expireDueSupportAccessSessions()` — closes out `endedAt` for TTL-lapsed `SupportAccessSession` rows that
+were previously only ever treated as inactive *lazily*, at check time, never actually marked closed), and
+storage-summary recalculation (`recalculateStorageUsageSummaries()` — a scheduled correctness sweep; there
+is no persisted snapshot table to actually invalidate, since these dashboards are always computed live by
+design, see "Storage dashboard architecture" below).
+
+**Auth boundary (`lib/jobs/service-auth.ts`).** Two independent paths authorize a job-endpoint request,
+either sufficient: a valid `x-job-scheduler-token` header checked against `JOB_SCHEDULER_TOKEN` (fails
+closed — every request is refused, including ones bearing a token, if the env var isn't configured), or an
+authenticated session holding `platformTenant:CONFIGURE`. A normal customer-tenant administrator has
+neither — "do not rely on a normal customer administrator manually calling a sensitive processing
+endpoint" is enforced structurally, not by convention. Each job has a route under `src/app/api/jobs/*`
+(all sharing one `runJobRoute()` helper for consistent auth/error-status mapping); `npm run job -- <name>`
+is a local-dev CLI — deliberately a thin HTTP client against the already-running dev server, not a direct
+import of the job functions, because every repository function is guarded by `import "server-only"` and
+cannot execute under plain Node outside Next's server context. **No production scheduler (cron/queue)
+actually calls these endpoints on a timer yet** — that's the one piece intentionally left for the hosting
+decision (TODO.md), everything up to and including the auth boundary and CLI is built and tested.
 
 ## Storage dashboard architecture (Phase 8D, see PRODUCT_REQUIREMENTS.md DASH-001..003)
 `storage-dashboard-repository.ts` computes both the platform-admin (every tenant) and customer-admin (one
@@ -266,6 +334,70 @@ so the dashboard's number and the actual archive-workflow pricing can never drif
 only. Phase 7's `SupportAccessSession` audited-elevation mechanism (the only sanctioned path for platform
 staff to gain any deeper access to a customer tenant) is entirely unchanged by this phase; there is no new
 "platform admin can act on a customer's evidence" capability introduced here (DASH-003).
+
+## Retention management UI (Phase 8E-005)
+
+`/admin/retention` is the customer-admin surface for every Phase 8C/8E retention action the API layer
+already supported but had no dedicated page for: retention policies by category (view + edit), an evidence
+browser, legal/investigation holds, retention extension, archive selection, export requests, and the
+dual-control deletion-request workflow (create → approve/reject/cancel → recovery status → certificate).
+
+**Evidence browsing without exposing binary content.** `listEvidenceInTenant()`
+(`lib/repositories/retention-repository.ts`) and `GET /api/retention/evidence` back the evidence browser —
+deliberately metadata-only (id, category, fileName, fileSizeBytes, capturedAt, retentionStatus,
+scheduledDeletionAt, hold flags, extension marker). It never returns `storageKey`, `checksumSha256`,
+`thumbnailStorageKey`, or `originalStorageKey`, so browsing this list can never itself be used to fetch raw
+bytes — an actual signed URL still requires a separate `mintSignedUrlForMediaAsset()` call, with its own
+audit-on-read (EVID-002), unchanged.
+
+**Separation of duties, enforced server-side, not just hidden in the UI.** The deletion-request approve/
+reject buttons are always rendered for a `PENDING_APPROVAL` request regardless of who initiated it — the
+UI does not attempt to guess whether the current user "shouldn't" see the button, because
+`approveDeletionRequest()`/`rejectDeletionRequest()` already unconditionally reject a self-approval attempt
+server-side (`SelfApprovalNotAllowedError`, same family as D-008/D-020) and the UI surfaces that error if
+it happens; hiding the button client-side would be a weaker, spoofable control, not a stronger one.
+
+**Platform-admin summary, unchanged.** The existing `/platform/storage-dashboard` already showed
+aggregate-only counts (no file names, no evidence content, no signed URLs) before this phase — it needed
+no change to satisfy "platform-admin summary views without exposing restricted evidence content".
+
+## Video-capture cost controls (Phase 8E-006, see PRODUCT_REQUIREMENTS.md MEDIA-001..012)
+
+`components/video-capture-recorder.tsx` (`VideoCaptureRecorder`) is an in-browser capture control using the
+browser's native `MediaRecorder` — no client-side transcoding library is bundled (same "no ffmpeg in this
+environment" constraint as the server-side `PassthroughVideoCompressionProvider`, D-024). Enforces the
+policy already defined server-side (`lib/storage/video-compression.ts`: 720p, 24-30fps, 30-60s configurable,
+configurable target bitrate) on the client, before a byte is ever uploaded:
+- Requests `{width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: maxFps, max: maxFps}}` from
+  `getUserMedia` — deliberately `ideal`, not a hard `min`, for frame rate (a hard minimum throws
+  `OverconstrainedError` and refuses to open the camera at all on any device that can't guarantee it; found
+  live against Chromium's own fake-camera device during this phase's verification, see WORKLOG.md Session
+  17). Whatever the browser actually negotiates is what gets reported afterward — never assumed to match
+  the request.
+- A visible countdown during recording and an automatic `MediaRecorder.stop()` at the configured maximum
+  duration (30-60s, clamped by `clampMaxDurationSeconds()`).
+- A live estimated-file-size display during recording (`estimateFileSizeBytes()`, duration × target
+  bitrate) and a real policy check against the *actual* encoded blob size once recording stops
+  (`checkCapturedVideoAgainstPolicy()`) — a recording that ends up over the size or duration limit is
+  rejected with a re-record path, never silently uploaded anyway. The client-side size ceiling mirrors the
+  server's own `MAX_VIDEO_BYTES`, but the server re-validates independently regardless — the client check
+  exists for immediate user feedback, not as the only enforcement layer.
+- **Honest capture metadata, never a false claim of transcoding.** `CapturedVideoMetadata` records the
+  actual negotiated width/height/frame-rate (from `MediaStreamTrack.getSettings()`), actual duration, actual
+  bitrate (computed from the real encoded size), actual file size, and the actual `mimeType` `MediaRecorder`
+  used (`pickSupportedMimeType()` prefers `video/mp4;codecs=h264` but falls back to whichever VP9/VP8/WebM
+  variant the browser actually supports — Chromium/Firefox mostly cannot record mp4/h264 at all — and
+  reports whichever one was genuinely selected, never the preferred one if a fallback was actually used).
+  `actualCompressionApplied` is always `false`: this component's job is policy-constrained *capture*, not
+  policy-verified transcoding — that distinction remains the server's `PassthroughVideoCompressionProvider`,
+  whose own `transcoded: false` is unchanged by this phase.
+
+Wired into the gate inspection evidence-capture flow (`/gate/events/[id]`) as a "Record video" alternative
+alongside the pre-existing plain file picker (kept as the fallback for unsupported browsers/denied camera
+permission) — attaches `category: VEHICLE_INSPECTION_VIDEO` and the capture metadata on upload, which
+required extending `uploadMediaAssetFormSchema`/`POST /api/media/upload` to accept a JSON-encoded
+`captureMetadata` form field (multipart/form-data has no native nested-object field type), mirroring the
+JSON-body presigned-upload path's pre-existing support for the same field.
 
 ## Movement authorisation architecture (Phase 2)
 `MovementAuthorisation` has its own state machine — a pure, DB-free transition table in

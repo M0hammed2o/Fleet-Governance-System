@@ -1,6 +1,35 @@
 # CHANGELOG.md
 
-## 2026-07-26 (Phase 8D) — completes Phase 8
+## 2026-07-27 (Phase 8E) — completes Phase 8
+### Added
+- Phase 8E — retention operationalisation and corrections (8E-001..007): automatic `scheduledDeletionAt`
+  assignment on every new evidence upload, plus a safe forward-only backfill for pre-existing records; an
+  explicit `retentionExtendedAt` marker so a human's manual extension is never silently overwritten;
+  idempotent, deduplicated retention-expiry notifications (`RetentionNotificationRecord`, a hard uniqueness
+  constraint per asset/milestone/date) via a provider-neutral dev-console/no-op notification boundary; a
+  full background-job architecture (`JobRun` bookkeeping, a hard database-enforced one-running-job-at-a-time
+  guarantee, dual service-token/admin-session auth, a local CLI) covering notification generation/delivery,
+  due-deletion completion, failed-upload cleanup, export-link expiry, archive-usage reporting, support-
+  session expiry, and storage-summary recalculation; a full retention management UI (`/admin/retention`) —
+  policies, evidence browsing, legal/investigation holds, retention extension, archive selection, export and
+  dual-control deletion requests, recovery-period status, deletion certificates; browser video-capture cost
+  controls (native MediaRecorder — 720p/24-30fps target, configurable 30-60s max with countdown/auto-stop,
+  configurable bitrate, live size estimate, policy rejection, honestly-reported actual capture metadata);
+  deterministic per-test-file database cleanup, ending unbounded fixture-tenant growth across repeated test
+  runs. 53 net new tests (539/539 total).
+
+### Fixed
+- A tenant with nothing archived was quoted the lowest paid archive tier's price (R149/month) instead of
+  R0 — `getArchiveTierForBytes(0)` now returns a dedicated zero-cost tier.
+- A tenant with exactly 1TB archived incorrectly fell into the "more than 1TB, custom quotation" tier
+  instead of the flat 501GB-1TB price, because that tier's boundary used a decimal-GB assumption (1000)
+  against a codebase that computes GB as 1024-based throughout — corrected to 1024.
+- `VideoCaptureRecorder`'s camera-acquisition request used a hard minimum frame-rate constraint, which threw
+  `OverconstrainedError` and refused to open the camera at all on any device that couldn't guarantee it
+  (found live via a real, fake-camera-device Playwright browser test) — changed to a soft/ideal constraint;
+  the actually-achieved frame rate is still reported honestly in the captured evidence's metadata.
+
+## 2026-07-26 (Phase 8D)
 ### Added
 - Phase 8D — platform-admin and customer-admin storage dashboards (DASH-001..003): every stat from the
   brief (active vehicles, current storage, storage by category, monthly growth, evidence approaching

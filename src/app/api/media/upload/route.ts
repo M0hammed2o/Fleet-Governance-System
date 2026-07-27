@@ -26,12 +26,23 @@ export async function POST(request: Request) {
     const file = form.get("file");
     if (!(file instanceof File)) throw new ApiError(400, "A file is required");
 
+    const captureMetadataRaw = form.get("captureMetadata");
+    let captureMetadata: unknown;
+    if (typeof captureMetadataRaw === "string" && captureMetadataRaw.length > 0) {
+      try {
+        captureMetadata = JSON.parse(captureMetadataRaw);
+      } catch {
+        throw new ApiError(400, "captureMetadata must be valid JSON");
+      }
+    }
+
     const parsed = uploadMediaAssetFormSchema.safeParse({
       ownerType: form.get("ownerType"),
       ownerId: form.get("ownerId"),
       idempotencyKey: form.get("idempotencyKey"),
       checksumSha256: form.get("checksumSha256") || undefined,
       category: form.get("category") || undefined,
+      captureMetadata,
     });
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message ?? "Invalid input");
 
@@ -48,6 +59,7 @@ export async function POST(request: Request) {
       idempotencyKey: parsed.data.idempotencyKey,
       clientChecksumSha256: parsed.data.checksumSha256 ?? null,
       category: parsed.data.category,
+      captureMetadata: parsed.data.captureMetadata ?? null,
     });
 
     return NextResponse.json({ mediaAsset }, { status: 201 });

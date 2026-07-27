@@ -40,6 +40,12 @@ export const uploadMediaAssetFormSchema = z.object({
     .regex(/^[a-f0-9]{64}$/i, "checksumSha256 must be a 64-character hex SHA-256 digest")
     .optional(),
   category: mediaCategorySchema.optional(),
+  // Sent as a JSON-encoded string form field (multipart/form-data has no
+  // native nested-object field type) — the route parses it before this
+  // schema sees it, so by the time it reaches here it's already a plain
+  // object. Phase 8E-006: carries the browser video-capture component's
+  // honestly-reported actual codec/resolution/duration/bitrate/file size.
+  captureMetadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // Phase 8B — presigned direct-to-storage upload (JSON body, no file bytes).

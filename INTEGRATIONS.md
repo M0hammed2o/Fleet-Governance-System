@@ -102,9 +102,44 @@ call) is unit-tested against a fake, non-real config; `store`/`read`/`delete`/`c
 network call and are therefore unverified against an actual bucket — same "interface + mock, real vendor
 connection blocked" pattern as `FacialVerificationProvider`/`TelematicsProvider`.
 
-## Notification integration
-Not designed yet. Will follow the same adapter pattern once a channel (email/SMS provider) is chosen —
-paid service, so requires the user's sign-off before selection.
+## RetentionNotificationProvider (built — `src/lib/retention/notification-provider.ts`, Phase 8E-003)
+```ts
+interface RetentionNotificationProvider {
+  readonly channel: "DEV_CONSOLE" | "NOOP" | "EMAIL";
+  send(batch: RetentionNotificationBatch): Promise<{ delivered: boolean; failureReason?: string }>;
+}
+```
+Same "interface + working dev/mock implementation, real vendor deferred" pattern as every other provider
+above. `DevConsoleRetentionNotificationProvider` logs the notice; `NoOpRetentionNotificationProvider` is
+silent. Both are used today via `lib/repositories/retention-notification-repository.ts`'s idempotent
+generate/deliver functions (a real 90/60/30/7/0-day retention-expiry notice is genuinely generated and
+"delivered," deduplicated by a hard DB uniqueness constraint — see ARCHITECTURE.md "Retention notifications
+and automatic assignment") — but nothing reaches a real customer inbox yet. **Blocked: no email/SMS vendor
+has been selected or contracted** — paid service, requires the user's sign-off before selection, same status
+as every other unselected vendor above. A future `EmailRetentionNotificationProvider` (SES/SendGrid/etc,
+whichever is chosen) implements this same interface and is a drop-in swap for whichever provider is
+configured today.
+
+## StorageBillingHookProvider (built, no-op — `src/lib/retention/storage-billing-hook.ts`, Phase 8C)
+```ts
+interface StorageBillingHookProvider {
+  reportUsage(report: StorageBillingUsageReport): Promise<void>;
+}
+```
+`NoOpStorageBillingHookProvider` is the only implementation — no real billing/payment integration exists
+(subscription billing is explicitly out of scope for this build run, see TODO.md). Called both per-action
+(`moveAssetsToArchive()`) and on a schedule (`reportArchiveUsageForAllTenants()`, Phase 8E-004) — the
+periodic call skips any tenant with zero archived bytes entirely, never reporting a phantom R0 usage line.
+
+## Background-job scheduler boundary (Phase 8E-004 — see ARCHITECTURE.md "Background job architecture")
+No production scheduler (cron, queue, managed trigger) is wired into this codebase — that's an explicit,
+intentional gap pending the hosting decision (TODO.md "Blocked"). What exists and is fully tested is the
+boundary such a scheduler would call through: eight job endpoints under `src/app/api/jobs/*`, authorized
+via a shared `x-job-scheduler-token` header (`JOB_SCHEDULER_TOKEN`, fail-closed if unset) or an
+authenticated Platform Administrator session, each with a hard database-level guarantee against running
+twice concurrently. Whichever scheduler the hosting decision implies (a platform-native cron trigger, a
+queue worker, a simple external cron hitting these routes with the token) needs no application-code change
+— only the token configured as a secret and something pointed at these eight URLs on a schedule.
 
 ## Hardware/device integration
 Explicitly deferred per build-brief section 8 (no custom GPS/ANPR hardware in V1). Any future barrier or

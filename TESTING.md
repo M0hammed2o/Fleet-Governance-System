@@ -436,10 +436,68 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] `npm run verify:clean-migrations` — all 16 migrations (no schema change in this subphase) still apply
       cleanly to a genuinely empty database.
 
+## Phase 8E coverage (retention operationalisation and corrections, added 2026-07-27)
+- [x] `tests/retention-assignment.test.ts` (10 cases): direct-upload and presigned-upload paths both assign
+      `scheduledDeletionAt` on READY, using the effective per-category policy or the 365-day default;
+      `backfillMissingScheduledDeletionAt()` assigns for an ordinary ACTIVE legacy asset and one with a
+      category-specific policy override, but never for an ARCHIVED, DELETED, held (legal or investigation),
+      or explicitly-extended (`retentionExtendedAt` set) asset; idempotent — a second run assigns nothing.
+- [x] `tests/retention-repository.test.ts` boundary additions (7 new cases): `getArchiveTierForBytes(0)`
+      returns the dedicated R0 tier, not the lowest paid one; the first archived byte prices at the lowest
+      *paid* tier; exact-boundary cases at 100GB/100GB+1/250GB/500GB/exactly-1TB/1TB+1byte all land in the
+      correct tier, including the corrected 1TB boundary (was previously miscomputed against a decimal-GB
+      assumption).
+- [x] `tests/retention-notification-repository.test.ts` (5 cases): generation creates exactly one record
+      per (asset, milestone, scheduledDeletionAt) and is a no-op on re-run; a genuinely new scheduled-
+      deletion date (e.g. after an extension) does get a fresh notification; delivery groups same-tenant/
+      category/milestone records into one batch with correct category/date-range/storage/actions and marks
+      every member record SENT; a provider failure marks records FAILED with a reason and a retry can
+      succeed; the no-op provider always reports delivered with no side effects.
+- [x] `tests/background-jobs.test.ts` (11 cases): `runJob()` records SUCCEEDED/FAILED `JobRun` rows
+      correctly; a second concurrent attempt at the same `jobName` while one is RUNNING is refused
+      (`JobAlreadyRunningError`) via the real partial-unique-index constraint, not a mocked check; a fresh
+      run is allowed once the previous one is no longer RUNNING; `authorizeJobRequest()` fails closed with
+      no `JOB_SCHEDULER_TOKEN` configured (even with a token header present), rejects a wrong token, and
+      accepts the correct token with no user session; `expireOldExportRequests`,
+      `reportArchiveUsageForAllTenants` (never reports a zero-byte tenant), and
+      `expireDueSupportAccessSessions` all scoped-and-boundary tested.
+- [x] `tests/retention-evidence-listing.test.ts` (6 cases): `listEvidenceInTenant()` never returns
+      `storageKey`/`checksumSha256`/thumbnail/original keys; filters correctly by category, hold status, and
+      approaching-expiry window; excludes binary-deleted evidence; never crosses tenant boundaries.
+- [x] `tests/video-capture-policy.test.ts` (15 cases): duration clamping to [30, 60]; file-size
+      estimate/bitrate-estimate are consistent inverses; policy-violation checks at exact boundaries (0/1
+      byte over the size limit, within/beyond the 1s duration grace window); mime-type selection preference
+      order and honest fallback (never claims a codec `isTypeSupported` didn't actually report).
+- [x] Test-database isolation (8E-007, no dedicated test file — a testing-infrastructure fix, not a
+      product feature): `tests/helpers/fixtures.ts`'s `createTenant()` tracks every tenant it creates;
+      `tests/setup/global-cleanup.ts` (a Vitest `setupFile`, so it runs once per test file) deletes them all
+      in an `afterAll`, using `SET LOCAL session_replication_role = replica` inside a per-tenant transaction
+      to bypass the `audit_logs` append-only trigger for exactly that one disposable cleanup transaction —
+      never during an actual test of the trigger's own behavior. Verified via two consecutive full-suite
+      runs with the test database's tenant count confirmed to hold at exactly 1 throughout.
+- [x] `e2e/retention-management.spec.ts` (2 Playwright specs, real Chromium against a running dev server and
+      the seeded `acme-logistics` demo tenant): `/admin/retention` renders real policy/evidence/export/
+      deletion-request data for a Company Administrator; a deletion request initiated by the Company
+      Administrator is approved end to end by a different authenticated user (Security Supervisor /
+      Approving Manager) through the real UI — separation of duties proven through actual browser sessions.
+- [x] `e2e/video-capture-smoke.spec.ts` (1 Playwright spec, Chromium `--use-fake-device-for-media-stream`):
+      `VideoCaptureRecorder` acquires a real (fake-device) camera stream and reaches the ready-to-record
+      state. This exact test caught a real `getUserMedia` `OverconstrainedError` bug (see D-030) — fixed,
+      then re-verified clean. Known to `test.skip()` (not false-fail) when the dev-seeded gate event it
+      depends on isn't in the right state; not yet a fully deterministic fixture (TODO.md).
+- [x] `npm run verify:clean-migrations` — all 19 migrations (3 new: `retention_extension_and_backfill`,
+      `retention_notifications`, `job_runs`) apply cleanly to a genuinely empty database.
+- [x] Full suite: 539/539 passing, run twice consecutively clean, plus a third clean run after the live
+      video-capture bug fix.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs
    `prisma migrate deploy` against `gate_fleet_governance_test` before Vitest runs, so migrations never
    need to be applied by hand for testing.
-3. `npm run e2e` — Playwright; no specs exist yet (Phase 1 only has login/dashboard), config is wired for
-   when Phase 3 gate-operations e2e specs land.
+3. `npm run e2e` — Playwright, against a running (or auto-started) dev server and the seeded dev database.
+   Two specs exist as of Phase 8E: `e2e/retention-management.spec.ts` and `e2e/video-capture-smoke.spec.ts`
+   — the latter needs Chromium launched with `--use-fake-device-for-media-stream` (already configured in
+   that spec file via `test.use({ launchOptions })`) to acquire a camera stream without real hardware.
+4. `npm run job -- --list` / `npm run job -- <name>` (Phase 8E-004) — runs one background job against a
+   running dev server; requires `JOB_SCHEDULER_TOKEN` to be set (the endpoint fails closed without it).

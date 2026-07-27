@@ -4,7 +4,12 @@ import { tenantWhere } from "@/lib/db/tenant-scope";
 import { recordAudit } from "@/lib/audit/record-audit";
 import { getDefaultObjectStorageProvider } from "@/lib/repositories/media-asset-repository";
 import { getEffectiveRetentionPolicy } from "@/lib/repositories/retention-policy-repository";
-import { evaluateDeletionEligibility, currentRetentionMilestone, type RetentionNotificationMilestone } from "@/lib/retention/deletion-rules";
+import {
+  evaluateDeletionEligibility,
+  currentRetentionMilestone,
+  computeScheduledDeletionAt,
+  type RetentionNotificationMilestone,
+} from "@/lib/retention/deletion-rules";
 import { getArchiveTierForBytes } from "@/lib/retention/archive-pricing";
 import { NoOpStorageBillingHookProvider, type StorageBillingHookProvider } from "@/lib/retention/storage-billing-hook";
 import type { MediaCategory, MediaAsset, Prisma } from "@/generated/prisma/client";
@@ -94,6 +99,63 @@ async function checkEligibility(tenantId: string, asset: MediaAsset) {
   });
 }
 
+// --- Evidence browsing (8E-005 retention management UI) --------------------
+
+export interface EvidenceListItem {
+  id: string;
+  category: MediaCategory;
+  fileName: string;
+  fileSizeBytes: number;
+  capturedAt: Date;
+  retentionStatus: string;
+  scheduledDeletionAt: Date | null;
+  legalHold: boolean;
+  investigationHold: boolean;
+  retentionExtendedAt: Date | null;
+}
+
+export interface ListEvidenceFilter {
+  category?: MediaCategory;
+  onlyHeld?: boolean;
+  onlyApproachingExpiry?: boolean;
+}
+
+/**
+ * Evidence metadata only — never storageKey/checksumSha256/thumbnailStorageKey,
+ * so browsing this list can never itself be used to fetch a raw file; a
+ * signed URL still requires a separate mintSignedUrlForMediaAsset() call
+ * with its own audit-on-read (EVID-002). This is the "select evidence to
+ * hold/extend/archive" browsing surface for the retention management UI,
+ * gated the same as everything else here (`retention:VIEW`).
+ */
+export async function listEvidenceInTenant(tenantId: string, filter: ListEvidenceFilter = {}, now: Date = new Date()): Promise<EvidenceListItem[]> {
+  const ninetyDaysFromNow = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const where: Prisma.MediaAssetWhereInput = {
+    tenantId,
+    uploadStatus: "READY",
+    binaryDeletedAt: null,
+    ...(filter.category ? { category: filter.category } : {}),
+    ...(filter.onlyHeld ? { OR: [{ legalHold: true }, { investigationHold: true }] } : {}),
+    ...(filter.onlyApproachingExpiry
+      ? { retentionStatus: "ACTIVE" as const, scheduledDeletionAt: { not: null, gte: now, lte: ninetyDaysFromNow } }
+      : {}),
+  };
+
+  const assets = await prisma.mediaAsset.findMany({ where, orderBy: { capturedAt: "desc" }, take: 200 });
+  return assets.map((a) => ({
+    id: a.id,
+    category: a.category,
+    fileName: a.fileName,
+    fileSizeBytes: a.fileSizeBytes,
+    capturedAt: a.capturedAt,
+    retentionStatus: a.retentionStatus,
+    scheduledDeletionAt: a.scheduledDeletionAt,
+    legalHold: a.legalHold,
+    investigationHold: a.investigationHold,
+    retentionExtendedAt: a.retentionExtendedAt,
+  }));
+}
+
 // --- Holds -------------------------------------------------------------------
 
 export async function setLegalHold(tenantId: string, actorUserId: string, mediaAssetId: string, hold: boolean, reason: string) {
@@ -138,7 +200,12 @@ export async function extendRetention(tenantId: string, actorUserId: string, med
   const asset = await prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId }) });
   if (!asset) throw new MediaAssetNotFoundError();
 
-  const updated = await prisma.mediaAsset.update({ where: { id: asset.id }, data: { scheduledDeletionAt: newScheduledDeletionAt } });
+  // retentionExtendedAt marks this as a deliberate human override (8E-001)
+  // — automatic assignment/backfill must never recalculate over it.
+  const updated = await prisma.mediaAsset.update({
+    where: { id: asset.id },
+    data: { scheduledDeletionAt: newScheduledDeletionAt, retentionExtendedAt: new Date() },
+  });
   await recordAudit({
     tenantId,
     userId: actorUserId,
@@ -179,6 +246,54 @@ export async function moveAssetsToArchive(tenantId: string, actorUserId: string,
   });
 
   return { archivedCount: archivable.length, skippedCount: assets.length - archivable.length, totalBytes };
+}
+
+// --- Automatic retention assignment / backfill (8E-001) ---------------------
+
+export interface BackfillScheduledDeletionResult {
+  scannedCount: number;
+  assignedCount: number;
+}
+
+/**
+ * Idempotent, callable backfill for pre-existing ACTIVE MediaAsset rows
+ * whose scheduledDeletionAt is still null (uploaded before automatic
+ * assignment existed in uploadMediaAsset()/confirmPresignedUpload() — see
+ * media-asset-repository.ts). The one-time production backfill for rows
+ * that existed before this phase shipped runs as SQL inside migration
+ * `20260727090000_phase8e_retention_extension_and_backfill`; this function
+ * is the same logic exposed as an ordinary, testable, safely re-runnable
+ * repository call (e.g. for a future scheduler job or an on-demand admin
+ * action) — running it twice is a no-op the second time, since it only ever
+ * targets rows where scheduledDeletionAt IS NULL.
+ *
+ * Deliberately excludes (per 8E-001's explicit scope):
+ *   - retentionStatus other than ACTIVE (already-archived, pending-deletion,
+ *     or permanently-deleted metadata records)
+ *   - legalHold / investigationHold (policy requires restriction)
+ *   - retentionExtendedAt set (a human already made an explicit decision)
+ */
+export async function backfillMissingScheduledDeletionAt(tenantId?: string): Promise<BackfillScheduledDeletionResult> {
+  const candidates = await prisma.mediaAsset.findMany({
+    where: {
+      ...(tenantId ? { tenantId } : {}),
+      retentionStatus: "ACTIVE",
+      scheduledDeletionAt: null,
+      legalHold: false,
+      investigationHold: false,
+      retentionExtendedAt: null,
+    },
+  });
+
+  let assignedCount = 0;
+  for (const asset of candidates) {
+    const policy = await getEffectiveRetentionPolicy(asset.tenantId, asset.category);
+    const scheduledDeletionAt = computeScheduledDeletionAt(asset.capturedAt, policy.retentionDays);
+    await prisma.mediaAsset.update({ where: { id: asset.id }, data: { scheduledDeletionAt } });
+    assignedCount++;
+  }
+
+  return { scannedCount: candidates.length, assignedCount };
 }
 
 // --- Deletion request workflow (dual-control, 30-day recovery) --------------
@@ -470,6 +585,54 @@ export async function getExportRequestInTenant(tenantId: string, exportRequestId
 
 export async function listExportRequestsInTenant(tenantId: string) {
   return prisma.exportRequest.findMany({ where: tenantWhere(tenantId), orderBy: { requestedAt: "desc" } });
+}
+
+/**
+ * Background job (8E-004): marks every PENDING/READY ExportRequest whose
+ * `expiresAt` has passed as EXPIRED — the signed download URLs inside its
+ * manifest are already unusable by then (SIGNED_URL/EXPORT expiry is
+ * enforced independently by the storage provider itself), this just keeps
+ * the request's own status honest for anyone listing export requests.
+ * Idempotent: only ever touches rows not already EXPIRED, so re-running
+ * finds nothing left to do the second time.
+ */
+export async function expireOldExportRequests(now: Date = new Date(), tenantId?: string): Promise<{ expiredCount: number }> {
+  const result = await prisma.exportRequest.updateMany({
+    where: { ...(tenantId ? { tenantId } : {}), status: { in: ["PENDING", "READY"] }, expiresAt: { not: null, lt: now } },
+    data: { status: "EXPIRED" },
+  });
+  return { expiredCount: result.count };
+}
+
+/**
+ * Background job (8E-004): reports current archived-storage usage for
+ * every tenant through the (no-op by default) StorageBillingHookProvider —
+ * the periodic counterpart to the per-action report already fired inside
+ * moveAssetsToArchive(). A tenant with nothing archived is skipped
+ * entirely (never reports a phantom R0 line item) rather than calling the
+ * hook with zero bytes.
+ */
+export async function reportArchiveUsageForAllTenants(
+  billingHook: StorageBillingHookProvider = defaultBillingHook,
+  now: Date = new Date(),
+  tenantId?: string,
+): Promise<{ tenantsReported: number }> {
+  const byTenant = await prisma.mediaAsset.groupBy({
+    by: ["tenantId"],
+    where: { ...(tenantId ? { tenantId } : {}), retentionStatus: "ARCHIVED" },
+    _sum: { fileSizeBytes: true },
+  });
+
+  let tenantsReported = 0;
+  for (const row of byTenant) {
+    const totalBytes = row._sum.fileSizeBytes ?? 0;
+    if (totalBytes <= 0) continue;
+    const tier = getArchiveTierForBytes(totalBytes);
+    await billingHook.reportUsage({ tenantId: row.tenantId, billingPeriodStart: now, billingPeriodEnd: now, archivedBytes: totalBytes, tier });
+    tenantsReported++;
+  }
+
+  return { tenantsReported };
 }
 
 // --- Retention-expiry notifications (computed, not delivered — see lib/retention/deletion-rules.ts) ---

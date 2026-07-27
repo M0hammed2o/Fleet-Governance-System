@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
+import { VideoCaptureRecorder } from "@/components/video-capture-recorder";
+import type { CapturedVideoMetadata } from "@/lib/media/video-capture-policy";
 
 interface InspectionItem {
   id: string;
@@ -85,6 +87,12 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
   const [outcomeAction, setOutcomeAction] = useState(OUTCOME_ACTIONS[0]);
   const [itemInputs, setItemInputs] = useState<Record<string, { outcome: string; readingValue: string; comment: string }>>({});
   const [itemFiles, setItemFiles] = useState<Record<string, File | null>>({});
+  // Set only when the file for this item came from VideoCaptureRecorder
+  // (Phase 8E-006), never for a plain file-picker selection — carries the
+  // honestly-reported actual codec/resolution/duration/bitrate/file size so
+  // it can be attached as captureMetadata on upload.
+  const [itemVideoMetadata, setItemVideoMetadata] = useState<Record<string, CapturedVideoMetadata | null>>({});
+  const [itemShowRecorder, setItemShowRecorder] = useState<Record<string, boolean>>({});
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -158,6 +166,12 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
       // evidence over a flaky connection never creates a duplicate
       // MediaAsset row (EVID-003).
       form.append("idempotencyKey", `${id}:${item.id}:${file.name}:${file.size}`);
+
+      const videoMetadata = itemVideoMetadata[item.id];
+      if (videoMetadata) {
+        form.append("category", "VEHICLE_INSPECTION_VIDEO");
+        form.append("captureMetadata", JSON.stringify(videoMetadata));
+      }
 
       const res = await fetch("/api/media/upload", { method: "POST", body: form });
       const data = await res.json();
@@ -343,9 +357,19 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
                           <input
                             type="file"
                             accept="image/*,video/*"
-                            onChange={(e) => setItemFiles((s) => ({ ...s, [item.id]: e.target.files?.[0] ?? null }))}
+                            onChange={(e) => {
+                              setItemFiles((s) => ({ ...s, [item.id]: e.target.files?.[0] ?? null }));
+                              setItemVideoMetadata((s) => ({ ...s, [item.id]: null }));
+                            }}
                             className="max-w-55 text-xs text-slate-500"
                           />
+                          <button
+                            type="button"
+                            onClick={() => setItemShowRecorder((s) => ({ ...s, [item.id]: !s[item.id] }))}
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                          >
+                            {itemShowRecorder[item.id] ? "Hide camera" : "Record video"}
+                          </button>
                           {itemFiles[item.id] && (
                             <span className="text-xs text-emerald-700">
                               {itemFiles[item.id]!.name} selected — will upload when you Save
@@ -366,6 +390,18 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
                             </button>
                           )}
                         </div>
+                        {itemShowRecorder[item.id] && (
+                          <div className="mt-2">
+                            <VideoCaptureRecorder
+                              fileName={`inspection-${item.id}`}
+                              onCaptured={(file, metadata) => {
+                                setItemFiles((s) => ({ ...s, [item.id]: file }));
+                                setItemVideoMetadata((s) => ({ ...s, [item.id]: metadata }));
+                                setItemShowRecorder((s) => ({ ...s, [item.id]: false }));
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}

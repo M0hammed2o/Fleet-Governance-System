@@ -27,9 +27,71 @@ function unique(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+// Phase 8E-007: every tenant created via this helper is tracked so
+// `cleanupCreatedTenants()` (called from a global Vitest afterAll — see
+// tests/setup/global-cleanup.ts) can delete it once its file's tests
+// finish. `onDelete: Cascade` on every tenant-owned table means deleting
+// the Tenant row cascades through everything it owns — this is
+// "deterministic fixture deletion", not a destructive reset, and only ever
+// touches the disposable test database. A tenant created by direct
+// `prisma.tenant.upsert()` (e.g. the canonical "platform"-slugged fixture
+// some tests deliberately reuse across cases) is NOT tracked here and is
+// therefore never auto-deleted.
+const createdTenantIds: string[] = [];
+
 export async function createTenant(namePrefix = "Test Tenant") {
   const slug = unique("tenant").toLowerCase();
-  return prisma.tenant.create({ data: { name: `${namePrefix} ${slug}`, slug } });
+  const tenant = await prisma.tenant.create({ data: { name: `${namePrefix} ${slug}`, slug } });
+  createdTenantIds.push(tenant.id);
+  return tenant;
+}
+
+/**
+ * Deletes every tenant created via `createTenant()` in the current test
+ * module. Best-effort per id, each in its own transaction — one failure
+ * never blocks the rest.
+ *
+ * The `audit_logs` append-only trigger (migration
+ * `20260720080000_invitations_and_audit_protection` — see
+ * DATA_MODEL.md/ARCHITECTURE.md "Audit architecture") deliberately rejects
+ * every DELETE against that table, including ones a cascading
+ * `Tenant.delete()` would otherwise trigger — by design, so the guarantee
+ * holds even against a direct DB connection. `SET LOCAL
+ * session_replication_role = replica` is the standard Postgres mechanism
+ * for an administrative bulk operation to bypass ordinary row triggers; it
+ * is scoped to *this one transaction only* (never a session-wide or
+ * global change, and it auto-reverts at transaction end whether commit or
+ * rollback) and never runs anywhere near an actual assertion of the
+ * trigger's behaviour — this is disposing of synthetic fixture data after
+ * a test file's assertions have already finished, not weakening the
+ * guarantee itself or anything under test.
+ */
+/**
+ * For the rare test that creates a tenant through a real repository
+ * function (e.g. `createTenantAsPlatformAdmin()`) rather than the
+ * `createTenant()` fixture helper — not tracked automatically, so the test
+ * itself calls this directly (typically in an `afterEach`/end-of-test
+ * cleanup) instead of leaving an untracked, never-cleaned row behind.
+ */
+export async function deleteTenantForCleanup(tenantId: string): Promise<void> {
+  await prisma
+    .$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+      await tx.tenant.delete({ where: { id: tenantId } });
+    })
+    .catch(() => {});
+}
+
+export async function cleanupCreatedTenants(): Promise<void> {
+  const ids = createdTenantIds.splice(0, createdTenantIds.length);
+  for (const id of ids) {
+    await prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+        await tx.tenant.delete({ where: { id } });
+      })
+      .catch(() => {});
+  }
 }
 
 export async function createRole(tenantId: string, name = "Test Role") {

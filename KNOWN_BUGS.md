@@ -137,6 +137,74 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
   `currentStorageBytes` dropped by exactly 306 bytes and the now-empty `CARGO_EVIDENCE` category entry
   disappeared from the breakdown entirely.
 
+## BUG-006 — Zero-byte archive storage was quoted the lowest paid tier's price instead of R0, and exactly 1TB fell into the wrong pricing tier
+- Severity: medium
+- Reproduction steps: call `getArchiveTierForBytes(0)` (or view a customer/platform storage dashboard for a
+  tenant with nothing in archive storage). Separately, call `getArchiveTierForBytes(1024 * GB)` (exactly
+  1TB, using this codebase's 1024-based GB unit throughout).
+- Expected result: a tenant with `archivedBytes = 0` is quoted R0 (nothing archived, nothing owed); a
+  tenant with exactly 1TB archived is quoted the flat "501GB-1TB" tier price (R899/month), not routed to
+  "More than 1TB, custom quotation."
+- Actual result (before fix): `getArchiveTierForBytes(0)` fell through to the first tier in the list ("Up to
+  100GB", R149/month) since `0 <= 100` is true — every non-archiving tenant would have been quoted a
+  phantom monthly charge. Separately, the "501GB-1TB" tier's `maxGb` was set to `1000` (a decimal-GB
+  assumption) while `BYTES_PER_GB` in the same file is `1024 ** 3` — converting exactly 1TB (`1024 ** 4`
+  bytes) to this codebase's GB unit yields `1024`, which is `> 1000`, so an exactly-1TB tenant would have
+  incorrectly fallen through to the custom-quotation tier instead of the flat price.
+- Suspected cause: the zero-byte case was never explicitly handled — the tier-selection loop's first
+  `<= 100` check is true for `0` by simple arithmetic, with no code ever asking "is there actually anything
+  archived at all?" The 1TB-boundary bug was a units mismatch between the tier table's `maxGb` values
+  (apparently authored assuming decimal GB) and the file's own `BYTES_PER_GB` constant (binary/1024-based).
+- Status: fixed — 2026-07-27 (Phase 8E-002). Added a dedicated `NO_ARCHIVE_TIER` (R0, `customQuote: false`)
+  returned whenever `bytes <= 0`, before the tier-selection loop runs at all. Corrected the "501GB-1TB"
+  tier's `maxGb` from `1000` to `1024` to match the file's own 1024-based unit.
+- Fix verification: 6 new boundary regression tests in `tests/retention-repository.test.ts` covering exactly
+  0 bytes, 1 byte, exactly 100GB, 100GB+1 byte, exactly 250GB/500GB, exactly 1TB, and 1TB+1 byte.
+
+## BUG-007 — Browser video capture's `getUserMedia` call refused to open the camera at all on devices that couldn't guarantee a 24fps minimum
+- Severity: medium
+- Reproduction steps: on any browser/device where the camera can't guarantee a hard `frameRate: { min: 24
+  }` constraint (confirmed live against Chromium's own `--use-fake-device-for-media-stream` synthetic
+  camera), call `VideoCaptureRecorder`'s "Start camera" action.
+- Expected result: the camera opens using the best frame rate the device can actually provide, up to the
+  24-30fps policy target; the recorder reaches its "ready to record" state.
+- Actual result (before fix): `getUserMedia({ video: { frameRate: { min: 24, max: 30 }, ... } })` rejected
+  with `OverconstrainedError`, and the component surfaced its generic "camera access was denied or is
+  unavailable" message — indistinguishable from an actual permission denial, even though the camera itself
+  was available and permission had been granted.
+- Suspected cause: a hard `min` frame-rate constraint in the W3C Media Capture spec means `getUserMedia`
+  must reject outright if no available track can satisfy it, rather than negotiating the closest available
+  rate — the component's constraint object mirrored the server-side policy's "24-30fps" language literally
+  without accounting for this getUserMedia semantic.
+- Status: fixed — 2026-07-27 (Phase 8E-006, see DECISIONS.md D-030). Changed to `frameRate: { ideal: maxFps,
+  max: maxFps }` — a soft preference the browser negotiates toward, not a hard requirement it can refuse
+  over. The actually-achieved frame rate is still read back via `MediaStreamTrack.getSettings()` and
+  recorded honestly in the captured evidence's metadata, never assumed to match the requested ideal.
+- Fix verification: found via a live, real-browser Playwright test
+  (`e2e/video-capture-smoke.spec.ts`, `--use-fake-device-for-media-stream`) that reproduced the exact
+  failure with an in-browser `getUserMedia` probe using the same constraints as the component; re-ran clean
+  after the fix (component reaches the "ready to record" state).
+
+## Known, disclosed: intermittent full-suite-only flake in one reconciliation test (not fixed, not blocking)
+- Severity: low
+- Reproduction steps: run `npm test` (the full 34-file suite) repeatedly. Roughly 1 run in 2-4,
+  `tests/reconciliation-repository.test.ts`'s "pairs the departure and return gate events for the same
+  movement, even through different authorised gates" fails.
+- Expected/actual: the same test passes 100% reliably every time it's run in isolation
+  (`npx vitest run tests/reconciliation-repository.test.ts`, confirmed 3/3 clean re-runs across two
+  separate sessions), and the overwhelming majority of full-suite runs also pass clean (Phase 8E-007
+  verification: 2 consecutive clean 486/486 runs achieved after this was first observed).
+- Suspected cause: not yet root-caused. First observed in the Phase 8D session (before any Phase 8E-007
+  test-database-isolation changes existed), so it predates and is unrelated to the fixture-cleanup work in
+  this phase — most likely resource contention (Postgres connection-pool pressure, or similar) specific to
+  running 34 files' worth of integration tests in parallel against one local Postgres container, not a
+  logic defect in the reconciliation pairing code itself (which has full, passing, deterministic unit
+  coverage independent of timing).
+- Status: open, disclosed — not fixed this session. Not blocking: Phase 8E-007's actual target (unbounded
+  tenant-count growth across repeated runs) is fixed and verified; this is a pre-existing, low-severity,
+  intermittent-only concern logged for a future session to root-cause, not silently hidden.
+- Fix verification: n/a (not yet fixed) — tracked in TODO.md.
+
 ## Template for new entries
 ```
 ### BUG-NNN — <short title>

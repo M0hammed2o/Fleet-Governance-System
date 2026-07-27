@@ -73,6 +73,7 @@ model Tenant {
   deletionRequests                      DeletionRequest[]
   deletionCertificates                  DeletionCertificate[]
   exportRequests                        ExportRequest[]
+  retentionNotificationRecords           RetentionNotificationRecord[]
 
   @@map("tenants")
 }
@@ -1361,6 +1362,13 @@ model MediaAsset {
   // changes. Null means "not yet computed" (no policy existed at capture
   // time) — never treated as "never expires".
   scheduledDeletionAt DateTime?
+  // Set only when a Company Administrator explicitly extends this asset's
+  // scheduledDeletionAt (extendRetention() in retention-repository.ts) — a
+  // hard marker so automatic assignment/backfill (8E-001) never overwrites
+  // a deliberate human decision, distinct from "not yet computed" (null
+  // scheduledDeletionAt with this also null) or an ordinary policy-derived
+  // value (non-null scheduledDeletionAt with this still null).
+  retentionExtendedAt DateTime?
   // Set only once the underlying binary is permanently deleted — the row
   // itself (this structured metadata) is preserved as the historical
   // record even after the bytes are gone (ARCHITECTURE.md "Preserve
@@ -1376,6 +1384,7 @@ model MediaAsset {
   driverPortraitFor               Driver?                           @relation("DriverPortrait")
   complianceDocumentAttachmentFor ComplianceDocument?               @relation("ComplianceDocumentAttachment")
   deletionRequestLinks            DeletionRequestAsset[]
+  retentionNotifications          RetentionNotificationRecord[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
@@ -1976,4 +1985,98 @@ model ExportRequest {
 
   @@index([tenantId])
   @@map("export_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8E-003 — retention-expiry notifications. Tracks exactly which
+// (mediaAssetId, milestone, scheduledDeletionAt) combination has already been
+// generated/delivered, so a scheduler that runs generation more than once
+// (or re-runs after a crash) can never send the same "90 days left" notice
+// twice for the same asset against the same deletion date. If the date
+// itself changes (an extension, or a hold-driven recompute), that's a new
+// combination and a fresh notice is allowed — this is deliberate, not a gap:
+// the customer's actionable date genuinely changed.
+//
+// Grouped into one outbound message per (tenant, category, milestone) at
+// delivery time (lib/repositories/retention-notification-repository.ts) —
+// one row per asset here for precise idempotency bookkeeping, but nobody
+// receives 500 separate emails for 500 assets crossing the same milestone
+// on the same day.
+// ---------------------------------------------------------------------------
+
+enum RetentionNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum RetentionNotificationChannel {
+  DEV_CONSOLE
+  NOOP
+  EMAIL
+}
+
+model RetentionNotificationRecord {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  mediaAssetId String
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  // 90 | 60 | 30 | 7 | 0 days-until-expiry — see RetentionNotificationMilestone in lib/retention/deletion-rules.ts.
+  milestone           Int
+  scheduledDeletionAt DateTime
+
+  status RetentionNotificationStatus @default(PENDING)
+  // Null until a delivery attempt actually runs — which provider handled
+  // it isn't known at generation time, only at attempt time.
+  channel       RetentionNotificationChannel?
+  attemptedAt   DateTime?
+  deliveredAt   DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([mediaAssetId, milestone, scheduledDeletionAt])
+  @@index([tenantId])
+  @@index([status])
+  @@map("retention_notification_records")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8E-004 — background job architecture. Cross-tenant system-job
+// bookkeeping, deliberately NOT an AuditLog row: JobRun tracks *system*
+// process execution (did the notification-generation sweep run, did it
+// succeed), not a tenant-scoped business action a human took, so it carries
+// no tenantId and no append-only guarantee.
+//
+// Concurrency protection is a hard DB guarantee, not a best-effort
+// check-then-insert race: a partial unique index (applied via this model's
+// own migration SQL — Prisma's schema DSL has no `WHERE` clause for
+// `@@unique`) enforces at most one RUNNING row per jobName at any time.
+// Two overlapping invocations of the same job therefore collide on a real
+// Postgres unique-constraint violation (see lib/jobs/run-job.ts,
+// JobAlreadyRunningError), not a race window between two application-level
+// checks.
+// ---------------------------------------------------------------------------
+
+enum JobRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model JobRun {
+  id      String       @id @default(cuid())
+  jobName String
+  status  JobRunStatus @default(RUNNING)
+
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  resultSummary Json?
+  errorMessage  String?
+
+  @@index([jobName, startedAt])
+  @@map("job_runs")
 }

@@ -577,6 +577,75 @@ yet surfaces a "view" action for a deleted asset).
 **Revisit condition:** If a UI is later built that could plausibly link to a deleted asset's evidence
 view, add the `binaryDeletedAt` check to the read path at that time.
 
+## D-028 — 2026-07-27 — Job concurrency is a hard database constraint (partial unique index), not an advisory lock or a best-effort check
+**Context:** Phase 8E-004 needed genuine protection against two overlapping invocations of the same
+background job (e.g. two scheduler ticks racing, or a manual admin trigger overlapping a scheduled run). A
+Postgres advisory lock (`pg_try_advisory_lock`) was considered first, since it's the idiomatic Postgres tool
+for this — but this codebase's Prisma client sits on a pooled `pg` connection (`@prisma/adapter-pg`), and a
+plain advisory lock acquired on one pooled connection can be released on a *different* connection later,
+leaking the lock until that connection closes; `pg_try_advisory_xact_lock` (transaction-scoped, auto-
+releasing) avoids that leak risk but would require every job function to run inside one shared transaction,
+which none of them currently do (they call several independent Prisma operations).
+**Decision:** Use a database-level uniqueness guarantee instead: a partial unique index on `job_runs`,
+`WHERE status = 'RUNNING'`. `runJob()` simply attempts `prisma.jobRun.create({ status: "RUNNING" })`; a
+second concurrent attempt for the same `jobName` collides on this constraint (a real Postgres
+unique-violation, mapped to `JobAlreadyRunningError`), not a race between an application-level "check if
+running" query and a later insert.
+**Alternatives considered:** Advisory locks (connection-pool leak risk, rejected above). An
+application-level check-then-insert without a DB constraint (a genuine race window between the check and
+the insert under real concurrency — rejected, this is exactly the kind of check the brief called
+"concurrency protection" to prevent, not paper over). A dedicated Redis/queue-based lock (a new
+infrastructure dependency for a single-Postgres-instance codebase — rejected as disproportionate).
+**Consequences:** Prisma's schema DSL has no `WHERE` clause for `@@unique`, so the index is applied
+directly in the migration's raw SQL (`20260727110000_phase8e_job_runs`) rather than expressed declaratively
+in `schema.prisma` — documented in both files so a future schema change doesn't accidentally drop it via
+`prisma migrate dev`'s drift detection without someone noticing.
+**Revisit condition:** If job execution ever moves to a genuinely distributed, multi-process scheduler
+where a single Postgres instance's unique index is no longer a sufficient distributed lock (e.g. multiple
+independent database replicas), revisit with a proper distributed-lock mechanism.
+
+## D-029 — 2026-07-27 — Background-job auth is a shared-secret header OR an existing admin session, not a new credential type
+**Context:** 8E-004 required job endpoints that "do not rely on a normal customer administrator manually
+calling a sensitive processing endpoint" while also not inventing a whole new service-account/API-key
+management system for a codebase that has no such infrastructure yet.
+**Decision:** `authorizeJobRequest()` accepts either (a) a `x-job-scheduler-token` header matching
+`JOB_SCHEDULER_TOKEN` from the environment, fail-closed if that variable isn't set (every request refused,
+even ones bearing a token, rather than silently falling through to "no auth required"), or (b) an
+authenticated session holding the existing `platformTenant:CONFIGURE` permission — the same tier already
+used for `POST /api/admin/retention/process-due-deletions`. No new permission resource, no new credential
+storage table.
+**Alternatives considered:** A dedicated `ServiceAccount`/API-key model with its own DB table and rotation
+UI — rejected as disproportionate scope for a phase whose actual requirement was "a scheduler must be able
+to call this without a human session," not "build a general service-account system." Session-only auth (no
+token path) — rejected, since a real cron/scheduler process has no browser session to present.
+**Consequences:** `JOB_SCHEDULER_TOKEN` is a single shared secret, not a per-caller credential — adequate
+for "one trusted scheduler process," not for multiple independently-revocable callers; acceptable for this
+phase's scope, revisit if multiple distinct scheduler identities are ever needed.
+**Revisit condition:** If a real production scheduler is chosen (TODO.md) and it needs distinguishable,
+individually-revocable credentials (e.g. multiple environments/regions calling the same endpoints), replace
+the single shared token with per-caller credentials at that time — not speculatively now.
+
+## D-030 — 2026-07-27 — Video capture requests an *ideal*, not a hard *minimum*, frame rate
+**Context:** `VideoCaptureRecorder` (Phase 8E-006) originally requested `frameRate: { min: 24, max: 30 }`
+from `getUserMedia`, directly mirroring the server-side policy's "24-30fps" language. Live browser
+verification (a real, fake-camera-device Playwright test) caught this failing with `OverconstrainedError`
+— Chromium's fake device could not satisfy a hard 24fps floor, and a hard `min` constraint means
+`getUserMedia` refuses to open the camera *at all* rather than degrading gracefully, on any device/browser
+that can't guarantee it.
+**Decision:** Request `frameRate: { ideal: maxFps, max: maxFps }` instead — a soft preference, not a
+requirement. The browser negotiates its best available rate up to the cap; whatever it actually delivers is
+read back via `MediaStreamTrack.getSettings()` and reported honestly in `CapturedVideoMetadata.
+actualFrameRate`, never assumed or claimed to be within the original 24-30fps target.
+**Alternatives considered:** Keeping the hard `min` and catching `OverconstrainedError` to retry with looser
+constraints — rejected as needless complexity when a soft `ideal` constraint achieves the same practical
+outcome (best-effort toward the policy target) with one request, not two, and without a failure path to
+maintain.
+**Consequences:** A real recording's actual frame rate is no longer *guaranteed* to be ≥24fps on unusual
+hardware — but it wasn't a reliable guarantee before either (a hard constraint that throws on
+unsatisfiable hardware is not "guaranteed 24fps," it's "camera unusable on that hardware"), and the honest
+metadata means any downstream review of evidence can always see what was actually captured.
+**Revisit condition:** None currently — this is the correct, permanent behavior, not an interim workaround.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

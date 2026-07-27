@@ -10,6 +10,8 @@ import type { ObjectStorageProvider } from "@/lib/storage/provider";
 import { classifyContentType, maxBytesForKind, MEDIA_CATEGORY_RULES } from "@/lib/storage/media-categories";
 import { compressImage, generateThumbnail } from "@/lib/storage/image-compression";
 import { PassthroughVideoCompressionProvider } from "@/lib/storage/video-compression";
+import { getEffectiveRetentionPolicy } from "@/lib/repositories/retention-policy-repository";
+import { computeScheduledDeletionAt } from "@/lib/retention/deletion-rules";
 import type { MediaAssetOwnerType, MediaCategory, Prisma } from "@/generated/prisma/client";
 
 export { classifyContentType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/storage/media-categories";
@@ -273,6 +275,13 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: O
     ? await provider.store(input.tenantId, category, `${input.fileName}.original`, processed.original, input.contentType)
     : null;
 
+  // 8E-001: every MediaAsset that reaches READY must get a non-null
+  // scheduledDeletionAt — computed here (not left to a later job) so it can
+  // never be forgotten for the direct-upload path.
+  const capturedAt = new Date();
+  const retentionPolicy = await getEffectiveRetentionPolicy(input.tenantId, category);
+  const scheduledDeletionAt = computeScheduledDeletionAt(capturedAt, retentionPolicy.retentionDays);
+
   try {
     const created = await prisma.mediaAsset.create({
       data: {
@@ -280,6 +289,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: O
         ownerType: input.ownerType,
         ownerId: input.ownerId,
         capturedByUserId: input.actorUserId,
+        capturedAt,
         fileName: input.fileName,
         contentType: processed.contentType,
         fileSizeBytes: processed.data.byteLength,
@@ -288,6 +298,7 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: O
         idempotencyKey: input.idempotencyKey,
         category,
         uploadStatus: "READY",
+        scheduledDeletionAt,
         storageProvider: defaultProviderName,
         thumbnailStorageKey: thumbnailStored?.storageKey ?? null,
         originalStorageKey: originalStored?.storageKey ?? null,
@@ -484,6 +495,13 @@ export async function confirmPresignedUpload(
       ? await provider.store(tenantId, asset.category, `${asset.fileName}.thumb.webp`, processed.thumbnail, "image/webp")
       : null;
 
+    // 8E-001: this is the READY transition for the presigned-upload path —
+    // must also get a non-null scheduledDeletionAt, computed from this
+    // asset's own capturedAt (set at initiation time), same as the direct
+    // upload path in uploadMediaAsset().
+    const retentionPolicy = await getEffectiveRetentionPolicy(tenantId, asset.category);
+    const scheduledDeletionAt = computeScheduledDeletionAt(asset.capturedAt, retentionPolicy.retentionDays);
+
     const updated = await prisma.mediaAsset.update({
       where: { id: asset.id },
       data: {
@@ -495,6 +513,7 @@ export async function confirmPresignedUpload(
         thumbnailStorageKey: thumbnailStored?.storageKey ?? null,
         originalStorageKey,
         uploadStatus: "READY",
+        scheduledDeletionAt,
       },
     });
 

@@ -1,0 +1,6 @@
+import { runJobRoute } from "@/lib/jobs/job-route";
+import { expireExportLinksJob } from "@/lib/jobs/jobs";
+
+export async function POST(request: Request) {
+  return runJobRoute(request, expireExportLinksJob);
+}

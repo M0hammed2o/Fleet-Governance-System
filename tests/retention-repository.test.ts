@@ -36,7 +36,7 @@ import {
   currentRetentionMilestone,
   daysUntil,
 } from "@/lib/retention/deletion-rules";
-import { getArchiveTierForBytes, ARCHIVE_PRICING_TIERS } from "@/lib/retention/archive-pricing";
+import { getArchiveTierForBytes, ARCHIVE_PRICING_TIERS, NO_ARCHIVE_TIER } from "@/lib/retention/archive-pricing";
 import type { StorageBillingHookProvider } from "@/lib/retention/storage-billing-hook";
 import { createTenant, createRole, createUser, createSite, createGate, createDriver, createVehicle, fakeImageBytes } from "./helpers/fixtures";
 
@@ -118,6 +118,50 @@ describe("archive-pricing (pure — lib/retention/archive-pricing.ts)", () => {
     expect(ARCHIVE_PRICING_TIERS[2]).toMatchObject({ monthlyPriceZarExclVat: 499, annualPriceZarExclVat: 5000 });
     expect(ARCHIVE_PRICING_TIERS[3]).toMatchObject({ monthlyPriceZarExclVat: 899, annualPriceZarExclVat: 9000 });
     expect(ARCHIVE_PRICING_TIERS[4].customQuote).toBe(true);
+  });
+
+  // 8E-002: a tenant with nothing archived must never be quoted the lowest
+  // paid tier's price — zero archived bytes must always price at R0.
+  it("prices at exactly R0 when archivedBytes is 0 — never the lowest paid tier (8E-002)", () => {
+    const tier = getArchiveTierForBytes(0);
+    expect(tier).toEqual(NO_ARCHIVE_TIER);
+    expect(tier.monthlyPriceZarExclVat).toBe(0);
+    expect(tier.annualPriceZarExclVat).toBe(0);
+    expect(tier.customQuote).toBe(false);
+  });
+
+  it("prices the very first archived byte at the lowest real paid tier, not R0", () => {
+    const tier = getArchiveTierForBytes(1);
+    expect(tier.label).toBe("Up to 100GB");
+    expect(tier.monthlyPriceZarExclVat).toBe(149);
+  });
+
+  it("boundary: exactly 100GB is still the lowest tier; 100GB + 1 byte rolls into the next tier", () => {
+    expect(getArchiveTierForBytes(100 * GB).label).toBe("Up to 100GB");
+    expect(getArchiveTierForBytes(100 * GB + 1).label).toBe("101GB-250GB");
+  });
+
+  it("boundary: exactly 250GB and exactly 500GB stay in their own tier, not the next one", () => {
+    expect(getArchiveTierForBytes(250 * GB).label).toBe("101GB-250GB");
+    expect(getArchiveTierForBytes(250 * GB + 1).label).toBe("251GB-500GB");
+    expect(getArchiveTierForBytes(500 * GB).label).toBe("251GB-500GB");
+    expect(getArchiveTierForBytes(500 * GB + 1).label).toBe("501GB-1TB");
+  });
+
+  it("boundary: exactly 1TB prices at the flat 501GB-1TB tier, not a custom quote", () => {
+    const oneTb = 1024 * GB;
+    const tier = getArchiveTierForBytes(oneTb);
+    expect(tier.label).toBe("501GB-1TB");
+    expect(tier.customQuote).toBe(false);
+    expect(tier.monthlyPriceZarExclVat).toBe(899);
+  });
+
+  it("boundary: more than 1TB (1TB + 1 byte) requires a custom quotation", () => {
+    const overOneTb = 1024 * GB + 1;
+    const tier = getArchiveTierForBytes(overOneTb);
+    expect(tier.label).toBe("More than 1TB");
+    expect(tier.customQuote).toBe(true);
+    expect(tier.monthlyPriceZarExclVat).toBeNull();
   });
 });
 

@@ -158,3 +158,19 @@ export async function getCustomerStorageDashboard(tenantId: string): Promise<Sto
   const rows = await computeDashboardRows(tenantId);
   return rows[0] ?? null;
 }
+
+/**
+ * Background job (8E-004): forces a fresh computation of every tenant's
+ * storage-dashboard aggregates. There is no persisted storage-usage-
+ * snapshot table to "recalculate" — every figure on this dashboard is
+ * always computed live from current MediaAsset rows (see this file's own
+ * module comment), by deliberate design, so there is nothing stale to
+ * invalidate. This job exists as a scheduled correctness sweep: a periodic
+ * forced recomputation across every tenant that surfaces a query/connection
+ * failure on a schedule rather than only the next time a human happens to
+ * open the dashboard.
+ */
+export async function recalculateStorageUsageSummaries(): Promise<{ tenantsProcessed: number }> {
+  const rows = await computeDashboardRows();
+  return { tenantsProcessed: rows.length };
+}

@@ -17,6 +17,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Phase 8E-007 — deletes every tenant a test file created via
+    // createTenant() once that file's tests finish, so repeated full runs
+    // don't keep growing the test database. Runs once per file (its own
+    // module instance), not once globally — see the file's own docstring.
+    setupFiles: ["./tests/setup/global-cleanup.ts"],
     testTimeout: 15000,
     // Integration tests share one Postgres connection pool per file; running
     // files in parallel workers is fine, but tests within a tenant-isolation

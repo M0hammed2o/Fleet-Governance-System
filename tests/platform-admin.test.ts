@@ -8,7 +8,7 @@ import {
   createTenantAsPlatformAdmin,
   setTenantStatusAsPlatformAdmin,
 } from "@/lib/repositories/platform-tenant-repository";
-import { createTenant, createRole, createUser, grantPermission } from "./helpers/fixtures";
+import { createTenant, createRole, createUser, grantPermission, deleteTenantForCleanup } from "./helpers/fixtures";
 
 async function makeSession(roleName: string, permissions: Array<[string, string]> = []) {
   const tenant = await createTenant(roleName);
@@ -108,5 +108,9 @@ describe("Platform Administrator cross-tenant access is explicit, restricted, an
 
     const unchangedPlatformTenant = await prisma.tenant.findUniqueOrThrow({ where: { id: platformTenant.id } });
     expect(unchangedPlatformTenant.status).toBe("ACTIVE");
+
+    // Created via the real repository function, not the createTenant()
+    // fixture helper, so it isn't tracked/cleaned automatically (Phase 8E-007).
+    await deleteTenantForCleanup(created.id);
   });
 });

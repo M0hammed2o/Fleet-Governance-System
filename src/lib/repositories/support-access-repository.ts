@@ -268,6 +268,39 @@ async function requireActiveSupportAccessSession(actorUserId: string, customerTe
   return active;
 }
 
+/**
+ * Background job (8E-004): closes out any SupportAccessSession whose TTL
+ * has lapsed without an explicit endSupportAccessSession() call. Today,
+ * expiry is only enforced *lazily* — getActiveSupportAccessSession() and
+ * every check built on it already treat `expiresAt < now` as inactive
+ * (see requireActiveSupportAccessSession() above) — so this job doesn't
+ * change any access-control outcome; it exists so `endedAt` becomes an
+ * honest, queryable record of "this session is over" for anyone auditing
+ * SupportAccessSession rows directly, instead of only ever being set by a
+ * platform-staff member remembering to click "end session". Idempotent:
+ * only ever touches rows with `endedAt: null`, so re-running finds nothing
+ * left once a session is closed out.
+ */
+export async function expireDueSupportAccessSessions(now: Date = new Date(), customerTenantId?: string): Promise<{ expiredCount: number }> {
+  const due = await prisma.supportAccessSession.findMany({
+    where: { ...(customerTenantId ? { customerTenantId } : {}), endedAt: null, expiresAt: { lte: now } },
+  });
+
+  for (const session of due) {
+    await prisma.supportAccessSession.update({ where: { id: session.id }, data: { endedAt: session.expiresAt } });
+    await recordAudit({
+      tenantId: session.tenantId,
+      userId: session.actorUserId,
+      action: "platform.supportAccess.sessionAutoExpired",
+      entityType: "SupportAccessSession",
+      entityId: session.id,
+      reason: "TTL elapsed without an explicit end action",
+    });
+  }
+
+  return { expiredCount: due.length };
+}
+
 export async function listSupportAccessSessionsForCustomer(session: AuthenticatedSession, customerTenantId: string) {
   await requirePermission(session, "supportAccessSession", "VIEW");
   return prisma.supportAccessSession.findMany({
