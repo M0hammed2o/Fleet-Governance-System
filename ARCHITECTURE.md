@@ -654,13 +654,107 @@ alongside its existing `platformTenant` grants; a new "Platform Support Analyst"
 `platformTenant:VIEW` (to browse the customer list) plus `supportAccessSession:VIEW`/`CREATE` but
 deliberately not `CONFIGURE` — elevation stays an Administrator-only action.
 
+## Facial verification architecture (Phase 9, see PRODUCT_REQUIREMENTS.md FACE-001..009, FACIAL_VERIFICATION_LICENSING.md)
+
+Extends, does not replace, the existing `FacialVerificationProvider` adapter and
+`ManualFacialVerificationFallback` human-in-the-loop workflow (both unchanged) — Phase 9 adds a real
+on-device recognition/liveness pipeline behind that same "verify one specific driver" boundary.
+
+**Commercial licensing verified before any model was added (Phase 9B).** Two libraries, two strictly
+separated purposes, both traced to a primary source, not a secondary summary: `@mediapipe/tasks-vision`
+(Apache-2.0, both code and models per Google's own published model cards) for face detection, 478-point
+landmarks, and liveness geometry — never identity, per that model's own stated scope; `@vladmandic/face-api`
+(MIT wrapper) for the recognition descriptor only, using its bundled `face_recognition_model` (a dlib
+ResNet-34 derivative whose weights Davis King explicitly released into the public domain). face-api.js's own
+face-detection and 68-point-landmark/alignment models are never loaded — the landmark model's training
+dataset (iBUG 300-W) explicitly excludes commercial use. Full verification, exact versions, checksums, and
+known limitations: `FACIAL_VERIFICATION_LICENSING.md`.
+
+**Enrolment (9C, `lib/repositories/facial-enrolment-repository.ts`).** 3-5 guided captures, each checked
+client-side for one-face-in-frame/lighting/blur/size/position
+(`lib/facial-verification/capture-quality.ts`, pure) before being accepted; the accepted captures'
+descriptors are averaged into one canonical template (`meanDescriptor()`) after confirming they're mutually
+consistent (each within `MAX_INTRA_CAPTURE_DISTANCE` of the mean — rejects a batch that doesn't look like
+one person). The template — a ~512-byte float array, never an image — is encrypted at rest
+(`lib/facial-verification/template-encryption.ts`, AES-256-GCM, key from an environment variable never
+stored in this database) before being written to `DriverFacialTemplate`. Re-enrolment revokes the previous
+ACTIVE row in the same transaction as creating the new one; a partial unique index
+(`driver_facial_templates_one_active_per_driver`, `WHERE status = 'ACTIVE'`) enforces at the database level
+that at most one template is ever ACTIVE per driver, the same pattern already used for `JobRun`. Gated by a
+restricted `facialTemplate:CREATE`/`VIEW`/`DELETE` permission — a separate resource from ordinary
+`driver:EDIT`, granted to Company Administrator only in the seed data. `getFacialEnrolmentStatus()`/
+`listFacialTemplateHistoryForDriver()` never return template bytes, only status metadata.
+
+**One-to-one matching (9D, `runOnDeviceFacialVerificationAttempt()` in
+`lib/repositories/gate-event-repository.ts`).** Compares a live descriptor — computed client-side, sent to
+the server as plain numbers, never raw image/video bytes — against exactly the one driver assigned to the
+gate event's own `MovementAuthorisation`, via `getActiveTemplateDescriptorForDriver()`
+(tenant-scoped, driver-scoped) — never a global search across every enrolled driver. `evaluateMatch()`
+(`lib/facial-verification/descriptor-math.ts`, pure) returns a three-tier outcome from Euclidean distance:
+MATCH (≤0.5), REVIEW_REQUIRED (0.5-0.6), NO_MATCH (>0.6) — the same LFW-benchmark-tuned 0.6 threshold dlib's
+own documentation recommends. A `FacialVerificationAttempt` audit row is written for every attempt
+regardless of outcome (MATCH/NO_MATCH/REVIEW_REQUIRED/NOT_ENROLLED/CAPTURE_FAILED/LIVENESS_FAILED/
+PROVIDER_UNAVAILABLE), recording confidence, threshold, template/model version, capture quality, liveness
+result, gate, device label, and the security officer — the gate event's state machine only advances to
+IDENTITY_VERIFIED on a genuine MATCH; every other outcome leaves it in IDENTITY_PENDING for the officer to
+retry or fall back to the existing manual workflow. Rate-limited server-side (5 attempts per gate event per
+5-minute window, `TooManyVerificationAttemptsError` → HTTP 429) so repeated attempts must escalate to a
+supervisor rather than retrying indefinitely, enforced independent of whatever the client itself does.
+
+**Basic on-device liveness (9E, `lib/facial-verification/liveness-challenge.ts`, pure).** A random active
+challenge (blink / turn head left / turn head right / move closer), evaluated against a stream of per-frame
+signals (blendshape eye-blink scores and an approximate head-yaw heuristic from MediaPipe's landmarks — see
+that file's own docstring for exactly how, and its documented imprecision). A single still frame can never
+complete a challenge (`minContinuousFrames`); every frame in the window being identical is classified as
+`FAILED_STATIC_INPUT`, distinct from merely "no progress yet" — the two together are what actually prevent
+a static printed photo from passing. A FAILED liveness result short-circuits the matching step entirely in
+`runOnDeviceFacialVerificationAttempt()` — a spoofed capture whose descriptor happens to be close to the
+enrolled template still cannot produce MATCH. **Explicitly documented as basic landmark-geometry liveness,
+not a specialised commercial anti-spoofing product** — no depth sensing, no infrared, no trained
+spoof-detection model; it raises the bar against the simplest attacks, it is not proof against a
+sufficiently determined one. The security officer physically present at the gate remains responsible for
+observing the person — this challenge is a supporting check, never a replacement for that.
+
+**Cloud liveness fallback (9F, `lib/facial-verification/cloud-liveness-provider.ts`,
+`lib/repositories/cloud-fallback-repository.ts`).** Same "interface + honest no-op, real vendor deferred"
+pattern as every other unselected provider — `NoOpCloudLivenessProvider` always returns
+`PROVIDER_UNAVAILABLE` with a stated reason, never a fabricated result. No AWS/Azure/GCP or other paid
+biometric-liveness account exists (`FACIAL_VERIFICATION_LICENSING.md`). Every invocation attempt — intended
+trigger conditions: REVIEW_REQUIRED, repeated on-device failures, a high-risk tenant policy, random
+sampling, or a supervisor's explicit request — is still recorded in `CloudFallbackInvocation`, tracked per
+tenant, so a future real integration has usage history to bill against from day one.
+
+**Security and privacy (9G).** Biometric templates encrypted at rest with a key that lives outside this
+database (`template-encryption.ts`); never logged, and no route ever returns template bytes (verified by
+dedicated tests). Every lookup is tenant-scoped via the existing `tenantWhere()` convention. Camera frames
+captured during enrolment/verification exist only as transient in-memory canvas elements, garbage-collected
+after the descriptor is computed — no raw enrolment video or verification-capture image is stored anywhere
+by default. Verification attempts are rate-limited server-side; repeated failures are the client-side
+trigger for supervisor escalation (`shouldEscalateAfterFailure()`). The existing manual-fallback workflow is
+completely unchanged and still available at every step. Facial matching alone can never approve an
+unapproved movement: it only ever transitions a `GateEvent` already inside an already-`APPROVED`
+`MovementAuthorisation`'s check-in flow from IDENTITY_PENDING to IDENTITY_VERIFIED — one gate among several
+(inspection, exceptions, the officer's own clearance decision) before a vehicle is actually cleared, not a
+sole final action.
+
+**Gate-tablet interface (9H).** `components/gate-facial-verification.tsx` shows large, simple states
+(instruction → verifying → "Verified"/"Not verified") — never a raw numeric confidence score on this
+screen. Handles denied camera permission, an unsupported browser, and a model-load failure
+(`providerUnavailable`) by surfacing a clear message and pointing at the existing manual-fallback path,
+never a silent hang. `components/driver-facial-enrolment.tsx` shows the biometric-processing notice and
+requires an explicit consent acknowledgement before the camera is ever requested.
+
 ## Integration boundaries
 `FacialVerificationProvider` (`lib/facial-verification/provider.ts`) has a deterministic mock
 implementation (`mock-provider.ts`, driven by `force:<outcome>` markers in the capture reference — see its
 docstring) and a separate `ManualFacialVerificationFallback` model/repository for the human-in-the-loop
-path (request → supervisor approve/deny, self-approval blocked, every step audit-logged). `TelematicsProvider`
-is not yet built (Phase 3). No facial-recognition or telematics vendor is selected yet (blocked pending
-decision — see `INTEGRATIONS.md`). Provider selection must not require changing call sites.
+path (request → supervisor approve/deny, self-approval blocked, every step audit-logged) — both unchanged
+by Phase 9's real on-device recognition/liveness pipeline layered alongside them (see "Facial verification
+architecture" above). `TelematicsProvider` is built (Phase 6, mock only). No facial-recognition-vendor
+*cloud* API, telematics vendor, or cloud-liveness vendor is selected yet (blocked pending decision — see
+`INTEGRATIONS.md`); the on-device recognition model itself (dlib-derived, CC0) required no such decision —
+its licensing was independently verified (Phase 9B). Provider selection must not require changing call
+sites.
 
 ## Deployment topology (target, not yet built — Phase 7)
 Single Next.js app + managed Postgres + object storage, behind HTTPS, environment-driven config. Local

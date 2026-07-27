@@ -108,6 +108,13 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // deletion request — that's the deliberately separate second
       // authorised user (Security Supervisor / Approving Manager, below).
       { resource: "retention", action: "VIEW" }, { resource: "retention", action: "CREATE" }, { resource: "retention", action: "CONFIGURE" }, { resource: "retention", action: "EXPORT" },
+      // Phase 9C — the one "restricted role" that may enrol/re-enrol/revoke
+      // a driver's biometric template; no other role in this seed holds any
+      // facialTemplate permission at all. Oversight-only VIEW on the
+      // verification-attempt audit trail (does not personally run
+      // verification attempts at the gate — that's Gate Security Officer).
+      { resource: "facialTemplate", action: "VIEW" }, { resource: "facialTemplate", action: "CREATE" }, { resource: "facialTemplate", action: "DELETE" },
+      { resource: "facialVerificationAttempt", action: "VIEW" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -139,6 +146,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // already-approved record, never edits driver/vehicle/movement data.
       { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
       { resource: "facialVerificationFallback", action: "VIEW" }, { resource: "facialVerificationFallback", action: "CREATE" },
+      // Runs one-to-one facial verification attempts at the gate (Phase
+      // 9D) — deliberately no facialTemplate grant at all: this role can
+      // run a match against the one driver's existing template, never
+      // enrol/re-enrol/revoke one (that's Company Administrator only).
+      { resource: "facialVerificationAttempt", action: "VIEW" }, { resource: "facialVerificationAttempt", action: "CREATE" },
       // Runs the gate check-in/check-out flow end-to-end (start, inspect,
       // clear/deny normal cases) but cannot resolve a serious exception —
       // no exception:APPROVE. See "Security Supervisor / Approving Manager".

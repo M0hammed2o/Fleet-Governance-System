@@ -284,6 +284,37 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   RUNNING row per `jobName` at any time — not expressible in Prisma's schema DSL (no `WHERE` clause on
   `@@unique`), so it's applied directly in this model's migration SQL.
 
+## Phase 9 entities (on-device facial verification and basic liveness — implemented)
+- **DriverFacialTemplate** — one encrypted biometric template per driver. `templateCiphertext`/`templateIv`/
+  `templateAuthTag` (all `Bytes` — AES-256-GCM, key outside this database), `encryptionKeyId` (supports
+  future key rotation), `templateVersion`/`modelVersion` (the exact package/model identifiers from
+  FACIAL_VERIFICATION_LICENSING.md), `status` (`DriverFacialTemplateStatus`: ACTIVE/REVOKED),
+  `consentAcknowledgedAt` (the biometric-processing notice + purpose/retention acknowledgement timestamp —
+  a moment in time, not a boolean default), `enrolledByUserId`/`enrolledAt`,
+  `revokedByUserId`/`revokedAt`/`revokedReason`. At most one ACTIVE row per driver, enforced by a partial
+  unique index (`WHERE status = 'ACTIVE'`, same pattern as `JobRun`) applied directly in this model's
+  migration SQL. Never stores raw enrolment images/video.
+- **FacialVerificationAttempt** — full audit history of every one-to-one verification attempt, one row per
+  attempt (including retries). `result` (`FacialVerificationResultType`: MATCH/NO_MATCH/REVIEW_REQUIRED/
+  NOT_ENROLLED/CAPTURE_FAILED/LIVENESS_FAILED/PROVIDER_UNAVAILABLE), `confidenceScore`/`threshold`/
+  `templateVersion`/`modelVersion` (null when no match was actually attempted, e.g. LIVENESS_FAILED),
+  `captureQualityScore`, `livenessResult` (`LivenessChallengeResult`: PASSED/FAILED/NOT_REQUIRED/SKIPPED)/
+  `livenessChallenge`, `source` (`FacialVerificationSource`: ON_DEVICE/CLOUD_FALLBACK/MANUAL_FALLBACK),
+  `gateId`/`deviceLabel`/`securityOfficerUserId`, `manualFallbackUsed`/`manualFallbackId`, `attemptedAt`.
+  Always scoped to the one `driverId`/`templateId` the comparison actually ran against — never a row
+  representing a global search result.
+- **CloudFallbackInvocation** — tracks `CloudLivenessProvider` invocations per tenant "for future billing"
+  (Phase 9F) — no paid cloud vendor exists yet, so every row today reflects a `PROVIDER_UNAVAILABLE`
+  no-op call, but the usage-tracking table exists from day one. `reason`
+  (REVIEW_REQUIRED/REPEATED_FAILURE/HIGH_RISK_POLICY/RANDOM_SAMPLE/SUPERVISOR_REQUESTED), `invokedAt`.
+- **Driver** gained no new columns — `facialVerificationEnrolled`/`facialVerificationProvider`/
+  `facialVerificationEnrolledAt` (Phase 2 fields) are now kept in sync with the real
+  `DriverFacialTemplate` ACTIVE-row state by `enrolDriver()`/`revokeDriverFacialTemplate()`, rather than
+  being an independently-set flag with no underlying enrolment record.
+- **New permission resources**: `facialTemplate` (VIEW/CREATE/DELETE — a restricted role, Company
+  Administrator only in the seed data) and `facialVerificationAttempt` (VIEW/CREATE — Gate Security Officer
+  runs attempts, Company Administrator has oversight-only VIEW).
+
 ## Phase 7 entities (platform support-access — implemented)
 - **SupportAccessSession** — a time-limited, fully audited permission window for one platform-tenant user
   to view one customer tenant's support-view summary (see ARCHITECTURE.md "Platform support-access
@@ -382,8 +413,13 @@ each is actually migrated, not in advance.
 - `20260727110000_phase8e_job_runs` (applied): `JobRunStatus` enum; `JobRun` (new table) plus a partial
   unique index (`job_runs_one_running_per_job_name`, `WHERE status = 'RUNNING'`) enforcing the hard
   one-job-at-a-time concurrency guarantee at the database level.
+- `20260727150000_phase9_facial_verification` (applied): `DriverFacialTemplateStatus`/
+  `FacialVerificationResultType`/`LivenessChallengeResult`/`FacialVerificationSource` enums;
+  `DriverFacialTemplate`, `FacialVerificationAttempt`, `CloudFallbackInvocation` (new tables), plus a
+  partial unique index (`driver_facial_templates_one_active_per_driver`, `WHERE status = 'ACTIVE'`)
+  enforcing at most one ACTIVE template per driver at the database level. Purely additive.
 
-All nineteen migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+All twenty migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 

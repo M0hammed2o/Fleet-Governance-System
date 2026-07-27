@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, use } from "react";
 import { ComplianceDocumentsPanel, type ComplianceDocument } from "@/components/compliance-documents-panel";
+import { DriverFacialEnrolmentCapture } from "@/components/driver-facial-enrolment";
 
 interface Driver {
   id: string;
@@ -33,6 +34,10 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
   const [error, setError] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<string | null>(null);
   const [fallbackReason, setFallbackReason] = useState("");
+  const [enrolmentStatus, setEnrolmentStatus] = useState<{ enrolled: boolean; templateVersion: string | null; enrolledAt: string | null } | null>(null);
+  const [enrolmentHistory, setEnrolmentHistory] = useState<Array<{ id: string; status: string; enrolledAt: string; revokedAt: string | null; revokedReason: string | null }>>([]);
+  const [showEnrolmentCapture, setShowEnrolmentCapture] = useState(false);
+  const [revokeReason, setRevokeReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,6 +59,36 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     queueMicrotask(load);
   }, [load]);
+
+  const loadEnrolment = useCallback(async () => {
+    // A restricted permission (facialTemplate:VIEW) — a caller without it
+    // simply doesn't see this section, not a page-load failure.
+    const res = await fetch(`/api/drivers/${id}/facial-enrolment`);
+    if (!res.ok) return;
+    const data = await res.json();
+    setEnrolmentStatus(data.status);
+    setEnrolmentHistory(data.history);
+  }, [id]);
+
+  useEffect(() => {
+    queueMicrotask(loadEnrolment);
+  }, [loadEnrolment]);
+
+  async function revokeEnrolment() {
+    if (!revokeReason.trim()) return;
+    const res = await fetch(`/api/drivers/${id}/facial-enrolment`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: revokeReason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Could not revoke enrolment");
+      return;
+    }
+    setRevokeReason("");
+    await loadEnrolment();
+  }
 
   async function setStatus(status: "ACTIVE" | "SUSPENDED" | "BLACKLISTED") {
     setError(null);
@@ -176,6 +211,56 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
         </div>
 
         <ComplianceDocumentsPanel ownerType="DRIVER" ownerId={driver.id} documents={documents} onChanged={load} />
+
+        {enrolmentStatus && (
+          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-slate-900">Biometric enrolment</h2>
+            <p className="mb-3 text-sm text-slate-700">
+              Status: <span className={enrolmentStatus.enrolled ? "font-medium text-emerald-700" : "text-slate-500"}>{enrolmentStatus.enrolled ? "Enrolled" : "Not enrolled"}</span>
+              {enrolmentStatus.enrolledAt && ` · enrolled ${new Date(enrolmentStatus.enrolledAt).toLocaleString()}`}
+            </p>
+
+            {!showEnrolmentCapture && (
+              <button onClick={() => setShowEnrolmentCapture(true)} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
+                {enrolmentStatus.enrolled ? "Re-enrol" : "Enrol driver"}
+              </button>
+            )}
+            {showEnrolmentCapture && (
+              <DriverFacialEnrolmentCapture
+                driverId={driver.id}
+                onEnrolled={() => {
+                  setShowEnrolmentCapture(false);
+                  loadEnrolment();
+                }}
+              />
+            )}
+
+            {enrolmentStatus.enrolled && (
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={revokeReason}
+                  onChange={(e) => setRevokeReason(e.target.value)}
+                  placeholder="Reason for revocation"
+                  className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                />
+                <button onClick={revokeEnrolment} className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">
+                  Revoke
+                </button>
+              </div>
+            )}
+
+            {enrolmentHistory.length > 0 && (
+              <ul className="mt-4 space-y-1 text-xs text-slate-600">
+                {enrolmentHistory.map((h) => (
+                  <li key={h.id} className="border-b border-slate-100 pb-1">
+                    {h.status} — enrolled {new Date(h.enrolledAt).toLocaleString()}
+                    {h.revokedAt && ` · revoked ${new Date(h.revokedAt).toLocaleString()}${h.revokedReason ? ` (${h.revokedReason})` : ""}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Facial verification (mock provider — dev only)</h2>

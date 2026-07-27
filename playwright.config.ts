@@ -1,8 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// No e2e specs exist yet (Phase 1 has only login/dashboard). This config is
-// wired now so `npm run e2e` works the moment Phase 3 gate-operations specs
-// land — see TESTING.md "End-to-end tests".
+// Specs live under ./e2e — see TESTING.md "End-to-end tests" for the
+// current list and what each one covers.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -12,6 +11,9 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",
+    // Phase 9I requirement: a failing spec's page state should be
+    // inspectable afterward without needing to reproduce it live.
+    screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

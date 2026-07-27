@@ -646,6 +646,88 @@ unsatisfiable hardware is not "guaranteed 24fps," it's "camera unusable on that 
 metadata means any downstream review of evidence can always see what was actually captured.
 **Revisit condition:** None currently — this is the correct, permanent behavior, not an interim workaround.
 
+## D-031 — 2026-07-27 — On-device face recognition uses a CC0-verified dlib-derived model, split across two libraries by capability, not one all-in-one face-recognition package
+**Context:** Phase 9B required commercial-licensing verification *before* adding any recognition model — "a
+software library's licence does not automatically cover its trained model." Research (WebFetch against
+primary sources: npm registry, the actual `LICENSE` files shipped inside installed packages, and Google's
+own published PDF model cards — not secondary summaries) found: MediaPipe's face detection and landmark
+models are Apache-2.0 per Google's own model cards, but that same model card explicitly states landmarks
+"do not provide facial recognition or identification." face-api.js's face-recognition descriptor model
+traces directly to dlib, whose author (Davis King) explicitly released those specific weights into the
+public domain. But face-api.js's *own* 68-point landmark/alignment model — normally chained together with
+its recognition model via the library's convenience API — turned out to be trained on the iBUG 300-W
+dataset, whose licence explicitly excludes commercial use (confirmed via the same primary-source method,
+`davisking/dlib-models`' own README note).
+**Decision:** Split the pipeline across its two capabilities, sourced from whichever library has clean
+licensing for that specific capability: `@mediapipe/tasks-vision` (Apache-2.0) for face detection, 478-point
+landmarks, and liveness geometry only, never identity; `@vladmandic/face-api` (MIT wrapper) loading *only*
+`nets.faceRecognitionNet` — never its own detector or landmark models — computing the descriptor directly
+from a MediaPipe-located face crop instead of via face-api.js's own `detectSingleFace().withFaceLandmarks()`
+convenience chain.
+**Alternatives considered:** `@vladmandic/human` (the same author's newer, actively-maintained library,
+explicitly recommended as face-api.js's successor) — evaluated and rejected for the recognition model
+specifically, because its own documentation states bundled models carry licensing "inherited from the
+original model sources" per model, and the specific embedding model's (MobileFaceNet) original
+training-data licence could not be verified as clearly commercially permitted within this session. Per the
+explicit instruction ("if unclear, do not ship"), this is a documented blocker, not a chosen path — see
+FACIAL_VERIFICATION_LICENSING.md "Explicitly excluded."
+**Consequences:** Skipping face-api.js's own alignment step trades some accuracy for licensing certainty
+(disclosed as a known trade-off, TODO.md) — the LFW-benchmark 99.38% figure dlib itself reports assumes
+its own alignment pipeline, which this codebase does not replicate. `@vladmandic/face-api`'s GitHub
+repository is archived (no longer maintained) — the MIT licence and CC0 model weights remain fully valid
+regardless, disclosed as an operational risk, not a licensing blocker.
+**Revisit condition:** If a future session can trace an actively-maintained recognition model's exact
+training-data licence to an unambiguous, commercially-permitted primary source (the same standard applied
+to the current choice), it may replace this one — never swap in a model whose licence is merely "probably
+fine."
+
+## D-032 — 2026-07-27 — Browser-side facial-recognition libraries are loaded via dynamic `import()`, not a static top-level import
+**Context:** The first working version of `lib/facial-verification/browser-engine.ts` statically imported
+`@vladmandic/face-api` and `@mediapipe/tasks-vision` at module top level. Live browser verification (the
+same "start the dev server, drive it with Playwright" discipline used throughout this build) caught a real
+crash: `TypeError: this.util.TextEncoder is not a constructor`, thrown during Next.js's server-side render
+pass. A `"use client"` component still renders once on the server before hydrating, and face-api.js's
+browser bundle assumes browser globals (`window.TextEncoder` among them) that don't exist in that Node.js
+SSR context.
+**Decision:** Convert both model loaders to dynamic `import()` calls made *inside* the functions that
+actually use them (`loadFaceLandmarker()`, the lazily-loaded face-api module in `computeDescriptorFromVideoFrame()`),
+never as static top-level imports. Dynamic `import()` only resolves when actually called, and these
+functions are only ever invoked from a browser event handler (camera-start button, detection-loop
+`requestAnimationFrame` callback) that cannot run during SSR.
+**Alternatives considered:** Wrapping the enrolment/verification components in `next/dynamic(() => import(...), { ssr: false })`
+at the page level — rejected as a wider-blast-radius fix (disables SSR for the whole component tree under
+it, not just the two library imports that actually need it) for a problem the narrower fix resolves
+completely.
+**Consequences:** None negative — dynamic import also means these ~10MB+ of ML libraries are code-split
+into their own chunk, loaded on demand rather than bloating every page's initial bundle, which would have
+been desirable regardless of the SSR crash.
+**Revisit condition:** None — this is the correct, permanent pattern for any future browser-only library
+with the same SSR-incompatibility profile, not an interim workaround.
+
+## D-033 — 2026-07-27 — Facial-verification-attempt rate limiting is enforced server-side, in the repository function itself, not deferred to unbuilt generic infrastructure
+**Context:** Phase 9G asks that verification attempts be rate-limited and that repeated failures trigger
+supervisor review. This codebase has an existing, disclosed gap: no generic rate-limiting infrastructure
+exists anywhere (TODO.md, since Phase 1) — the first real caller was expected to be the future password-
+reset endpoint. `lib/facial-verification/liveness-challenge.ts` already has a *client-side*
+`shouldEscalateAfterFailure()` helper, but a client-side-only limit is trivially bypassed by any caller that
+doesn't run that specific code path (e.g., a direct API call).
+**Decision:** Add a small, purpose-specific rate limit directly inside `runOnDeviceFacialVerificationAttempt()`
+— counts `FacialVerificationAttempt` rows for the same gate event within a 5-minute window and rejects the
+6th with `TooManyVerificationAttemptsError` (HTTP 429) — rather than waiting for or building generic
+rate-limiting middleware first.
+**Alternatives considered:** Building the generic infrastructure item from TODO.md first, then wiring this
+endpoint through it — rejected as scope creep for this phase; the generic mechanism's first real caller
+remains the password-reset endpoint whenever that's built, unaffected by this narrower, business-rule-level
+check existing in the meantime (same "hard business rule enforced independent of generic infrastructure"
+family as the self-approval checks — D-008/D-020 and others).
+**Consequences:** This specific limit is enforced only for facial-verification attempts, not as a reusable
+building block — a second sensitive endpoint needing the same protection would need its own, similarly
+narrow check, not get one for free. Acceptable: each of this codebase's hard business rules has
+consistently been implemented this way (in the repository function itself), not via cross-cutting
+middleware.
+**Revisit condition:** If/when the generic rate-limiting infrastructure item is finally built, consider
+whether this check should be re-expressed on top of it — not before, and not required.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

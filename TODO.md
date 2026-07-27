@@ -2,11 +2,11 @@
 
 ## Now
 Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
-8A (engineering hardening), 8B (cost-efficient object-storage architecture), 8C (retention/archive/
-deletion), 8D (platform/customer storage dashboards), and 8E (retention operationalisation and
-corrections) all done, see WORKLOG.md Sessions 13-17. Now in progress: Phase 9 (on-device one-to-one
-facial verification and basic liveness with a cloud fallback interface, per the user's own stated
-next-phase target).
+8A-8E all done, see WORKLOG.md Sessions 13-17. Phase 9 (on-device one-to-one facial verification and
+basic liveness with a cloud fallback interface) is also **complete** — see WORKLOG.md Session 18. Next
+planned work, when the user is ready to scope it: subscription billing, full investigation-case
+management, and a production hosting/scheduler/vendor decision (see "Blocked" below — several items now
+depend on the same underlying hosting choice).
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
 WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
@@ -70,23 +70,55 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] `RetentionNotificationProvider` has no real email/SMS implementation — only `DevConsoleRetentionNotificationProvider` (logs) and `NoOpRetentionNotificationProvider` exist (Phase 8E-003); every 90/60/30/7/0-day retention notice is generated and "delivered" (idempotently, with retry-on-failure) but never actually reaches a customer inbox | Priority: medium | Deps: an email/SMS vendor selection (none chosen, no paid account created)
 - [ ] Real video compression (H.264/MP4 transcoding to the 720p/24-30fps/30-60s policy) is still a documented server-side passthrough (D-024) — Phase 8E-006 added real client-side capture *restrictions* (720p/24-30fps target, configurable 30-60s max with countdown/auto-stop, configurable bitrate, live size estimate, policy rejection, honest actual-codec/resolution/duration/bitrate/size metadata) via the browser's native MediaRecorder, but no server-side transcoder exists in this environment | Priority: medium | Deps: ffmpeg (or equivalent) installed and verified end-to-end, not just installed
 - [ ] `e2e/video-capture-smoke.spec.ts` (Phase 8E-006 live verification) is flaky when run alongside other e2e specs or on repeat — it depends on a specific seeded gate event being in `VEHICLE_CHECKS_IN_PROGRESS` status, and the dev-seeded gate events' ordering from `GET /api/gate/gate-events` was observed to vary between runs; it correctly `test.skip()`s rather than false-failing when that precondition isn't met, but is not yet a fully deterministic test | Priority: low | Deps: a dedicated e2e fixture (a freshly created, driven-to-VEHICLE_CHECKS_IN_PROGRESS gate event per test run) instead of relying on seed-data state
+- [ ] `e2e/facial-verification-gate-smoke.spec.ts` (Phase 9 live verification) has the same seed-data-ordering dependency/flakiness as the video-capture one above, and for the same reason — same fix applies to both once built | Priority: low | Deps: same dedicated e2e fixture item above
+- [ ] Face-recognition accuracy without face-api.js's own alignment step is not benchmarked in this codebase — Phase 9B deliberately skips face-api.js's 68-point-landmark alignment (its training data excludes commercial use, FACIAL_VERIFICATION_LICENSING.md) and computes the descriptor from an unaligned MediaPipe-located crop instead; the dlib project's own 99.38% LFW accuracy figure assumes its own alignment pipeline, which this codebase does not replicate — real-world match-rate impact is unverified with actual driver photos | Priority: medium | Deps: real pilot enrolment data to benchmark against, or accept the disclosed trade-off
+- [ ] `GateFacialVerification` doesn't yet distinguish "camera permission denied" from "on-device model failed to load" when reporting to the server — the repository layer now supports an explicit `providerUnavailable` signal distinct from `CAPTURE_FAILED` (Phase 9I tested directly via the API), but the browser component's own error-handling path doesn't yet set it automatically | Priority: low | Deps: none, straightforward follow-up wiring
+- [ ] `@vladmandic/face-api`'s GitHub repository is archived (no longer maintained, per the author's own notes) — the MIT licence and CC0-equivalent model weights remain fully valid and usable regardless (FACIAL_VERIFICATION_LICENSING.md), but no future security patches or TensorFlow.js compatibility updates will come from this exact package | Priority: medium | Deps: periodic re-evaluation of whether a newer, equally-clearly-licensed alternative has emerged
 
 ## Later
-- [ ] GATE-003 production — production facial-verification vendor integration (interface + mock already done, now wired into the gate flow too) | Deps: vendor selection (blocked)
 - [ ] Object-storage production vendor integration (interface + local-filesystem dev implementation already done, Phase 4) | Deps: vendor selection (blocked)
+- [ ] Cloud liveness fallback production vendor integration (interface + honest no-op already done, Phase 9F) | Deps: vendor selection (blocked) — the on-device recognition/liveness pipeline itself needs no vendor and is already real, not blocked
 - [ ] GOV-001..003 — Governance module | Deps: none (can start once Foundation is stable)
 - [ ] Retention-purge scheduled job honouring `Tenant.retentionDays` | Deps: legal review of retention granularity
 - [ ] MFA (TOTP) enrolment/verification | Deps: none — schema already ready (`User.mfaEnabled`/`mfaSecret`)
 - [ ] Promote `Driver.department` from a plain string to a real Department entity if department-level reporting/permissions are ever needed (D-006) | Deps: none, only if requested
 
 ## Blocked
-- [ ] Facial-verification production provider selection | Needs: user decision on vendor + budget approval
+- [ ] Cloud liveness fallback production provider selection (optional additional layer on top of the already-working on-device pipeline) | Needs: user decision on vendor + budget approval
 - [ ] Telematics production provider selection | Needs: user decision on vendor + budget approval
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 - [ ] Production scheduler/cron for the Phase 8E-004 background jobs | Needs: hosting decision (above) — the job endpoints, auth boundary, and CLI are ready for whichever scheduler the hosting choice implies
 - [ ] Retention-notification email/SMS provider | Needs: user decision on vendor + budget approval
 
 ## Completed recently
+- [x] Phase 9: On-device one-to-one facial verification and basic liveness (FACE-001..009) — commercial
+      licensing independently verified against primary sources *before* any model was added
+      (`FACIAL_VERIFICATION_LICENSING.md`): `@mediapipe/tasks-vision` (Apache-2.0) for detection/landmarks/
+      liveness geometry, `@vladmandic/face-api`'s `faceRecognitionNet` only (MIT wrapper, CC0-equivalent
+      dlib-derived model weights) for the recognition descriptor — one candidate model (face-api.js's own
+      68-point landmark model, non-commercial training data) and one alternative library (`@vladmandic/human`,
+      unclear per-model licensing) were evaluated and explicitly not used, disclosed as blockers rather than
+      shipped unclear. Driver biometric enrolment (3-5 guided captures, quality-checked, AES-256-GCM
+      encrypted template, key outside the database, restricted-role gated, re-enrolment/revocation, full
+      audit history, `DriverFacialTemplate` with a hard one-ACTIVE-per-driver database constraint); real
+      one-to-one matching (`runOnDeviceFacialVerificationAttempt()`) against exactly the driver assigned to
+      a gate event's own approved movement, never a global search, recording a full `FacialVerificationAttempt`
+      audit trail (MATCH/NO_MATCH/REVIEW_REQUIRED/NOT_ENROLLED/CAPTURE_FAILED/LIVENESS_FAILED/
+      PROVIDER_UNAVAILABLE) for every attempt; basic active liveness (blink/turn/move-closer) that a single
+      still photo can never complete, honestly documented as not a commercial-grade anti-spoofing product;
+      a `CloudLivenessProvider` interface with an honest no-op (no paid vendor) and per-tenant usage
+      tracking for future billing; server-side rate limiting on verification attempts (5 per gate event per
+      5 minutes); a gate-tablet interface with large, simple states and no raw confidence score shown. 605/605
+      tests passing (66 net new), tsc/lint/build clean, clean-migration verification passing (1 new
+      migration), two consecutive clean full-suite runs, tenant count confirmed to hold at exactly 1. Found
+      and fixed one high-severity bug via live browser verification (a browser-only ML library crashing on
+      Next.js's server-render pass — see KNOWN_BUGS.md BUG-008). Live Playwright verification: two specs
+      proving the real MediaPipe/face-api model-loading and per-frame-detection pipeline genuinely works in
+      a live browser (`e2e/facial-verification-smoke.spec.ts`, `e2e/facial-verification-gate-smoke.spec.ts`),
+      plus a full six-role-login workflow spec (`e2e/facial-verification-workflow.spec.ts`) exercising every
+      required result outcome, the manual-fallback path, audit-trail permission boundaries, and cross-tenant
+      denial — using only synthetic, non-biometric descriptor arrays, never real captured face data —
+      2026-07-27. **This completes Phase 9.**
 - [x] Phase 8E: Retention operationalisation and corrections (8E-001..007) — automatic `scheduledDeletionAt`
       assignment on every new MediaAsset reaching READY (direct and presigned-upload paths), plus a safe,
       idempotent, forward-only backfill for pre-existing ACTIVE assets (`retentionExtendedAt` marker added

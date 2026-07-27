@@ -185,6 +185,28 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
   failure with an in-browser `getUserMedia` probe using the same constraints as the component; re-ran clean
   after the fix (component reaches the "ready to record" state).
 
+## BUG-008 — Facial-verification pages crashed on every request because a browser-only ML library was evaluated during Next.js server-side rendering
+- Severity: high (the pages were completely unusable — every request to `/admin/drivers/[id]` and
+  `/gate/events/[id]` crashed once the new facial-verification components were wired in)
+- Reproduction steps: import `@vladmandic/face-api` as a static top-level `import` statement anywhere in a
+  module reachable from a `"use client"` React component, then request the page that renders it.
+- Expected result: the page renders normally — a `"use client"` component's browser-only dependencies
+  should only execute in the browser.
+- Actual result (before fix): `TypeError: this.util.TextEncoder is not a constructor`, thrown during
+  module evaluation, crashing the page entirely. Found immediately via live Playwright verification
+  (`e2e/facial-verification-smoke.spec.ts`) — the very first run against a real dev server.
+- Suspected cause: Next.js still server-renders a `"use client"` component once before it hydrates in the
+  browser. A static top-level `import` is evaluated during that server-side pass too, and face-api.js's
+  browser bundle assumes browser globals (`window.TextEncoder` among them) that don't exist in that
+  Node.js SSR context.
+- Status: fixed — 2026-07-27 (Phase 9C/9D, see DECISIONS.md D-032). Converted both browser-only model
+  loaders (`@vladmandic/face-api`, `@mediapipe/tasks-vision`) in `lib/facial-verification/browser-engine.ts`
+  to dynamic `import()` calls made inside the functions that actually use them, which only resolve when
+  called from a browser event handler after hydration — never during SSR.
+- Fix verification: `e2e/facial-verification-smoke.spec.ts` and `e2e/facial-verification-gate-smoke.spec.ts`
+  both re-ran clean after the fix, confirming the pages render, the camera opens, and both models genuinely
+  load and run real per-frame inference in a live browser with zero page errors.
+
 ## Known, disclosed: intermittent full-suite-only flake in one reconciliation test (not fixed, not blocking)
 - Severity: low
 - Reproduction steps: run `npm test` (the full 34-file suite) repeatedly. Roughly 1 run in 2-4,

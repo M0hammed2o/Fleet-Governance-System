@@ -490,14 +490,81 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] Full suite: 539/539 passing, run twice consecutively clean, plus a third clean run after the live
       video-capture bug fix.
 
+## Phase 9 coverage (on-device facial verification and basic liveness, added 2026-07-27)
+- [x] `tests/facial-template-encryption.test.ts` (6 cases): a descriptor round-trips through encrypt/decrypt
+      exactly (within float32 precision); the ciphertext is never equal to the plaintext bytes; every
+      encryption gets a fresh iv (never reused); decryption rejects an unrecognised key id; a tampered
+      ciphertext fails to decrypt (AES-256-GCM auth-tag mismatch).
+- [x] `tests/facial-descriptor-math.test.ts` (11 cases): Euclidean distance, mean-descriptor averaging, and
+      `evaluateMatch()`'s three-tier MATCH/REVIEW_REQUIRED/NO_MATCH outcome at and around both configurable
+      thresholds.
+- [x] `tests/facial-capture-quality.test.ts` (11 cases): every individual capture-quality issue code
+      (no/multiple faces, too small/off-center, too dark/bright/blurry, low detection confidence), combined
+      issues, and a custom policy override.
+- [x] `tests/facial-enrolment-repository.test.ts` (11 cases): enrols from 3-5 guided captures storing only
+      the encrypted mean descriptor; rejects missing consent, too few/many captures, and mutually
+      inconsistent captures; rejects a nonexistent driver; re-enrolment revokes the previous ACTIVE template
+      (exactly one ACTIVE row survives, enforced by the database's own partial unique index); revocation
+      clears the driver's enrolled flag; decrypts back to the enrolled descriptor and returns `null` once
+      revoked; status/history responses never include template bytes; never crosses tenant boundaries.
+- [x] `tests/facial-verification-attempt.test.ts` (11 cases): `runOnDeviceFacialVerificationAttempt()`
+      always compares against exactly the one driver assigned to the gate event's own movement — MATCH
+      advances the gate event to IDENTITY_VERIFIED, every other outcome (NO_MATCH, REVIEW_REQUIRED,
+      NOT_ENROLLED, CAPTURE_FAILED, LIVENESS_FAILED, PROVIDER_UNAVAILABLE) leaves it in IDENTITY_PENDING; a
+      FAILED liveness result short-circuits before any match is even attempted (a live descriptor that would
+      otherwise match still cannot produce MATCH); refuses to run outside IDENTITY_PENDING; records a full
+      audit history entry for every attempt; rate-limits repeated attempts on the same gate event; never
+      matches against another tenant's driver template.
+- [x] `tests/liveness-challenge.test.ts` (13 cases): random challenge selection only ever returns a known
+      type; BLINK/TURN_LEFT/TURN_RIGHT/MOVE_CLOSER each pass/fail correctly; a single frame (i.e. a still
+      photo) can never complete a challenge (`FAILED_NO_PROGRESS`); every frame being identical is
+      classified as `FAILED_STATIC_INPUT` even with enough frames, distinct from merely insufficient
+      progress; a frame window exceeding the time limit fails with `FAILED_TIMEOUT`; escalation triggers
+      once `attempts >= maxRetries`.
+- [x] `tests/cloud-fallback-repository.test.ts` (4 cases): `NoOpCloudLivenessProvider` is always honestly
+      `PROVIDER_UNAVAILABLE`, never a fabricated result; `MockCloudLivenessProvider` returns whichever
+      outcome it's constructed to force; every invocation is recorded with its own audit row; usage
+      aggregates by reason, scoped per tenant.
+- [x] `e2e/facial-verification-smoke.spec.ts` / `e2e/facial-verification-gate-smoke.spec.ts` (Chromium
+      `--use-fake-device-for-media-stream`): both the driver-enrolment and gate-verification components
+      genuinely load the MediaPipe WASM runtime + FaceLandmarker `.task` model from Google's CDN and the
+      face-api.js face-recognition model from this app's own `/models/face-recognition` static assets, and
+      run real per-frame detection inference without error — this is exactly where a real SSR crash was
+      found and fixed (a static top-level `import` of `@vladmandic/face-api` was evaluated during Next's
+      server-render pass, where browser globals it depends on don't exist; fixed by converting both browser
+      model loaders to dynamic `import()` calls inside the functions that use them, resolved only after
+      hydration). A fake camera device produces a synthetic pattern, not a real face, so these specs prove
+      the model-loading/detection-loop half of the pipeline, not a real MATCH outcome — that decision logic
+      is covered above instead.
+- [x] `e2e/facial-verification-workflow.spec.ts` (Phase 9I, real browser sessions across six role logins:
+      Company Administrator, Fleet and GPS Manager, Dispatch and Logistics Officer, Security Supervisor /
+      Approving Manager, Gate Security Officer, Platform Administrator): creates two fictional synthetic
+      test drivers, enrols one via the real enrolment API with synthetic (non-biometric, numeric) descriptor
+      arrays and an explicit consent acknowledgement, creates/submits/approves movements across separate
+      roles, starts gate events, and drives every required `FacialVerificationAttempt.result` outcome
+      through the real API — MATCH, NO_MATCH, LIVENESS_FAILED, NOT_ENROLLED, PROVIDER_UNAVAILABLE — plus the
+      manual-fallback path (self-approval rejected, a different role approves, the officer confirms), audit-
+      trail visibility and permission boundaries (Dispatch and Logistics Officer, which holds neither
+      `facialVerificationAttempt` permission, is denied; Company Administrator's oversight-only VIEW grant
+      succeeds), and cross-tenant denial (the platform tenant's own admin cannot see this tenant's
+      enrolment). No real biometric data is used anywhere — every descriptor is a synthetic numeric array
+      derived from a seed value, never a captured face.
+- [x] `npm run verify:clean-migrations` — all 20 migrations (1 new: `phase9_facial_verification`) apply
+      cleanly to a genuinely empty database.
+- [x] Full suite: 605/605 passing, run twice consecutively clean; tenant count in the test database
+      confirmed to hold at exactly 1 across both runs.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs
    `prisma migrate deploy` against `gate_fleet_governance_test` before Vitest runs, so migrations never
    need to be applied by hand for testing.
 3. `npm run e2e` — Playwright, against a running (or auto-started) dev server and the seeded dev database.
-   Two specs exist as of Phase 8E: `e2e/retention-management.spec.ts` and `e2e/video-capture-smoke.spec.ts`
-   — the latter needs Chromium launched with `--use-fake-device-for-media-stream` (already configured in
-   that spec file via `test.use({ launchOptions })`) to acquire a camera stream without real hardware.
+   Six specs exist as of Phase 9: `e2e/retention-management.spec.ts`, `e2e/video-capture-smoke.spec.ts`,
+   `e2e/facial-verification-smoke.spec.ts`, `e2e/facial-verification-gate-smoke.spec.ts`, and
+   `e2e/facial-verification-workflow.spec.ts` — the camera-dependent specs need Chromium launched with
+   `--use-fake-device-for-media-stream` (already configured per spec file via `test.use({ launchOptions })`)
+   to acquire a camera stream without real hardware. A failing spec's page state is captured as a screenshot
+   automatically (`playwright.config.ts`'s `screenshot: "only-on-failure"`).
 4. `npm run job -- --list` / `npm run job -- <name>` (Phase 8E-004) — runs one background job against a
    running dev server; requires `JOB_SCHEDULER_TOKEN` to be set (the endpoint fails closed without it).

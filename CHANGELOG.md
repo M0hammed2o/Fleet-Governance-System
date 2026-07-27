@@ -1,5 +1,28 @@
 # CHANGELOG.md
 
+## 2026-07-27 (Phase 9) — on-device one-to-one facial verification and basic liveness
+### Added
+- Phase 9 — a real, working, commercially-licensed on-device facial-recognition and basic-liveness
+  pipeline (FACE-001..009), extending (not replacing) the existing FacialVerificationProvider adapter and
+  manual-fallback workflow: driver biometric enrolment (3-5 guided captures, quality-checked, encrypted
+  AES-256-GCM template, restricted-role gated, re-enrolment/revocation, full audit history); real
+  one-to-one matching against exactly the driver assigned to a gate event's own approved movement (never a
+  global search), recording a full audit trail for every attempt; a basic active liveness challenge
+  (blink/turn/move-closer) that a single still photo can never complete; a cloud-liveness-fallback
+  interface with an honest no-op provider and per-tenant usage tracking for future billing; server-side
+  rate limiting on verification attempts; a gate-tablet interface with large, simple states and no raw
+  confidence score shown; a full Playwright workflow test exercising every result outcome across six real
+  role logins using only synthetic (non-biometric) descriptor data. Commercial licensing for the
+  recognition/liveness models was independently verified against primary sources before any model was
+  added (FACIAL_VERIFICATION_LICENSING.md) — one candidate model and one alternative library were
+  evaluated and explicitly not used because their licensing could not be confirmed as commercially clear.
+
+### Fixed
+- A real high-severity bug found via live browser verification: the facial-verification pages crashed on
+  every request because a browser-only face-recognition library was evaluated during Next.js's
+  server-side render pass (a `"use client"` component still renders once on the server before hydrating).
+  Fixed by converting the browser-only model loaders to dynamic `import()`, resolved only after hydration.
+
 ## 2026-07-27 (Phase 8E) — completes Phase 8
 ### Added
 - Phase 8E — retention operationalisation and corrections (8E-001..007): automatic `scheduledDeletionAt`

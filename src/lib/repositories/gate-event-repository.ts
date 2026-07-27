@@ -14,11 +14,15 @@ import { startMovement, completeMovement } from "@/lib/repositories/movement-rep
 import { buildReconciliation, ReconciliationNotReadyError } from "@/lib/repositories/reconciliation-repository";
 import type { FacialVerificationProvider } from "@/lib/facial-verification/provider";
 import { MockFacialVerificationProvider } from "@/lib/facial-verification/mock-provider";
+import { getActiveTemplateDescriptorForDriver } from "@/lib/repositories/facial-enrolment-repository";
+import { evaluateMatch, DEFAULT_MATCH_THRESHOLD, DEFAULT_REVIEW_THRESHOLD } from "@/lib/facial-verification/descriptor-math";
 import type {
   GateEventDirection,
   InspectionOutcome,
   ExceptionSeverity,
   ExceptionOutcomeAction,
+  FacialVerificationResultType,
+  LivenessChallengeResult,
   Prisma,
 } from "@/generated/prisma/client";
 
@@ -73,6 +77,12 @@ export class GateEventPreconditionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "GateEventPreconditionError";
+  }
+}
+export class TooManyVerificationAttemptsError extends Error {
+  constructor(limit: number, windowMinutes: number) {
+    super(`Too many facial-verification attempts (${limit}) for this gate event in the last ${windowMinutes} minute(s) — escalate to a supervisor for manual fallback.`);
+    this.name = "TooManyVerificationAttemptsError";
   }
 }
 export class ManualFallbackNotApprovedError extends Error {
@@ -287,6 +297,153 @@ export async function verifyIdentityForGateEvent(
   }
 
   return { gateEvent: updated, outcome };
+}
+
+export interface RunOnDeviceFacialVerificationInput {
+  tenantId: string;
+  gateEventId: string;
+  securityOfficerUserId: string;
+  /** A 128-dimension face descriptor computed client-side (never raw video/images sent to the server) — undefined means the capture itself failed (e.g. no face detected in time). */
+  liveDescriptor?: number[];
+  captureQualityScore?: number;
+  livenessResult?: LivenessChallengeResult;
+  livenessChallenge?: string;
+  deviceLabel?: string;
+  /** Set by the client when the on-device model itself failed to load/run (e.g. the CDN model fetch failed, or the browser lacks WASM/WebGL support) — distinct from CAPTURE_FAILED, which means the provider ran fine but couldn't get a usable face capture in time. */
+  providerUnavailable?: boolean;
+}
+
+export interface RunOnDeviceFacialVerificationResult {
+  gateEvent: Awaited<ReturnType<typeof prisma.gateEvent.update>> | null;
+  attempt: Awaited<ReturnType<typeof prisma.facialVerificationAttempt.create>>;
+}
+
+/**
+ * Phase 9D — real one-to-one facial verification: compares a live-captured
+ * descriptor against exactly the ONE driver assigned to this GateEvent's own
+ * enrolled template (`getActiveTemplateDescriptorForDriver`) — never a
+ * global identification search across every enrolled driver, and never
+ * across tenants (the lookup is tenant-scoped the same as every other
+ * repository call here). Records a full audit row
+ * (`FacialVerificationAttempt`) for every attempt regardless of outcome —
+ * MATCH, NO_MATCH, REVIEW_REQUIRED, NOT_ENROLLED, CAPTURE_FAILED,
+ * LIVENESS_FAILED. Advances the gate event's state machine only on a
+ * genuine MATCH; every other outcome leaves the event in IDENTITY_PENDING
+ * for the officer to retry or fall back to the existing
+ * ManualFacialVerificationFallback workflow — facial matching alone must
+ * never approve an unapproved movement (SECURITY_AND_POPIA.md, Phase 9G).
+ * A FAILED liveness result short-circuits before any match is even
+ * attempted, so a spoofed still photo can never produce a MATCH result no
+ * matter how close its descriptor is.
+ */
+// Phase 9G rate limit: caps how many verification attempts one gate event
+// can accumulate in a short window before the officer must escalate to a
+// supervisor rather than retrying indefinitely — same "repeated failures
+// escalate" principle as the client-side liveness retry limit
+// (lib/facial-verification/liveness-challenge.ts's shouldEscalateAfterFailure),
+// enforced server-side too so it can't be bypassed by a client that simply
+// stops calling that function.
+const VERIFICATION_ATTEMPT_RATE_LIMIT = 5;
+const VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES = 5;
+
+export async function runOnDeviceFacialVerificationAttempt(input: RunOnDeviceFacialVerificationInput): Promise<RunOnDeviceFacialVerificationResult | null> {
+  const gateEvent = await prisma.gateEvent.findFirst({ where: tenantWhere(input.tenantId, { id: input.gateEventId }) });
+  if (!gateEvent) return null;
+  if (gateEvent.status !== "IDENTITY_PENDING") {
+    throw new GateEventPreconditionError(
+      `Gate event must be IDENTITY_PENDING to attempt verification (current: ${gateEvent.status}).`,
+    );
+  }
+
+  const windowStart = new Date(Date.now() - VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES * 60 * 1000);
+  const recentAttemptCount = await prisma.facialVerificationAttempt.count({
+    where: { tenantId: input.tenantId, gateEventId: gateEvent.id, attemptedAt: { gte: windowStart } },
+  });
+  if (recentAttemptCount >= VERIFICATION_ATTEMPT_RATE_LIMIT) {
+    throw new TooManyVerificationAttemptsError(VERIFICATION_ATTEMPT_RATE_LIMIT, VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES);
+  }
+
+  const livenessResult: LivenessChallengeResult = input.livenessResult ?? "NOT_REQUIRED";
+  let result: FacialVerificationResultType;
+  let confidenceScore: number | undefined;
+  let threshold: number | undefined;
+  let templateId: string | undefined;
+  let templateVersion: string | undefined;
+  let modelVersion: string | undefined;
+
+  if (input.providerUnavailable) {
+    result = "PROVIDER_UNAVAILABLE";
+  } else if (livenessResult === "FAILED") {
+    result = "LIVENESS_FAILED";
+  } else if (!input.liveDescriptor) {
+    result = "CAPTURE_FAILED";
+  } else {
+    const enrolled = await getActiveTemplateDescriptorForDriver(input.tenantId, gateEvent.driverId);
+    if (!enrolled) {
+      result = "NOT_ENROLLED";
+    } else {
+      const match = evaluateMatch(input.liveDescriptor, enrolled.descriptor, DEFAULT_MATCH_THRESHOLD, DEFAULT_REVIEW_THRESHOLD);
+      result = match.outcome;
+      confidenceScore = match.confidence;
+      threshold = DEFAULT_MATCH_THRESHOLD;
+      templateId = enrolled.templateId;
+      templateVersion = enrolled.templateVersion;
+      modelVersion = enrolled.modelVersion;
+    }
+  }
+
+  const attempt = await prisma.facialVerificationAttempt.create({
+    data: {
+      tenantId: input.tenantId,
+      gateEventId: gateEvent.id,
+      driverId: gateEvent.driverId,
+      templateId,
+      result,
+      confidenceScore,
+      threshold,
+      templateVersion,
+      modelVersion,
+      captureQualityScore: input.captureQualityScore,
+      livenessResult,
+      livenessChallenge: input.livenessChallenge,
+      source: "ON_DEVICE",
+      gateId: gateEvent.gateId,
+      deviceLabel: input.deviceLabel,
+      securityOfficerUserId: input.securityOfficerUserId,
+    },
+  });
+
+  await recordAudit({
+    tenantId: input.tenantId,
+    userId: input.securityOfficerUserId,
+    action: "facialVerification.attemptRecorded",
+    entityType: "FacialVerificationAttempt",
+    entityId: attempt.id,
+    afterValue: { gateEventId: gateEvent.id, driverId: gateEvent.driverId, result, livenessResult, confidenceScore },
+  });
+
+  await prisma.gateEvent.update({
+    where: { id: gateEvent.id },
+    data: {
+      identityVerificationResult: result,
+      identityVerificationRef: attempt.id,
+      identityVerifiedAt: result === "MATCH" ? attempt.attemptedAt : null,
+    },
+  });
+
+  let updatedGateEvent = null;
+  if (result === "MATCH") {
+    updatedGateEvent = await transitionGateEvent(input.tenantId, gateEvent.id, "IDENTITY_VERIFIED", input.securityOfficerUserId, "gateEvent.identityVerified");
+  }
+
+  return { gateEvent: updatedGateEvent, attempt };
+}
+
+export async function listFacialVerificationAttemptsForGateEvent(tenantId: string, gateEventId: string) {
+  return prisma.facialVerificationAttempt.findMany({
+    where: tenantWhere(tenantId, { gateEventId }),
+    orderBy: { attemptedAt: "desc" },
+  });
 }
 
 /** Officer confirms identity after a supervisor APPROVED a manual fallback request for this driver. */

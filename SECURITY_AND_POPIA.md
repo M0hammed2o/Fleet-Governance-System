@@ -35,10 +35,40 @@ grant today and none is planned.
 - **Internal:** dashboards/aggregate reporting.
 
 ## Facial-reference data treatment
-No facial-recognition model is built in-house. `FacialVerificationProvider` interface stores only:
-provider reference, match result, confidence/result metadata (if supplied), liveness result, verification
-timestamp, failure reason. Raw biometric templates, if a future provider requires storing them, are out
-of scope for V1 storage — treated as Restricted and access-logged if ever added.
+Phase 9 built a real, working, commercially-licensed on-device facial-recognition/liveness pipeline —
+see FACIAL_VERIFICATION_LICENSING.md for exactly which model/package this is and the licence verification
+behind it, and ARCHITECTURE.md "Facial verification architecture" for the full design. The treatment
+principles below are enforced, not just documented, verified by dedicated tests:
+- **Biometric templates are encrypted at rest.** `DriverFacialTemplate.templateCiphertext` (AES-256-GCM);
+  the encryption key (`BIOMETRIC_TEMPLATE_ENCRYPTION_KEY`) lives in the environment, never a database
+  column, never logged, and no API route ever returns template bytes in any response — enrolment-status
+  and history endpoints deliberately return status metadata only.
+- **Raw enrolment/verification video and images are never stored.** Camera frames exist only as transient,
+  in-memory `<canvas>` elements during capture, garbage-collected once the resulting numeric descriptor is
+  computed — the descriptor (a ~512-byte float array) is the only thing that ever leaves the browser.
+- **Tenant isolation is enforced the same way as every other tenant-owned record** — every
+  `DriverFacialTemplate`/`FacialVerificationAttempt` lookup goes through the existing `tenantWhere()`
+  convention; verified by dedicated cross-tenant-denial tests (`tests/facial-enrolment-repository.test.ts`,
+  `tests/facial-verification-attempt.test.ts`) and a live Playwright cross-tenant check
+  (`e2e/facial-verification-workflow.spec.ts`).
+- **One-to-one only, never identification.** A verification attempt only ever compares a live capture
+  against the one driver already assigned to that gate event's approved movement — there is no code path
+  anywhere in this codebase that searches across every enrolled driver to find a match.
+- **A restricted role enrols/revokes; ordinary roles cannot.** `facialTemplate:CREATE`/`VIEW`/`DELETE` is
+  granted to Company Administrator only in the seed data — no other role, including Gate Security Officer
+  (who *runs* verification attempts via the separate `facialVerificationAttempt` permission), can enrol or
+  revoke a template.
+- **Facial matching alone can never approve an unapproved movement.** A MATCH result only ever advances a
+  `GateEvent` — already inside an already-`APPROVED` `MovementAuthorisation`'s check-in flow — from
+  IDENTITY_PENDING to IDENTITY_VERIFIED; vehicle clearance still requires the officer's own separate
+  clearance decision afterward.
+- **The existing manual-fallback workflow is completely unchanged** and remains available at every step —
+  facial verification failing (for any reason, including a genuinely unenrolled driver) never blocks a
+  legitimate movement without a human escalation path.
+- **Basic liveness, honestly scoped.** The active-challenge liveness check (blink/turn/move-closer) is
+  explicitly documented, in ARCHITECTURE.md and in the liveness module's own code comments, as basic
+  landmark-geometry liveness, not a specialised commercial anti-spoofing product — the security officer
+  physically present remains responsible for observing the person.
 
 ## Video and image treatment
 Gate evidence (photos/video) is Restricted — enforced, not just documented, as of Phase 4. Every

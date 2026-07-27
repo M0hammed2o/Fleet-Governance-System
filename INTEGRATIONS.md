@@ -2,11 +2,25 @@
 
 | Integration | Status | Mode |
 |---|---|---|
-| Facial verification | **Interface + mock built (2026-07-21)**, no vendor selected | mock only |
+| Facial verification — legacy provider interface | **Interface + mock built (2026-07-21)**, no cloud vendor selected | mock only |
+| Facial verification — on-device recognition/liveness | **Real, working, commercially-licensed pipeline built (2026-07-27, Phase 9)** — see below | real, on-device |
+| Facial verification — cloud liveness fallback | **Interface + honest no-op built (2026-07-27, Phase 9F)**, no paid vendor selected | no-op only |
 | Telematics (GPS) | Interface planned (Phase 6), no vendor selected. October pilot needs one production provider selected | mock only |
 | Object storage | **Interface + local-filesystem dev implementation + R2-compatible configuration boundary built (2026-07-26, Phase 8B)**, no Cloudflare account created | dev mode only |
-| Notifications (email/SMS) | Not started | — |
+| Retention-expiry notifications | **Interface + dev-console/no-op providers built (2026-07-27, Phase 8E-003)**, no email/SMS vendor selected | dev-console/no-op only |
 | Hardware/device (barrier, ANPR camera, ticket printer) | Not started, deferred item | — |
+
+## On-device facial recognition and liveness (Phase 9 — see FACIAL_VERIFICATION_LICENSING.md)
+Unlike every other row above, this one is **not blocked on a vendor decision** — no cloud biometric API is
+used at all. Face detection, 478-point landmarks, and liveness geometry run entirely in the browser via
+`@mediapipe/tasks-vision` (Apache-2.0, Google); the face-recognition descriptor also runs entirely in the
+browser via `@vladmandic/face-api`'s `faceRecognitionNet` (MIT wrapper around a dlib-derived model Davis
+King released into the public domain). Full licence verification, exact package versions, model checksums,
+source URLs, and — critically — which specific models were evaluated and explicitly *not* used because
+their licensing couldn't be confirmed as commercially clear: `FACIAL_VERIFICATION_LICENSING.md` (Phase 9B).
+No network call to any third party happens at verification time; the only network dependency is fetching
+the MediaPipe `.task` model file from Google's CDN (`storage.googleapis.com`) and the WASM runtime from
+jsDelivr, both cacheable static assets, neither requiring an account or API key.
 
 ## FacialVerificationProvider (built — `src/lib/facial-verification/provider.ts`)
 ```ts
@@ -36,9 +50,32 @@ required), a Security Supervisor / Approving Manager or Company Administrator re
 (`SelfApprovalNotAllowedError`); every step is audit-logged. Now wired into the GateEvent identity step
 (Phase 3) via `relatedGateEventId`.
 
-**Blocked:** production vendor selection is a major decision requiring the user's input before any
-account/credential is created. The interface's shape should not need to change once one is chosen —
-`verifyDriver()` is the only method a real adapter needs to implement.
+**Blocked:** production *cloud* vendor selection (if one is ever wanted as an additional layer on top of the
+on-device pipeline above) is a major decision requiring the user's input before any account/credential is
+created. The interface's shape should not need to change once one is chosen — `verifyDriver()` is the only
+method a real adapter needs to implement. Note this legacy interface's own `capturedImageRef`-based
+signature is distinct from Phase 9's real on-device pipeline (which compares numeric descriptors, never an
+image reference) — both exist side by side deliberately (Phase 9A: extend, don't replace).
+
+## CloudLivenessProvider (built — `src/lib/facial-verification/cloud-liveness-provider.ts`, Phase 9F)
+```ts
+type CloudLivenessResult = "LIVE" | "NOT_LIVE" | "INCONCLUSIVE" | "PROVIDER_UNAVAILABLE";
+
+interface CloudLivenessProvider {
+  checkLiveness(request: {
+    tenantId: string; driverId: string; frameCount: number;
+    reason: "REVIEW_REQUIRED" | "REPEATED_FAILURE" | "HIGH_RISK_POLICY" | "RANDOM_SAMPLE" | "SUPERVISOR_REQUESTED";
+  }): Promise<{ result: CloudLivenessResult; providerReference: string; confidence?: number; checkedAt: Date; failureReason?: string }>;
+}
+```
+`NoOpCloudLivenessProvider` always honestly returns `PROVIDER_UNAVAILABLE` with a stated reason — never a
+fabricated result. `MockCloudLivenessProvider` is a deterministic dev/test provider, constructed with the
+outcome it should force. Every invocation (through either provider) is recorded in `CloudFallbackInvocation`
+for future per-tenant billing, regardless of the provider's own outcome.
+
+**Blocked:** no AWS Rekognition, Azure Face, GCP Vision, or other paid cloud biometric-liveness account has
+been created — same "interface + mock, real vendor deferred, paid account requires the user's sign-off"
+status as every other unselected vendor here.
 
 ## TelematicsProvider (planned interface, Phase 6 — see PRODUCT_REQUIREMENTS.md GPS-001..006)
 Same adapter pattern as `FacialVerificationProvider`/`StorageProvider`: one interface, a

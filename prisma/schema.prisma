@@ -74,6 +74,9 @@ model Tenant {
   deletionCertificates                  DeletionCertificate[]
   exportRequests                        ExportRequest[]
   retentionNotificationRecords           RetentionNotificationRecord[]
+  driverFacialTemplates                  DriverFacialTemplate[]
+  facialVerificationAttempts             FacialVerificationAttempt[]
+  cloudFallbackInvocations               CloudFallbackInvocation[]
 
   @@map("tenants")
 }
@@ -132,6 +135,7 @@ model Gate {
   updatedAt DateTime @updatedAt
 
   gateEvents GateEvent[]
+  facialVerificationAttempts FacialVerificationAttempt[]
 
   @@index([tenantId])
   @@index([siteId])
@@ -199,6 +203,9 @@ model User {
   deletionRequestsApproved            DeletionRequest[]                  @relation("DeletionRequestApprovedBy")
   deletionRequestsRejected            DeletionRequest[]                  @relation("DeletionRequestRejectedBy")
   exportRequestsRequested             ExportRequest[]                    @relation("ExportRequestRequestedBy")
+  driverFacialTemplatesEnrolled       DriverFacialTemplate[]              @relation("DriverFacialTemplateEnrolledBy")
+  driverFacialTemplatesRevoked        DriverFacialTemplate[]              @relation("DriverFacialTemplateRevokedBy")
+  facialVerificationAttemptsAsOfficer FacialVerificationAttempt[]         @relation("FacialVerificationAttemptOfficer")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -459,6 +466,8 @@ model Driver {
   manualFacialVerificationFallbacks ManualFacialVerificationFallback[]
   gateEvents                        GateEvent[]
   vehicleUsePolicies                VehicleUsePolicy[]
+  facialTemplates                   DriverFacialTemplate[]
+  facialVerificationAttempts        FacialVerificationAttempt[]
 
   @@index([tenantId])
   @@map("drivers")
@@ -504,6 +513,164 @@ model ManualFacialVerificationFallback {
   @@index([tenantId])
   @@index([driverId])
   @@map("manual_facial_verification_fallbacks")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — on-device one-to-one facial verification and basic liveness.
+// See PRODUCT_REQUIREMENTS.md FACE-001..009, ARCHITECTURE.md "Facial
+// verification architecture", FACIAL_VERIFICATION_LICENSING.md (commercial
+// licensing verification, Phase 9B). Extends, does not replace, the existing
+// FacialVerificationProvider adapter / ManualFacialVerificationFallback
+// workflow above.
+// ---------------------------------------------------------------------------
+
+enum DriverFacialTemplateStatus {
+  ACTIVE
+  REVOKED
+}
+
+// One encrypted biometric template per driver — at most one ACTIVE at a
+// time, enforced by a partial unique index applied directly in this
+// model's own migration SQL (Prisma's schema DSL has no `WHERE` clause for
+// `@@unique`, same pattern as JobRun's one-running-per-jobName guarantee
+// above). Never stores raw enrolment images/video — only the resulting
+// numeric face descriptor, encrypted; the encryption key itself lives
+// outside this database entirely (SECURITY_AND_POPIA.md).
+model DriverFacialTemplate {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  driverId String
+  driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  // AES-256-GCM ciphertext of the face descriptor (a small float array, not
+  // an image) — see lib/facial-verification/template-encryption.ts.
+  templateCiphertext Bytes
+  templateIv         Bytes
+  templateAuthTag    Bytes
+  // Which key encrypted this row — supports future key rotation without
+  // needing to re-encrypt every row atomically in one pass.
+  encryptionKeyId String
+
+  // FACIAL_VERIFICATION_LICENSING.md's exact package/model identifiers,
+  // recorded per template so a future model/package upgrade can identify
+  // which templates were computed with which model generation.
+  templateVersion String
+  modelVersion    String
+
+  status DriverFacialTemplateStatus @default(ACTIVE)
+
+  // Biometric-processing notice + purpose/retention acknowledgement — a
+  // timestamp, not a boolean, so it's evidence the notice was actually
+  // shown at a specific moment, not just a UI checkbox default.
+  consentAcknowledgedAt DateTime
+
+  enrolledByUserId String
+  enrolledBy       User     @relation("DriverFacialTemplateEnrolledBy", fields: [enrolledByUserId], references: [id])
+  enrolledAt       DateTime @default(now())
+
+  revokedByUserId String?
+  revokedBy       User?     @relation("DriverFacialTemplateRevokedBy", fields: [revokedByUserId], references: [id])
+  revokedAt       DateTime?
+  revokedReason   String?
+
+  createdAt DateTime @default(now())
+
+  verificationAttempts FacialVerificationAttempt[]
+
+  @@index([tenantId])
+  @@index([driverId])
+  @@map("driver_facial_templates")
+}
+
+enum FacialVerificationResultType {
+  MATCH
+  NO_MATCH
+  REVIEW_REQUIRED
+  NOT_ENROLLED
+  CAPTURE_FAILED
+  LIVENESS_FAILED
+  PROVIDER_UNAVAILABLE
+}
+
+enum LivenessChallengeResult {
+  PASSED
+  FAILED
+  NOT_REQUIRED
+  SKIPPED
+}
+
+enum FacialVerificationSource {
+  ON_DEVICE
+  CLOUD_FALLBACK
+  MANUAL_FALLBACK
+}
+
+// Full audit history of every one-to-one verification attempt at the gate
+// — always against exactly one driver's template (the one assigned to the
+// GateEvent's MovementAuthorisation), never a global identification
+// search. One row per attempt, including retries.
+model FacialVerificationAttempt {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  gateEventId String
+  gateEvent   GateEvent @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+
+  driverId String
+  driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  templateId String?
+  template   DriverFacialTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  result FacialVerificationResultType
+
+  confidenceScore Float?
+  threshold       Float?
+  templateVersion String?
+  modelVersion    String?
+
+  captureQualityScore Float?
+  livenessResult      LivenessChallengeResult @default(NOT_REQUIRED)
+  livenessChallenge   String?
+
+  source FacialVerificationSource @default(ON_DEVICE)
+
+  gateId                String
+  gate                  Gate    @relation(fields: [gateId], references: [id])
+  deviceLabel           String?
+  securityOfficerUserId String
+  securityOfficer       User    @relation("FacialVerificationAttemptOfficer", fields: [securityOfficerUserId], references: [id])
+
+  manualFallbackUsed Boolean @default(false)
+  manualFallbackId   String?
+
+  attemptedAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([gateEventId])
+  @@index([driverId])
+  @@map("facial_verification_attempts")
+}
+
+// Tracks CloudLivenessProvider invocations per tenant (Phase 9F) — "for
+// future billing." No paid cloud vendor account exists (FACIAL_VERIFICATION_
+// LICENSING.md) — this table exists so a future real integration has usage
+// history to bill against from day one, not a retrofit.
+model CloudFallbackInvocation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  facialVerificationAttemptId String?
+
+  reason    String
+  invokedAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("cloud_fallback_invocations")
 }
 
 enum VehicleCategory {
@@ -1061,6 +1228,7 @@ model GateEvent {
   exceptions                Exception[]
   reconciliationAsDeparture Reconciliation?           @relation("ReconciliationDeparture")
   reconciliationAsReturn    Reconciliation?           @relation("ReconciliationReturn")
+  facialVerificationAttempts FacialVerificationAttempt[]
 
   @@index([tenantId])
   @@index([tenantId, status])

@@ -125,6 +125,26 @@ const SUPPORT_ACCESS_SESSION_ACTIONS = ["VIEW", "CREATE", "CONFIGURE"] as const;
 // viewing/downloading a ready export manifest.
 const RETENTION_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE", "EXPORT"] as const;
 
+// Phase 9C — driver biometric enrolment (PRODUCT_REQUIREMENTS.md FACE-001..009).
+// Deliberately a separate resource from `driver`, not folded into
+// driver:EDIT — enrolling a biometric template is a materially more
+// sensitive action than editing ordinary driver master data, and this
+// codebase's convention is that sensitive actions get their own,
+// separately-grantable permission (see `retention`'s own split from
+// `mediaAsset`, and `facialVerificationFallback`'s split from `driver`).
+// CREATE covers enrol/re-enrol; VIEW covers seeing enrolment *status* only
+// (never the template itself — no route ever returns template bytes, see
+// SECURITY_AND_POPIA.md); DELETE covers revocation. A "restricted role" per
+// the build brief means only Company Administrator holds this in the seed
+// data (prisma/seed.ts) — every other role has none of these three.
+const FACIAL_TEMPLATE_ACTIONS = ["VIEW", "CREATE", "DELETE"] as const;
+
+// Phase 9D/9E — one-to-one facial verification attempts at the gate
+// (PRODUCT_REQUIREMENTS.md FACE-001..009). VIEW covers seeing the audit
+// trail of past attempts; CREATE covers a Gate Security Officer running a
+// new verification attempt during check-in/check-out.
+const FACIAL_VERIFICATION_ATTEMPT_ACTIONS = ["VIEW", "CREATE"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -148,6 +168,8 @@ export const PERMISSION_CATALOGUE = {
   vehicleUsePolicy: VEHICLE_USE_POLICY_ACTIONS,
   supportAccessSession: SUPPORT_ACCESS_SESSION_ACTIONS,
   retention: RETENTION_ACTIONS,
+  facialTemplate: FACIAL_TEMPLATE_ACTIONS,
+  facialVerificationAttempt: FACIAL_VERIFICATION_ATTEMPT_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

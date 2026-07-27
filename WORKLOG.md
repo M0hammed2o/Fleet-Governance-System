@@ -1783,3 +1783,161 @@ interface/mock provider/manual-fallback workflow, `Driver`/`MovementAuthorisatio
 workflow, and the MediaAsset/retention architecture just completed in this session, before adding anything
 new — the user's instruction is explicit that Phase 9 must extend this existing adapter pattern, not
 replace it.
+
+## 2026-07-27 — Session 18 — Phase 9: on-device one-to-one facial verification and basic liveness (FACE-001..009) — completes Phase 9
+
+Direct continuation of Session 17 in the same sitting, per the user's explicit instruction to continue
+directly into Phase 9 once 8E passed completely.
+
+**9A — architecture review (no code changes):** confirmed `FacialVerificationProvider.verifyDriver(driverId,
+capturedImageRef)` (`lib/facial-verification/provider.ts`) already always compares against one specific
+`driverId` — the one-to-one shape Phase 9D needed was already structurally correct, extending it rather than
+redesigning it. Confirmed `Driver.facialVerificationEnrolled`/`facialVerificationProvider`/
+`facialVerificationEnrolledAt` (Phase 2) were flags with no underlying enrolment record to back them.
+Confirmed `verifyIdentityForGateEvent()` in `gate-event-repository.ts` is the exact integration point a new
+`runOnDeviceFacialVerificationAttempt()` needed to sit alongside, reusing the same private
+`transitionGateEvent()` helper.
+
+**9B — commercial licensing verification, before any model was added:** used WebSearch/WebFetch against
+primary sources (npm registry queries, the actual `LICENSE` files inside installed packages, and Google's
+own published PDF model cards, not secondary summaries) to verify: `@mediapipe/tasks-vision@0.10.35`
+(Apache-2.0) for face detection (BlazeFace) and 478-point landmarks/blendshapes (FaceMesh V2) — both
+model cards fetched and quoted directly, confirming "LICENSED UNDER: Apache License, Version 2.0" and (for
+FaceMesh) an explicit "does not provide facial recognition or identification" scope statement that shaped
+the architecture's own separation of concerns. `@vladmandic/face-api@1.7.15` (MIT) for the recognition
+descriptor — traced its `face_recognition_model` (SHA-256 checksums recorded) through three linked primary
+sources to `davisking/dlib-models`' own README, which states in the author's own words: "anyone can do
+whatever they want with these model files as I've released them into the public domain." Two things were
+explicitly evaluated and **not used**, disclosed as blockers rather than shipped unclear: face-api.js's own
+68-point landmark/alignment model (its iBUG 300-W training data explicitly excludes commercial use, per the
+same `dlib-models` README) — architecturally avoided entirely by computing the descriptor from a
+MediaPipe-located crop instead of face-api.js's own detection+alignment chain; and `@vladmandic/human`
+(the actively-maintained successor to face-api.js) — its bundled MobileFaceNet embedding model's licensing
+is documented as "inherited from the original model sources" per-model, which could not be confirmed
+commercially clear within this session. Full writeup: `FACIAL_VERIFICATION_LICENSING.md`.
+
+**9C — driver enrolment:** `DriverFacialTemplate` (new model, migration `20260727150000_phase9_facial_
+verification`) — AES-256-GCM-encrypted descriptor (`lib/facial-verification/template-encryption.ts`, key
+from an environment variable, never a DB column), a partial unique index enforcing at most one ACTIVE
+template per driver at the database level (same pattern as Phase 8E-004's `JobRun`). `enrolDriver()`
+(`lib/repositories/facial-enrolment-repository.ts`) requires an explicit consent acknowledgement, 3-5
+guided captures averaged into one canonical descriptor after confirming mutual consistency (rejects
+captures that don't look like the same face), and revokes any existing ACTIVE template in the same
+transaction as re-enrolling. A new `facialTemplate` permission resource (VIEW/CREATE/DELETE), granted to
+Company Administrator only in the seed data — the "restricted role" the brief asked for.
+
+**9D — one-to-one matching:** `runOnDeviceFacialVerificationAttempt()` added directly inside
+`gate-event-repository.ts` (not a separate file) specifically so it could reuse the existing private
+`transitionGateEvent()` state-machine helper. Compares a live descriptor against exactly the one driver
+assigned to the gate event's own movement via `getActiveTemplateDescriptorForDriver()` — never a global
+search. `evaluateMatch()` (`lib/facial-verification/descriptor-math.ts`, pure) gives a three-tier
+MATCH/REVIEW_REQUIRED/NO_MATCH outcome from Euclidean distance at dlib's own recommended 0.6 threshold.
+Every attempt writes a `FacialVerificationAttempt` audit row regardless of outcome; only MATCH advances the
+gate event's state machine.
+
+**9E — basic on-device liveness:** `lib/facial-verification/liveness-challenge.ts` (pure) — a random
+challenge (blink/turn-left/turn-right/move-closer), evaluated against a stream of per-frame signals. A
+single frame can never complete a challenge; a live-browser test later caught that *every* frame being
+identical also needed its own explicit `FAILED_STATIC_INPUT` classification (not just "insufficient
+frames") to genuinely block a replayed still image — added and covered by a dedicated test. A FAILED
+liveness result short-circuits `runOnDeviceFacialVerificationAttempt()` before any match is even attempted.
+Explicitly documented, in both the module's own comments and ARCHITECTURE.md, as basic landmark-geometry
+liveness, not a commercial anti-spoofing product.
+
+**9F — cloud fallback boundary:** `CloudLivenessProvider` interface, `NoOpCloudLivenessProvider` (always
+honestly `PROVIDER_UNAVAILABLE`), `MockCloudLivenessProvider` (dev/test). `CloudFallbackInvocation` (new
+table) tracks every invocation per tenant for future billing, regardless of provider outcome. No paid
+cloud account created.
+
+**9G — security and privacy:** encryption at rest with the key outside the database (9C); no route ever
+returns template bytes (verified by dedicated tests); tenant scoping via the existing `tenantWhere()`
+convention throughout; camera frames only ever exist as transient in-memory `<canvas>` elements, never
+uploaded or stored; a new server-side rate limit (`TooManyVerificationAttemptsError`, 5 attempts per gate
+event per 5-minute window, HTTP 429) added specifically because the existing client-side
+`shouldEscalateAfterFailure()` alone is trivially bypassed by any caller that skips that code path; the
+existing manual-fallback workflow is completely unchanged; a MATCH result only ever advances IDENTITY_
+PENDING → IDENTITY_VERIFIED inside an already-approved movement's gate event, never itself approving a
+movement.
+
+**9H — gate-tablet interface:** `components/gate-facial-verification.tsx` (random challenge instruction →
+verifying → large "Verified"/"Not verified" states, never a raw score) and
+`components/driver-facial-enrolment.tsx` (biometric-processing notice + explicit consent checkbox before
+the camera is ever requested, live quality-issue checklist during capture). Both handle denied camera
+permission and unsupported browsers with a clear message rather than a silent hang.
+
+**A real, high-severity bug found and fixed via live browser verification (same discipline as Phase
+8E-006's video-capture bug):** the very first live Playwright run against these new pages crashed
+immediately — `TypeError: this.util.TextEncoder is not a constructor`, thrown during Next.js's
+server-side render pass. A `"use client"` component still renders once on the server before hydrating, and
+`@vladmandic/face-api`'s browser bundle assumes browser globals that don't exist in that Node.js SSR
+context. Fixed (`lib/facial-verification/browser-engine.ts`) by converting both browser-only model loaders
+to dynamic `import()` calls made inside the functions that use them, which only ever resolve after
+hydration from a real browser event handler — see DECISIONS.md D-032, KNOWN_BUGS.md BUG-008.
+
+**9I — automated Playwright browser testing:** three new specs. `e2e/facial-verification-smoke.spec.ts`
+and `e2e/facial-verification-gate-smoke.spec.ts` (Chromium `--use-fake-device-for-media-stream`) prove the
+real MediaPipe WASM+model CDN fetch and the face-api.js `/models/face-recognition` static-asset fetch both
+genuinely load and run real per-frame detection inference in a live browser — this is exactly where the
+SSR bug above was caught. `e2e/facial-verification-workflow.spec.ts` drives the full role chain through
+real browser sessions (Company Administrator, Fleet and GPS Manager — the role that actually holds
+`driver:CREATE`, Dispatch and Logistics Officer, Security Supervisor / Approving Manager, Gate Security
+Officer, Platform Administrator) and exercises every required result outcome (MATCH, NO_MATCH,
+LIVENESS_FAILED, NOT_ENROLLED, PROVIDER_UNAVAILABLE) via direct calls to the real verification API using
+synthetic numeric descriptor arrays — a fake camera device has no face to present, so this is the
+"mocked verification" the brief asked for, never real biometric data. Also exercises the manual-fallback
+path (self-approval rejected, a different role approves, the officer confirms), audit-trail permission
+boundaries (Dispatch and Logistics Officer denied, Company Administrator's oversight-only VIEW succeeds),
+and cross-tenant denial. `playwright.config.ts` gained `screenshot: "only-on-failure"`.
+
+**Files changed:** `prisma/schema.prisma` + 1 new migration (`20260727150000_phase9_facial_verification` —
+`DriverFacialTemplate`, `FacialVerificationAttempt`, `CloudFallbackInvocation`, a partial unique index for
+the one-ACTIVE-template-per-driver guarantee); `src/lib/auth/permissions.ts` (`facialTemplate`,
+`facialVerificationAttempt` resources); `prisma/seed.ts` (grants); `src/lib/facial-verification/
+template-encryption.ts`, `descriptor-math.ts`, `capture-quality.ts`, `liveness-challenge.ts`,
+`cloud-liveness-provider.ts`, `browser-engine.ts` (all new); `src/lib/repositories/
+facial-enrolment-repository.ts`, `cloud-fallback-repository.ts` (new);
+`src/lib/repositories/gate-event-repository.ts` (`runOnDeviceFacialVerificationAttempt()`,
+`listFacialVerificationAttemptsForGateEvent()`, rate limiting); `src/lib/validation/
+facial-verification.ts` (new); `src/app/api/drivers/[id]/facial-enrolment/route.ts`,
+`src/app/api/gate/gate-events/[id]/facial-verification/route.ts` (new); `src/components/
+driver-facial-enrolment.tsx`, `gate-facial-verification.tsx` (new); `src/app/admin/drivers/[id]/page.tsx`,
+`src/app/gate/events/[id]/page.tsx` (wiring); `public/models/face-recognition/` (new, the face-recognition
+model files, licensed CC0 — see FACIAL_VERIFICATION_LICENSING.md); `.env`/`.env.test`
+(`BIOMETRIC_TEMPLATE_ENCRYPTION_KEY`); `package.json` (`@mediapipe/tasks-vision`, `@vladmandic/face-api`);
+6 new test files (`tests/facial-template-encryption.test.ts`, `facial-descriptor-math.test.ts`,
+`facial-capture-quality.test.ts`, `facial-enrolment-repository.test.ts`,
+`facial-verification-attempt.test.ts`, `liveness-challenge.test.ts`, `cloud-fallback-repository.test.ts` —
+7 files); 3 new Playwright specs; `playwright.config.ts`;
+`FACIAL_VERIFICATION_LICENSING.md` (new); docs (ARCHITECTURE.md, DATA_MODEL.md, DECISIONS.md,
+INTEGRATIONS.md, SECURITY_AND_POPIA.md, PRODUCT_REQUIREMENTS.md, TESTING.md, TODO.md, KNOWN_BUGS.md,
+CHANGELOG.md).
+
+**Tests run:**
+- `npx tsc --noEmit` — clean, throughout and at the end.
+- `npx eslint .` (full repo) — clean.
+- `npm test` — **605/605 passing** (46 files, 66 net new over Phase 8E's 539), run twice consecutively
+  clean.
+- `npm run build` — clean, all new routes/pages present.
+- `npm run verify:clean-migrations` — PASS, all 20 migrations against a genuinely empty database.
+- Tenant count in the test database confirmed to hold at exactly 1 across both full-suite runs.
+- Live Playwright browser verification: `e2e/facial-verification-smoke.spec.ts` and
+  `e2e/facial-verification-gate-smoke.spec.ts` (real Chromium, fake camera device) — both model-loading
+  pipelines confirmed genuinely working after the SSR-crash fix; `e2e/facial-verification-workflow.spec.ts`
+  — the complete six-role workflow, every result outcome, manual fallback, audit boundaries, and
+  cross-tenant denial, all passing against the real dev server and seeded dev database.
+
+**Bugs found this session:** BUG-008 (the SSR crash described above) and a liveness-evaluation gap found
+via unit testing (the static-input guard originally only checked blink/yaw signal variance, misclassifying
+a genuinely-progressing MOVE_CLOSER challenge — which legitimately holds blink/yaw steady — as static
+input; fixed to include the face-area-ratio signal in the same variance check) — both found and fixed
+within this session, both with regression coverage.
+
+**Remaining work:** Phase 9 is complete. Subscription billing, full investigation-case management, and a
+production hosting/scheduler/vendor decision remain the next planned work whenever the user is ready to
+scope it (TODO.md).
+
+**Exact recommended next action:** No further autonomous phase work was requested beyond Phase 9. The next
+substantive step is the user's own decision on production hosting (which several "Blocked" TODO.md items —
+the background-job scheduler, the cloud-liveness vendor, the telematics vendor, the object-storage vendor —
+now all depend on), or scoping subscription billing / investigation-case management if that's the
+preferred next direction instead.

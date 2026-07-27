@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
 import { VideoCaptureRecorder } from "@/components/video-capture-recorder";
 import type { CapturedVideoMetadata } from "@/lib/media/video-capture-policy";
+import { GateFacialVerification } from "@/components/gate-facial-verification";
 
 interface InspectionItem {
   id: string;
@@ -238,19 +239,27 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
           <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Driver identity verification</h2>
             <p className="text-xs text-slate-500">Last result: {event.identityVerificationResult ?? "Not yet attempted"}</p>
-            <input
-              value={capturedImageRef}
-              onChange={(e) => setCapturedImageRef(e.target.value)}
-              placeholder="Capture reference (leave blank to simulate a normal capture)"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-            <button
-              disabled={busy}
-              onClick={() => call(`/api/gate/gate-events/${id}/identity/verify`, { capturedImageRef: capturedImageRef || "capture-ref" })}
-              className="w-full rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-            >
-              Run verification
-            </button>
+
+            <GateFacialVerification gateEventId={id} onVerified={() => load()} />
+
+            <details className="border-t border-slate-100 pt-3 text-xs text-slate-500">
+              <summary className="cursor-pointer select-none">Dev-only: simulate with the mock provider</summary>
+              <div className="mt-2 space-y-2">
+                <input
+                  value={capturedImageRef}
+                  onChange={(e) => setCapturedImageRef(e.target.value)}
+                  placeholder="Capture reference (leave blank to simulate a normal capture)"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  disabled={busy}
+                  onClick={() => call(`/api/gate/gate-events/${id}/identity/verify`, { capturedImageRef: capturedImageRef || "capture-ref" })}
+                  className="w-full rounded-lg border border-slate-300 px-4 py-3 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Run mock verification
+                </button>
+              </div>
+            </details>
 
             <div className="border-t border-slate-100 pt-3">
               <p className="mb-2 text-xs font-medium text-slate-500">If verification fails, request a manual fallback:</p>
