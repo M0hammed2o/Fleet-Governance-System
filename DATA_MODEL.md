@@ -329,6 +329,56 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
   default TRIAL) — a manually-set status flag for the SUPPORT-001 health summary, deliberately not a real
   billing/payment integration (subscription billing is explicitly out of scope for this build run).
 
+## Phase 10 entities (subscriptions, billing and invoicing — implemented)
+Full narrative in `BILLING_AND_SUBSCRIPTIONS.md`; migration `20260727200000_phase10_billing_and_subscriptions`.
+All money fields are integer minor currency units (never a float); VAT rates are integer basis points.
+- **SubscriptionPlan** — platform-wide named commercial plan container (V1 seeds one: "Standard").
+- **PlatformPricingVersion** — append-only platform-default pricing history (baseFeeMinorUnits,
+  perVehicleFeeMinorUnits, currency, effectiveFrom) — never edited/deleted, only superseded.
+- **PlatformBillingSettings** — singleton (fixed id `"platform"`): legal/trading identity, VAT
+  configuration, invoice numbering (`invoicePrefix`/`nextInvoiceSequence`, atomically incremented),
+  currency, default payment-terms/grace-period/fees, banking instructions.
+- **TenantBillingProfile** — one per tenant (1:1): registration/VAT details, billing address/email,
+  accounts contact, PO requirement, customer reference, payment-terms/grace-period overrides,
+  subscription-start date, notes. Deliberately does not store fee amounts (those are only ever on
+  `TenantPricingAgreement`, D-035).
+- **CustomerBillingContact** — additional billing-email recipients beyond the profile's own single
+  accounts-contact email (tenantId, name, email, isActive).
+- **TenantPricingAgreement** — append-only tenant-negotiated pricing history, same shape as
+  `PlatformPricingVersion` plus tenantId + createdByUserId.
+- **TenantSubscription** — one per tenant (1:1): planId, status (`SubscriptionStatus`:
+  PENDING/ACTIVE/PAST_DUE/SUSPENDED/CANCELLED), startedAt, suspended/restored at/reason/byUserId (actor
+  nullable — an automated suspension/restoration has no human actor). Distinct from the pre-existing
+  `Tenant.subscriptionStatus` manual flag (D-035).
+- **BillingPeriod** — one per tenant per UTC calendar month (hard-unique on tenantId+periodStart), status
+  (PENDING/SNAPSHOTTED/INVOICED), the anchor row a snapshot and invoice both attach to.
+- **BillableVehicleSnapshot** — one per BillingPeriod (hard-unique): exact vehicleIds/vehicleCount and the
+  exact base/per-vehicle fee applied, frozen at generation time.
+- **Invoice** — invoiceNumber (globally unique, atomically allocated), status
+  (DRAFT/ISSUED/PAID/OVERDUE/VOID), issue/due dates, subtotal/vatRateBasisPoints/vatAmount/total (all
+  minor units), immutable supplierSnapshot/customerSnapshot (JSON), pdfMediaAssetId (1:1 to a `MediaAsset`,
+  new `MediaAssetOwnerType.INVOICE`), void/reissue lineage (voidedAt/voidedByUserId/voidReason,
+  reissueOfInvoiceId self-relation).
+- **InvoiceLineItem** — kind (BASE_FEE/VEHICLE_FEE/ARCHIVE_STORAGE/ADJUSTMENT/OTHER), description,
+  quantity, unitPrice/lineTotal (minor units).
+- **Payment** — amountMinorUnits/currency/status (PENDING/SUCCESSFUL/FAILED/REFUNDED), method
+  (PROVIDER/MANUAL), idempotencyKey (hard-unique), provider name/reference, or (for MANUAL)
+  recordedByUserId/manualProofReference/manualNote — no card/CVV/banking-credential field exists at all.
+- **PaymentAttempt** — an in-flight provider checkout/session before it resolves to a `Payment`;
+  idempotencyKey hard-unique.
+- **PaymentProviderEvent** — every inbound webhook, hard-unique on (provider, externalEventId) — the
+  duplicate-webhook-idempotency guarantee. tenantId/invoiceId nullable until resolved from the payload.
+- **BillingEmailDelivery** — one per invoice-email delivery attempt; a hand-authored partial unique index
+  (`billing_email_deliveries_one_per_invoice_payment_event`, Prisma's `@@unique` has no WHERE clause — same
+  pattern as `job_runs_one_running_per_job_name`/`driver_facial_templates_one_active_per_driver`) enforces
+  at most one PAYMENT_SUCCESS-or-MANUAL_APPROVAL delivery per (invoiceId, relatedPaymentId); RESEND is
+  always a new row.
+- **CreditAdjustment** — a manual credit/debit adjustment against a tenant's billing, always
+  human-initiated and audited.
+- `MediaAsset.capturedByUserId` is now nullable — a system/job-generated artifact (a recurring-billing-job
+  invoice PDF) has no human capturing officer, distinct from every human-driven upload which still always
+  sets it.
+
 ## Phase 4+ entities (planned, not yet built)
 TyreReading (history), RiskRegisterEntry, ControlRegisterEntry, ControlTestResult — documented here as
 each is actually migrated, not in advance.
@@ -419,7 +469,12 @@ each is actually migrated, not in advance.
   partial unique index (`driver_facial_templates_one_active_per_driver`, `WHERE status = 'ACTIVE'`)
   enforcing at most one ACTIVE template per driver at the database level. Purely additive.
 
-All twenty migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+- `20260727200000_phase10_billing_and_subscriptions` — the full Phase 10 billing domain (see "Phase 10
+  entities" above): 13 new models, 7 new enums, `MediaAssetOwnerType.INVOICE`,
+  `MediaAsset.capturedByUserId` made nullable, and the hand-authored partial unique index for
+  `BillingEmailDelivery`. Verified against an empty database.
+
+All twenty-one migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 

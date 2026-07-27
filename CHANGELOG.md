@@ -1,5 +1,36 @@
 # CHANGELOG.md
 
+## 2026-07-28 (Phase 10) — subscriptions, billing and invoicing
+### Added
+- Phase 10 (P10A..P10P, see BILLING_AND_SUBSCRIPTIONS.md) — a real, working billing and invoicing system:
+  tenant-safe, append-only-versioned pricing (platform default + tenant-negotiated agreements) so an issued
+  invoice's price is never retroactively affected by a later change; a deterministic monthly billable-
+  vehicle snapshot (documented active-vehicle rule, hard-constraint idempotent); invoice generation with
+  atomically-allocated sequential numbers, an immutable supplier/customer snapshot, and a real PDF stored
+  through the existing MediaAsset/object-storage/signed-URL architecture; `PaymentProvider` and
+  `BillingEmailProvider` adapters (interface + honest no-op + deterministic mock, the same pattern as every
+  other provider boundary in this codebase — no production payment gateway or email vendor selected);
+  idempotent payment processing (duplicate/out-of-order webhooks safe, amount/currency validated, manual
+  payment recording for authorised finance users, never trusts a client-supplied "success"); idempotent
+  invoice-email delivery with authorised resend; a platform-admin billing dashboard and a customer
+  Accountant self-service portal (view/download invoices, mock-pay, manage billing contacts); a
+  subscription lifecycle (PENDING/ACTIVE/PAST_DUE/SUSPENDED/CANCELLED) whose suspension enforces exactly
+  one deliberately narrow access boundary — new Movement creation only, never gate operations, evidence
+  capture, or any other Phase 1-9 safety-critical workflow; an idempotent recurring billing job wired into
+  the existing background-job architecture; 7 new permission resources granted per the existing
+  least-privilege convention, with Gate Security Officer/Dispatch/Security Supervisor/Fleet and GPS
+  Manager/External Reviewer receiving none. Also closed the two disclosed Phase 9 browser-verification
+  follow-ups: the gate facial-verification interface now audits every on-device-provider-unavailable case
+  instead of failing silently, and two Playwright specs build their own dedicated fixtures instead of
+  depending on seeded gate-event ordering.
+
+### Fixed
+- A real high-severity bug found via live browser verification: every invoice PDF failed to render with an
+  ENOENT error, because `pdfkit` resolves its bundled font-metrics files relative to its own `__dirname`,
+  which Turbopack rewrites to a synthetic, non-existent path when the package is bundled into a server
+  route. Fixed by marking `pdfkit` as a Next.js `serverExternalPackages` entry (KNOWN_BUGS.md BUG-009,
+  DECISIONS.md D-037).
+
 ## 2026-07-27 (Phase 9) — on-device one-to-one facial verification and basic liveness
 ### Added
 - Phase 9 — a real, working, commercially-licensed on-device facial-recognition and basic-liveness

@@ -744,6 +744,23 @@ screen. Handles denied camera permission, an unsupported browser, and a model-lo
 never a silent hang. `components/driver-facial-enrolment.tsx` shows the biometric-processing notice and
 requires an explicit consent acknowledgement before the camera is ever requested.
 
+## Billing and subscriptions architecture (Phase 10, see PRODUCT_REQUIREMENTS.md P10, BILLING_AND_SUBSCRIPTIONS.md, DECISIONS.md D-035/D-036/D-037)
+Full detail lives in the dedicated `BILLING_AND_SUBSCRIPTIONS.md`. Summary: append-only versioned pricing
+(`PlatformPricingVersion`/`TenantPricingAgreement`) so an issued invoice's price is never retroactively
+affected by a later change; a deterministic monthly `BillableVehicleSnapshot` per tenant (hard-constraint
+idempotent per tenant+period); `Invoice`/`InvoiceLineItem` generation with an atomically-allocated
+sequential number, an immutable supplier/customer JSON snapshot, and a PDF (`pdfkit`) stored through the
+*existing* `MediaAsset`/object-storage/signed-URL architecture (`MediaAssetOwnerType.INVOICE`) — the same
+reuse pattern already established for every other evidence kind, not a new document store. `PaymentProvider`
+and `BillingEmailProvider` follow the exact same interface-plus-mock pattern as
+`FacialVerificationProvider`/`TelematicsProvider`/`ObjectStorageProvider`/`RetentionNotificationProvider` —
+an honest no-op, a deterministic dev/test mock, no production vendor selected. A `TenantSubscription`
+lifecycle (PENDING/ACTIVE/PAST_DUE/SUSPENDED/CANCELLED) is a new model, deliberately separate from the
+pre-existing Phase 7 `Tenant.subscriptionStatus` manual flag (D-035). Suspension enforces exactly one
+access boundary — new Movement creation is refused — every other Phase 1-9 workflow (gate operations,
+evidence, exceptions, billing screens) is completely unaffected, a deliberate "continuity mode" (D-036).
+The recurring billing job reuses the Phase 8E-004 `lib/jobs/` architecture unchanged.
+
 ## Integration boundaries
 `FacialVerificationProvider` (`lib/facial-verification/provider.ts`) has a deterministic mock
 implementation (`mock-provider.ts`, driven by `force:<outcome>` markers in the capture reference — see its

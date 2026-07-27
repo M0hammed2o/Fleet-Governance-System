@@ -164,6 +164,28 @@ Provider-neutral, following the exact `FacialVerificationProvider`/`StorageProvi
 | FACE-008 | Gate-tablet interface | Permission/lighting/liveness guidance, progress, clear states, large touch targets, no raw score shown, safe on denied permission/offline/model-load-failure | done | `components/gate-facial-verification.tsx` |
 | FACE-009 | Automated Playwright browser testing | Full role-chain workflow, every result outcome, manual fallback, audit, cross-tenant denial, screenshots on failure, no real biometric data committed | done | `e2e/facial-verification-workflow.spec.ts` (synthetic descriptor arrays only) + `e2e/facial-verification-smoke.spec.ts`/`facial-verification-gate-smoke.spec.ts` (real model-loading verification) |
 
+## P10 — Subscriptions, billing and invoicing (Phase 10)
+Full detail in `BILLING_AND_SUBSCRIPTIONS.md`; approved commercial model: configurable monthly base fee
+(default R1,999) + configurable fee per active vehicle (default R299), ZAR, excl. VAT unless configured.
+| ID | Requirement | Acceptance criteria | Status | Implementation |
+|---|---|---|---|---|
+| P10A | Tenant-safe billing data model | Integer minor-currency-unit amounts; append-only versioned pricing | done | migration `20260727200000_phase10_billing_and_subscriptions`; DATA_MODEL.md "Phase 10 entities" |
+| P10B | Platform-admin billing configuration | Legal identity, VAT config, invoice numbering, defaults; audited; not editable by ordinary client users | done | `platform-billing-repository.ts`; `/platform/billing/settings` |
+| P10C | Tenant billing profile | Registration/VAT/contacts/terms; tenant-scoped, permission-controlled | done | `tenant-billing-repository.ts`; `/admin/billing`, `/api/billing/profile` |
+| P10D | Billable vehicle calculation | Deterministic snapshot; exact worked example (15 vehicles -> R6,484 before VAT) | done | `billable-vehicle-repository.ts`; `tests/billable-vehicle-repository.test.ts` |
+| P10E | Invoice generation | Sequential numbers, immutable snapshot, PDF via existing storage, controlled void/reissue | done | `invoice-repository.ts`, `lib/billing/invoice-pdf.ts` |
+| P10F | Payment-provider abstraction | Interface + NoOp + Mock; no production provider fabricated | done | `lib/billing/payment-provider.ts` — production gateway blocked (INTEGRATIONS.md) |
+| P10G | Payment processing and idempotency | Duplicate/out-of-order webhooks safe; never trusts client-supplied success | done | `payment-repository.ts` |
+| P10H | Invoice email workflow | Idempotent per payment event; NoOp/Mock provider; failed send never reverses payment | done | `billing-email-repository.ts`, `lib/billing/billing-email-provider.ts` |
+| P10I | Platform-admin billing dashboard | All tenants, pricing, invoice/payment actions, suspend/restore, reuses SupportAccessSession | done | `/platform/billing`, `/platform/billing/[tenantId]` |
+| P10J | Customer accountant portal | Subscription/pricing/invoices/payments/mock-payment/contacts; tenant-isolated | done | `/admin/billing` |
+| P10K | Access control and suspension | Suspension blocks only new Movement creation; never breaks gate/evidence safety | done | `subscription-repository.ts`; DECISIONS.md D-036 |
+| P10L | Scheduling and recurring billing | Idempotent job; no production scheduler configured (disclosed) | done | `recurring-billing-repository.ts`, `billing.runRecurringCycle` job |
+| P10M | Permissions and audit | 7 new permission resources; audited pricing/profile/subscription/invoice/payment/email events | done | `src/lib/auth/permissions.ts`; `prisma/seed.ts` |
+| P10N | Security and tenant isolation | Cross-tenant denial, webhook authenticity, invoice-number concurrency, no payment secrets | done | `tests/billing-tenant-isolation.test.ts` + coverage across all Phase 10 test files |
+| P10O | Testing and browser verification | Unit + Playwright minimum list, deterministic dedicated fixtures | done | TESTING.md "Phase 10 coverage" |
+| P10P | Documentation | `BILLING_AND_SUBSCRIPTIONS.md` + updates across existing docs | done | this file and the cross-references below |
+
 ## GOV — Governance (Phase 6, unchanged scope — risk/control register)
 | ID | Requirement | Acceptance criteria | Status | Implementation |
 |---|---|---|---|---|
@@ -206,5 +228,7 @@ mechanism (SUPPORT-002), not a permission grant.
    before any paid third-party hosting/deploy account is created.
 4. Retention granularity (single tenant-wide `retentionDays` vs per-category) — flagged in
    SECURITY_AND_POPIA.md for legal review; current schema only supports the simpler single value.
-5. Subscription billing and full investigation-case management — explicitly out of scope for Phases 5-7,
-   recorded as next planned work after Phase 7.
+5. Subscription billing — done, Phase 10 (see "P10" above, BILLING_AND_SUBSCRIPTIONS.md). Still blocked
+   within that scope: production payment-gateway vendor, production transactional-email vendor, and the
+   platform company's real legal/registration/VAT/banking details. Full investigation-case management
+   remains explicitly out of scope, next planned work whenever the user is ready to scope it.

@@ -207,6 +207,27 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
   both re-ran clean after the fix, confirming the pages render, the camera opens, and both models genuinely
   load and run real per-frame inference in a live browser with zero page errors.
 
+## BUG-009 — Invoice PDF rendering failed with ENOENT because `pdfkit`'s bundled font-metrics path was rewritten by Turbopack
+- Severity: high (every invoice PDF generation failed silently in the background — the financial `Invoice`
+  row was created correctly, but `pdfMediaAssetId` stayed null and the download endpoint returned 409 for
+  every invoice)
+- Reproduction steps: generate an invoice through the real dev server (`POST /api/platform/billing/
+  customers/[tenantId]/invoices`), then attempt to download its PDF.
+- Expected result: a valid `application/pdf` download.
+- Actual result (before fix): the invoice generated correctly but its PDF never attached; the audit trail
+  recorded `invoice.pdfGenerationFailed` with reason `ENOENT: no such file or directory, open
+  'C:\ROOT\node_modules\pdfkit\js\data\Helvetica.afm'`. Found via live Playwright verification
+  (`e2e/billing-workflow.spec.ts`) — the download step failed on the very first full run.
+- Suspected cause: `pdfkit` resolves its standard-14 font metrics (`.afm`) files relative to its own
+  bundled `__dirname` at require time. Turbopack rewrites `__dirname` to a synthetic path when a package is
+  bundled into a server function, which does not correspond to any real directory on disk.
+- Status: fixed — 2026-07-28 (Phase 10, see DECISIONS.md D-037). Added `serverExternalPackages: ["pdfkit"]`
+  to `next.config.ts` so Next.js `require()`s it from the real `node_modules` directory at runtime instead
+  of bundling it.
+- Fix verification: `e2e/billing-workflow.spec.ts` re-ran clean (twice consecutively) after the fix,
+  including a real PDF download and content-type check; both a normal invoice PDF and a VAT-configured tax
+  invoice PDF were rendered and visually inspected end-to-end through the real dev server.
+
 ## Known, disclosed: intermittent full-suite-only flake in one reconciliation test (not fixed, not blocking)
 - Severity: low
 - Reproduction steps: run `npm test` (the full 34-file suite) repeatedly. Roughly 1 run in 2-4,

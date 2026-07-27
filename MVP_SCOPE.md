@@ -10,15 +10,23 @@ fallback + basic geofencing, GPS-001..006), sales-rep vehicle-use policies (POLI
 workflow enhancements (DISPATCH-001..005), and a controlled platform support-access view (SUPPORT-001..004).
 These are foundation-level builds, not production vendor integrations — see "Explicit exclusions" below.
 
+**Scope expansion, 2026-07-28:** the user authorised building subscription billing and invoicing in full
+(Phase 10, P10A..P10P) — see `BILLING_AND_SUBSCRIPTIONS.md`. The internal billing/invoicing/payment-
+processing logic is real and working; the production payment gateway and transactional-email vendor remain
+unselected (same "foundation-level build, not a production vendor integration" pattern as telematics
+above).
+
 ## Deferred from Version 1 (do not build as complete modules)
 Fuel purchasing/fraud analytics, full workshop management, work orders/technician scheduling, full
 tyre-lifecycle/procurement, full procurement/supplier management, financial/profitability accounting,
 predictive maintenance, custom facial-recognition models, custom AI damage-detection models, custom GPS
 or ANPR hardware, digital twins, ESG reporting, native mobile apps, automated disciplinary conclusions,
-full industry-specific modules, subscription billing, full investigation-case management. Extension points
-are prepared (adapter interfaces, config-driven inspection templates) but these are not implemented.
-Advanced telematics (multi-provider production connections, high-frequency maps, journey playback,
-predictive analysis, deeper driver-behaviour analytics) is explicitly deferred past the October pilot.
+full industry-specific modules, full investigation-case management. Extension points are prepared (adapter
+interfaces, config-driven inspection templates) but these are not implemented. Advanced telematics
+(multi-provider production connections, high-frequency maps, journey playback, predictive analysis, deeper
+driver-behaviour analytics) is explicitly deferred past the October pilot. Subscription billing was
+deferred at the time this list was first written but has since been built in full (Phase 10, above) — no
+longer deferred.
 
 ## Explicit exclusions
 - No production facial-recognition or telematics vendor integration — mock/interface only, blocked on a

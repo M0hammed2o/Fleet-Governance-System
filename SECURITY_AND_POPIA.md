@@ -94,6 +94,20 @@ credentials or API tokens stored in plaintext, logs, or exposed through any API 
 through the existing Phase 3 workflow; the system must never state or imply that an employee committed
 fraud, theft, or a crime — a violation is a fact pattern for a human to review, not a conclusion.
 
+## Payment and billing data treatment (Phase 10, see BILLING_AND_SUBSCRIPTIONS.md)
+No card number, CVV, or online-banking credential is ever stored — the `Payment` schema has no field
+capable of holding one (verified directly, `tests/billing-tenant-isolation.test.ts`). A manual (non-
+provider) payment record stores only a free-text proof/reference (e.g. an EFT reference) supplied by an
+authorised platform finance user, never raw banking details. A payment-provider webhook's authenticity is
+verified (`validateWebhookAuthenticity()`) before any of its content is trusted; nothing in this codebase
+ever accepts a client/browser-supplied "payment succeeded" claim as authoritative. Invoice PDFs (containing
+the tenant's registration/VAT number and billing address — Confidential, not Restricted, since they're
+ordinary commercial/financial documents rather than biometric/GPS/video evidence) are stored through the
+same MediaAsset/signed-URL architecture as every other evidence kind — never a public or permanent URL.
+`MockBillingEmailProvider`'s dev-console log records only recipient/subject/invoice-number/byte-count,
+never the rendered PDF content. No production payment gateway or transactional-email vendor is selected —
+both remain blocked pending a business decision (TODO.md, BILLING_AND_SUBSCRIPTIONS.md).
+
 ## Retention configuration
 Phase 8C replaced the single tenant-wide `Tenant.retentionDays` assumption (removed — it was never actually
 read by any purge job, since none existed) with per-`MediaCategory` `RetentionPolicy` rows, falling back to

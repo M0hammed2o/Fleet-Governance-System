@@ -728,6 +728,79 @@ middleware.
 **Revisit condition:** If/when the generic rate-limiting infrastructure item is finally built, consider
 whether this check should be re-expressed on top of it — not before, and not required.
 
+## D-035 — 2026-07-28 — Billing/pricing is append-only-versioned, not a mutable current-price field; a new `TenantSubscription` model, not a repurposed `Tenant.subscriptionStatus`
+**Context:** Phase 10 needs both a platform-wide default price and a per-tenant negotiated price, and the
+approved commercial-model instruction explicitly requires that "historical invoices must never change when
+current pricing changes." A mutable `currentBaseFee`/`currentVehicleFee` field on `Tenant` or
+`TenantBillingProfile` would satisfy "what do we charge today" but would either force every historical
+invoice calculation to be re-derived from current state (wrong — a later price change would silently alter
+history) or require a separate frozen-price mechanism per invoice anyway. Separately, `Tenant.subscriptionStatus`
+(`TenantSubscriptionStatus`: TRIAL/ACTIVE/PAST_DUE/CANCELLED) already exists from Phase 7 (SUPPORT-001) as a
+manually-set health-summary flag, explicitly documented as "deliberately not a real billing/payment
+integration."
+**Decision:** `PlatformPricingVersion` and `TenantPricingAgreement` are both append-only tables — a price
+change is always a new row with its own `effectiveFrom`, never an edit or delete of an existing one.
+`getEffectivePricingForTenant(tenantId, at)` resolves the correct price for any point in time, including
+the past, by construction. A brand-new `TenantSubscription` model (its own `SubscriptionStatus` enum:
+PENDING/ACTIVE/PAST_DUE/SUSPENDED/CANCELLED) is the real, automatically-managed subscription lifecycle;
+`Tenant.subscriptionStatus` is left completely unchanged and continues to back the existing SUPPORT-001
+health summary exactly as before.
+**Alternatives considered:** Repurposing `Tenant.subscriptionStatus` for the new lifecycle — rejected: its
+enum shape doesn't include SUSPENDED, its transitions were never audited or grace-period-aware, and
+changing its semantics out from under SUPPORT-001 without instruction would be an unrequested scope change
+to already-shipped Phase 7 behaviour. Storing a single "current price" field and computing every invoice
+against current state — rejected as directly violating the "historical invoices never change" requirement.
+**Consequences:** Two billing-status concepts now exist on a tenant: the old manual flag (Phase 7 support
+summary) and the new real, automated one (`TenantSubscription`). They are not kept in sync automatically —
+a future task could surface the real status on the SUPPORT-001 dashboard alongside or instead of the manual
+one, but that wasn't requested and risks changing already-verified Phase 7 UI behaviour.
+**Revisit condition:** If the business wants a single unified status concept, migrate SUPPORT-001's summary
+to read from `TenantSubscription` and deprecate the manual flag — not done in this phase.
+
+## D-036 — 2026-07-28 — Subscription suspension blocks only new Movement creation, never any Phase 1-9 safety-critical workflow
+**Context:** P10K requires that suspending a tenant for non-payment "must not silently create a safety
+risk" and that gate safety/evidence records must never be affected by non-payment. The obvious
+implementation of "suspend access" — checking subscription status at the permission-evaluation layer
+(`hasPermission()`/`requirePermission()`) so a SUSPENDED tenant loses all API access — would need to be
+threaded through every one of the ~30 permission resources this codebase has accumulated since Phase 1,
+with a high risk of accidentally blocking gate check-in/check-out, evidence capture, or exception handling
+for a vehicle already mid-movement when a tenant's payment lapses — exactly the safety risk the requirement
+warns against.
+**Decision:** Suspension enforces exactly one access boundary, checked directly inside
+`createMovement()` (`movement-repository.ts`): a SUSPENDED tenant cannot start a *new* movement
+(`TenantAccessSuspendedError`, mapped to HTTP 403). Every other workflow — gate operations for movements
+already in flight, evidence capture, exception handling, reconciliation, billing/payment screens — is
+completely unaffected by subscription status. This is documented as the platform's "continuity mode."
+**Alternatives considered:** A generic cross-cutting suspension check in `hasPermission()` gating all
+non-billing resources — rejected: broad blast radius, high risk of an accidental safety-relevant lockout,
+and no existing precedent for a cross-cutting access-control layer of this kind in this codebase (every
+other hard business rule here — self-approval blocks, D-008/D-020/D-033 — is a narrow, single-purpose check
+in one repository function, not generic middleware). Blocking gate check-in/out too — explicitly rejected
+by the requirement itself ("must never silently create a safety risk").
+**Consequences:** A SUSPENDED tenant can still fully operate its existing gate/evidence/exception workflow
+indefinitely without paying — this is an intentional trade-off (continuity over enforcement strength) that
+the business should be aware of and could choose to revisit once real customer risk tolerance is known.
+**Revisit condition:** If the business later wants suspension to also block specific additional actions
+(e.g. new driver/vehicle onboarding), add a similarly narrow, single-purpose check to that specific
+repository function — do not build a generic cross-cutting mechanism speculatively.
+
+## D-037 — 2026-07-28 — `pdfkit` is marked a Next.js `serverExternalPackages` entry, not bundled
+**Context:** Live browser verification of P10E's invoice-PDF rendering failed with `ENOENT: no such file or
+directory, open 'C:\ROOT\node_modules\pdfkit\js\data\Helvetica.afm'` — a real bug, not a flake. `pdfkit`
+resolves its standard-14 font metrics (`.afm`) files relative to its own bundled `__dirname` at require
+time; Turbopack (and webpack) rewrite `__dirname` to a synthetic path when a package is bundled into a
+server function, which doesn't correspond to any real directory on disk, so the font file can never be
+found and every PDF render fails.
+**Decision:** Added `serverExternalPackages: ["pdfkit"]` to `next.config.ts` — this is Next.js's documented
+mechanism for telling the bundler to `require()` a package from the real `node_modules` directory at
+runtime instead of bundling it, preserving its real `__dirname`. Verified fixed by rendering and visually
+inspecting both a normal and a VAT-configured invoice PDF end-to-end through the real dev server.
+**Alternatives considered:** Embedding a custom TTF font via a buffer instead of relying on the bundled
+standard-14 AFM fonts — would avoid the bug but adds a font-licensing question and unnecessary complexity
+for what is otherwise a well-known, documented bundler/pdfkit interaction with a one-line fix.
+**Consequences:** None — this is the standard fix recommended for `pdfkit` (and several other packages that
+read files relative to their own package directory) used inside a Next.js server context.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +
@@ -737,8 +810,11 @@ whether this check should be re-expressed on top of it — not before, and not r
   instruction) targets one production provider matched to the pilot customer's existing tracker.
 - **Production hosting (Supabase vs self-managed Postgres, storage provider, deploy target)** — deferred
   to Phase 7; will be raised as a major decision (paid third-party service) before any account is created.
-- **Subscription billing** — explicitly out of scope for this run (Phases 5-7 only); next planned work
-  after Phase 7 completes.
+- **Subscription billing** — done, Phase 10 (D-035/D-036/D-037, BILLING_AND_SUBSCRIPTIONS.md). Still
+  blocked within that phase: production payment-gateway vendor selection, production transactional-email
+  vendor selection, and the platform company's real legal/registration/VAT/banking details (currently
+  fictional dev/demo values) — see BILLING_AND_SUBSCRIPTIONS.md "Decisions still required from the
+  business."
 - **Full investigation-case management** — explicitly out of scope for this run; External Reviewer /
   Internal Investigator profiles exist for evidence access, but no dedicated case-management module
   (case creation, findings, disposition tracking) is planned in Phases 5-7.

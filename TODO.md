@@ -4,8 +4,11 @@
 Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
 8A-8E all done, see WORKLOG.md Sessions 13-17. Phase 9 (on-device one-to-one facial verification and
 basic liveness with a cloud fallback interface) is also **complete** — see WORKLOG.md Session 18.
-Session 19 closes the two remaining Phase 9 browser follow-ups (P9F-001/002 below) and begins Phase 10
-(Subscriptions, Billing and Invoicing, P10A-P10P below).
+Session 19 closed the two remaining Phase 9 browser follow-ups (P9F-001/002 below) and completed Phase 10
+in full (Subscriptions, Billing and Invoicing, P10A-P10P below) — see WORKLOG.md Session 19 and
+BILLING_AND_SUBSCRIPTIONS.md. Next planned work, when the user is ready to scope it: a production payment-
+gateway/email-vendor decision (Phase 10's own remaining blockers, see "Blocked" below), full
+investigation-case management, and the still-open production hosting/scheduler decision.
 
 ## Phase 9 follow-ups (P9F) — Session 19
 - [x] **P9F-001** — Gate facial-verification interface: PROVIDER_UNAVAILABLE must never render as success,
@@ -18,68 +21,64 @@ Session 19 closes the two remaining Phase 9 browser follow-ups (P9F-001/002 belo
       fixture | Priority: high | Deps: none — done, see WORKLOG.md Session 19
 
 ## Phase 10 (P10) — Subscriptions, Billing and Invoicing — Session 19+
-- [ ] **P10A** — Tenant-safe billing data model + migration (SubscriptionPlan, TenantSubscription,
+- [x] **P10A** — Tenant-safe billing data model + migration (SubscriptionPlan, TenantSubscription,
       versioned pricing/TenantPricingAgreement, BillableVehicleSnapshot, BillingPeriod, Invoice,
       InvoiceLineItem, Payment, PaymentAttempt, PaymentProviderEvent, BillingEmailDelivery,
       CreditAdjustment, PlatformBillingSettings, TenantBillingProfile, CustomerBillingContact); integer
       minor-currency-unit amounts, never JS floats | Priority: high | Deps: none
-- [ ] **P10B** — Platform-admin billing configuration (legal/trading name, registration/VAT numbers,
+- [x] **P10B** — Platform-admin billing configuration (legal/trading name, registration/VAT numbers,
       address, invoice prefix/sequence, currency, VAT rate, default fees, archive-storage price), audited,
       not editable by ordinary client users | Priority: high | Deps: P10A
-- [ ] **P10C** — Tenant billing profile (registered/trading name, VAT, billing contacts, negotiated
+- [x] **P10C** — Tenant billing profile (registered/trading name, VAT, billing contacts, negotiated
       pricing, payment terms, grace period, subscription dates), tenant-scoped and permission-controlled |
       Priority: high | Deps: P10A
-- [ ] **P10D** — Deterministic monthly billable-vehicle snapshot (documented active-vehicle rule, exact
+- [x] **P10D** — Deterministic monthly billable-vehicle snapshot (documented active-vehicle rule, exact
       vehicle IDs/count/price stored, VAT-aware subtotal/total, no duplicate snapshot per tenant+period,
       audited) | Priority: high | Deps: P10A
-- [ ] **P10E** — Invoice generation (sequential numbers, immutable snapshot, PDF via existing
+- [x] **P10E** — Invoice generation (sequential numbers, immutable snapshot, PDF via existing
       object-storage/signed-URL architecture, controlled void/reissue) | Priority: high | Deps: P10D
-- [ ] **P10F** — `PaymentProvider` interface + `NoOpPaymentProvider` + `MockPaymentProvider` (no real
+- [x] **P10F** — `PaymentProvider` interface + `NoOpPaymentProvider` + `MockPaymentProvider` (no real
       gateway; structured for a later PayFast/Peach/Yoco/Stitch addition) | Priority: high | Deps: P10A
-- [ ] **P10G** — Payment processing/idempotency (duplicate/out-of-order webhooks safe, amount/currency
+- [x] **P10G** — Payment processing/idempotency (duplicate/out-of-order webhooks safe, amount/currency
       matched, manual payment approval for authorised finance users) | Priority: high | Deps: P10E, P10F
-- [ ] **P10H** — Invoice email workflow (`NoOpBillingEmailProvider`/`MockBillingEmailProvider`, idempotent
+- [x] **P10H** — Invoice email workflow (`NoOpBillingEmailProvider`/`MockBillingEmailProvider`, idempotent
       per successful-payment event, authorised resend) | Priority: medium | Deps: P10G
-- [ ] **P10I** — Platform-admin billing dashboard (all tenants, pricing config, invoice/payment actions,
+- [x] **P10I** — Platform-admin billing dashboard (all tenants, pricing config, invoice/payment actions,
       suspend/restore, audit history, reuses existing SupportAccessSession) | Priority: high | Deps:
       P10C-P10H
-- [ ] **P10J** — Customer Accountant billing portal (subscription/pricing/invoices/payment
+- [x] **P10J** — Customer Accountant billing portal (subscription/pricing/invoices/payment
       history/mock-payment/contact updates), tenant-isolated | Priority: high | Deps: P10E-P10G
-- [ ] **P10K** — Access control and suspension (ACTIVE/PAST_DUE/SUSPENDED behaviour, grace period, never
+- [x] **P10K** — Access control and suspension (ACTIVE/PAST_DUE/SUSPENDED behaviour, grace period, never
       destroys evidence, audited) | Priority: high | Deps: P10C
-- [ ] **P10L** — Idempotent recurring billing job (reuses `lib/jobs/` architecture) | Priority: high | Deps:
+- [x] **P10L** — Idempotent recurring billing job (reuses `lib/jobs/` architecture) | Priority: high | Deps:
       P10D, P10E
-- [ ] **P10M** — New billing permissions + audit coverage per the existing permission catalogue pattern |
+- [x] **P10M** — New billing permissions + audit coverage per the existing permission catalogue pattern |
       Priority: high | Deps: P10A
-- [ ] **P10N** — Security/tenant-isolation proof (cross-tenant, webhook authenticity, invoice-number
+- [x] **P10N** — Security/tenant-isolation proof (cross-tenant, webhook authenticity, invoice-number
       concurrency, no secrets in logs) | Priority: high | Deps: P10A-P10L
-- [ ] **P10O** — Comprehensive automated + Playwright test coverage, deterministic dedicated fixtures |
+- [x] **P10O** — Comprehensive automated + Playwright test coverage, deterministic dedicated fixtures |
       Priority: high | Deps: P10A-P10N
-- [ ] **P10P** — Documentation: update existing docs + new `BILLING_AND_SUBSCRIPTIONS.md` | Priority: high
+- [x] **P10P** — Documentation: update existing docs + new `BILLING_AND_SUBSCRIPTIONS.md` | Priority: high
       | Deps: P10A-P10O
 
 Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
-WORKLOG.md Sessions 9-12. Per that same instruction, this remains the deliberate stopping point for that
-scope: **subscription billing and the full Investigation Case Management module are explicitly not
-started.** Next planned work, when the user is ready to scope it:
-- Subscription billing — real payment/invoicing integration (`Tenant.subscriptionStatus`, added Phase 7,
-  is a manually-set placeholder flag only, not a billing system — see DECISIONS.md D-021's sibling
-  reasoning on scope boundaries).
-- Full investigation-case management — case creation, findings, disposition tracking. External Reviewer /
-  Internal Investigator profiles already exist for evidence access (Phase 5A), but no case-management
-  module itself.
-Also still open, not part of either of the above: production hosting/deployment target (Unresolved
-questions #3, PRODUCT_REQUIREMENTS.md), facial-verification and telematics production vendor selection
-(both blocked on the user's decision).
+WORKLOG.md Sessions 9-12. Phase 10 (Subscriptions, Billing and Invoicing) is now also **complete** — see
+above and BILLING_AND_SUBSCRIPTIONS.md. Full investigation-case management remains explicitly not started
+— case creation, findings, disposition tracking; External Reviewer / Internal Investigator profiles already
+exist for evidence access (Phase 5A), but no case-management module itself. Also still open: production
+hosting/deployment target (Unresolved questions #3, PRODUCT_REQUIREMENTS.md), facial-verification and
+telematics production vendor selection, and Phase 10's own remaining blockers (payment-gateway/email
+vendor — see "Blocked" below).
 
 ## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
 Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Phase 5B (Reconciliation) — **done**, see
 WORKLOG.md Session 9 / DECISIONS.md D-017/D-018. Phase 5C (Dispatch workflow enhancements) — **done**, see
 WORKLOG.md Session 10. Phase 6 (Telematics foundation + basic geofencing) — **done**, see WORKLOG.md
 Session 11 / DECISIONS.md D-019/D-020. Phase 7 (Platform support-access view) — **done**, see WORKLOG.md
-Session 12 / DECISIONS.md D-021. This was the full scope of the current build run — subscription billing
-and full investigation-case management are explicitly out of scope, next planned work whenever the user
-wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.md.
+Session 12 / DECISIONS.md D-021. This was the full scope of that build run. Phase 10 (Subscriptions,
+Billing and Invoicing) was completed in a later session (Session 19) — see above. Full investigation-case
+management remains out of scope, next planned work whenever the user wants to scope that separately. Full
+requirement detail in PRODUCT_REQUIREMENTS.md.
 
 ## Next
 - [ ] Driver-portrait and compliance-document-attachment upload UI — both are fully wired end-to-end at the
@@ -143,8 +142,42 @@ wants to scope that separately. Full requirement detail in PRODUCT_REQUIREMENTS.
 - [ ] Production hosting/deployment | Needs: user decision on Supabase vs self-managed, paid-service approval
 - [ ] Production scheduler/cron for the Phase 8E-004 background jobs | Needs: hosting decision (above) — the job endpoints, auth boundary, and CLI are ready for whichever scheduler the hosting choice implies
 - [ ] Retention-notification email/SMS provider | Needs: user decision on vendor + budget approval
+- [ ] Production payment-gateway selection (PayFast/Peach Payments/Yoco/Stitch/other) | Needs: user
+      decision on vendor + a real merchant account — `PaymentProvider` interface + `NoOpPaymentProvider` +
+      `MockPaymentProvider` are ready (Phase 10F, BILLING_AND_SUBSCRIPTIONS.md); adding the real provider
+      needs no change to invoice/subscription logic
+- [ ] Production transactional-email vendor for billing (and retention) notifications | Needs: user
+      decision on vendor + budget approval — `BillingEmailProvider` interface + `NoOpBillingEmailProvider`
+      + `MockBillingEmailProvider` are ready (Phase 10H)
+- [ ] The platform company's real legal name, registration number, VAT registration status/number, and
+      banking details | Needs: the business to supply them — `PlatformBillingSettings` currently holds
+      fictional dev/demo values only (never real business information)
 
 ## Completed recently
+- [x] Phase 10: Subscriptions, billing and invoicing (P10A..P10P) — tenant-safe append-only-versioned
+      billing data model (13 new models, 1 new migration); deterministic monthly billable-vehicle snapshot
+      matching the approved worked example (15 vehicles -> R6,484 subtotal before VAT); invoice generation
+      with atomically-allocated sequential numbers, immutable supplier/customer snapshots, and real PDF
+      rendering (`pdfkit`) stored through the existing MediaAsset/signed-URL architecture; `PaymentProvider`
+      and `BillingEmailProvider` adapters (NoOp + deterministic Mock, same pattern as every other provider
+      boundary in this codebase, no production vendor selected); idempotent payment processing (duplicate/
+      out-of-order webhooks safe, amount/currency validated, never trusts a client-supplied success);
+      idempotent invoice-email delivery; platform-admin billing dashboard and customer Accountant portal;
+      subscription lifecycle with a deliberately narrow "continuity mode" suspension boundary (blocks only
+      new Movement creation, never gate/evidence safety workflows — DECISIONS.md D-036); an idempotent
+      recurring billing job wired into the existing background-job architecture; 7 new permission
+      resources, granted per the existing least-privilege convention with restricted roles receiving none.
+      Also closed the two disclosed Phase 9 browser follow-ups (P9F-001/002): `GateFacialVerification` now
+      audits every on-device-provider-unavailable case instead of failing silently, and
+      `facial-verification-gate-smoke.spec.ts`/`video-capture-smoke.spec.ts` build their own dedicated
+      fixtures instead of depending on seeded gate-event ordering. 680/680 tests passing (75 net new over
+      Phase 9's 605), tsc/lint/build clean, clean-migration verification passing (1 new migration), full
+      Playwright browser verification of the complete billing workflow (pricing negotiation through paid
+      invoice, duplicate-webhook idempotency, cross-tenant denial, restricted-role denial) run repeatedly
+      clean. Found and fixed one high-severity bug via live browser verification (`pdfkit` resolving its
+      font files relative to a Turbopack-bundled `__dirname` that doesn't exist on disk — see KNOWN_BUGS.md
+      BUG-009). Visually inspected: both dashboards, a normal invoice PDF, and a VAT-configured tax invoice
+      PDF — 2026-07-28. **This completes Phase 10.**
 - [x] Phase 9: On-device one-to-one facial verification and basic liveness (FACE-001..009) — commercial
       licensing independently verified against primary sources *before* any model was added
       (`FACIAL_VERIFICATION_LICENSING.md`): `@mediapipe/tasks-vision` (Apache-2.0) for detection/landmarks/

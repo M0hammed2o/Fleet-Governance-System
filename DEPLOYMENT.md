@@ -22,6 +22,9 @@ Verification commands for a new session to confirm this state before trusting it
 - `SESSION_SECRET` — cookie-signing secret (dev placeholder only; real deployments need a generated
   secret managed outside the repo).
 - `STORAGE_*` — object storage config (local/dev provider by default).
+- `PAYMENT_PROVIDER` / `BILLING_EMAIL_PROVIDER` — Phase 10 billing provider selection; `"mock"` opts into
+  the deterministic dev/test provider, any other value (including unset) is the honest no-op. No production
+  payment gateway or email vendor is configured — see BILLING_AND_SUBSCRIPTIONS.md.
 
 ## Database migrations
 Prisma migrations committed to `prisma/migrations/`. Never edit an applied migration file; add a new one.

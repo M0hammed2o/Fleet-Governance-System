@@ -2027,5 +2027,150 @@ contention, not a logic defect; confirmed by rerunning serially) twice consecuti
   concurrently-running dev server used for the Playwright runs above — not a source-code defect).
 - Playwright: see "Stability check" above.
 
-**Remaining work:** Phase 10 (P10A-P10P) — see TODO.md, in progress in this same session.
+**Remaining work at that point:** Phase 10 (P10A-P10P) — see TODO.md, continued in this same session below.
+
+### Phase 10 — subscriptions, billing and invoicing (P10A-P10P) — completes Phase 10
+
+Direct continuation of the same session. Read the full P10A-P10P specification, the approved commercial
+model, and the autonomous-execution rules from the user's instruction before starting. Reviewed existing
+provider-adapter (`FacialVerificationProvider`/`TelematicsProvider`/`ObjectStorageProvider`/
+`RetentionNotificationProvider`), tenant-isolation (`tenantWhere()`), audit (`recordAudit()`),
+permission-catalogue, MediaAsset/signed-URL, and background-job (`lib/jobs/`) patterns before designing the
+billing domain, per the explicit "extend the current architecture, do not duplicate" instruction. No PDF
+library existed in this codebase — evaluated and chose `pdfkit` (pure JS, no native binary dependency, MIT
+licensed).
+
+**P10A — data model and migration.** 13 new Prisma models, 7 new enums, migration
+`20260727200000_phase10_billing_and_subscriptions`, verified against a genuinely empty database
+(`npm run verify:clean-migrations`). Key design decisions (full reasoning in DECISIONS.md D-035): pricing is
+append-only-versioned (`PlatformPricingVersion`/`TenantPricingAgreement`) rather than a mutable
+current-price field, so an issued invoice's price is never retroactively affected by a later negotiation or
+platform-wide change; a brand-new `TenantSubscription` model carries the real subscription lifecycle,
+deliberately separate from the pre-existing Phase 7 `Tenant.subscriptionStatus` manual flag, which is left
+completely unchanged; `MediaAsset.capturedByUserId` was made nullable (a system/job-generated invoice PDF
+has no human capturing officer) and a new `MediaAssetOwnerType.INVOICE` added, reusing the existing
+object-storage/signed-URL architecture for invoice PDFs rather than building a new document store. All
+money fields are integer minor-currency units; VAT rates are integer basis points — verified with an exact
+worked-example unit test (`tests/billing-money.test.ts`) matching the approved 15-vehicle/R6,484 figure.
+
+**P10B/C — platform and tenant billing configuration.** `PlatformBillingSettings` (singleton, fixed id
+`"platform"`, auto-created with schema defaults on first access) holds the platform's own legal/VAT/
+invoice-numbering/default-pricing configuration, `platformBilling:CONFIGURE`-gated. `TenantBillingProfile`/
+`CustomerBillingContact` hold each tenant's own registration/VAT/contact/terms details,
+`tenantBilling:EDIT`-gated. VAT cannot be enabled without a rate configured first (`VatConfigurationError`).
+
+**P10D — billable-vehicle snapshot.** Active-vehicle rule documented in one place
+(`archivedAt IS NULL AND operationalStatus != DECOMMISSIONED` — a WORKSHOP_LOCKOUT/SECURITY_LOCKOUT vehicle
+is still billable). Hard-constraint idempotent per tenant+period
+(`billable_vehicle_snapshots_billingPeriodId_key`), proven under real concurrency (10 simultaneous calls ->
+exactly 1 snapshot row) — found and fixed a real `upsert()`-is-not-atomic-under-genuine-concurrency race in
+`ensureBillingPeriod()` this way (Postgres READ COMMITTED lets two concurrent callers both attempt an
+INSERT; caught and resolved by re-fetching the winner's row, the same pattern used throughout these
+repositories for exactly this reason).
+
+**P10E — invoice generation.** Sequential invoice numbers allocated via a single atomic Postgres
+`UPDATE ... RETURNING` on `PlatformBillingSettings.nextInvoiceSequence` (20 genuinely concurrent
+allocations -> 20 unique numbers, verified). Immutable `supplierSnapshot`/`customerSnapshot` JSON frozen at
+issue time. PDF rendered via `pdfkit` and stored through the existing MediaAsset architecture. Controlled
+void (requires a reason, refuses an already-PAID/VOID invoice) and reissue (requires VOID first, links back
+via `reissueOfInvoiceId`) — never a silent in-place edit.
+
+**P10F/G — payment provider and processing.** `PaymentProvider` interface, `NoOpPaymentProvider` (honest
+failure), `MockPaymentProvider` (deterministic, in-memory, dev/test only). Webhook processing order:
+signature authenticity first, then a hard-DB-constraint duplicate-event check
+(`payment_provider_events_provider_externalEventId_key`), then amount/currency exact-match validation, then
+— only for a genuinely SUCCESSFUL status — a single transaction marking the invoice PAID and creating the
+`Payment` row. Manual payment recording requires a proof reference, is permission-gated, and is clearly
+labelled `method: MANUAL` — the `Payment` schema has no card/CVV/banking-credential field at all.
+
+**P10H — invoice email.** `BillingEmailProvider` interface + `NoOpBillingEmailProvider` +
+`MockBillingEmailProvider` (dev-console only). Idempotent per (invoice, payment) via a hand-authored
+partial unique index (`billing_email_deliveries_one_per_invoice_payment_event`, Prisma's `@@unique` has no
+WHERE clause — same pattern as `job_runs_one_running_per_job_name`), proven under real concurrency (8
+simultaneous calls -> exactly 1 delivery). A resend is always a deliberate new row. A failed send never
+reverses the triggering payment.
+
+**P10I/J — dashboards.** `/platform/billing` (list + drill-down: pricing agreement, generate/void/reissue
+invoices, download, resend, record manual payment, suspend/restore, a link into the existing
+`SupportAccessSession` mechanism rather than a new/bypassed one) and `/admin/billing` (customer Accountant
+portal: subscription/pricing/active-vehicle count, invoices with download/pay/resend, payment history,
+billing-contact management, "simulate success/failure" driving the real mock-provider webhook path).
+
+**P10K — access control and suspension (DECISIONS.md D-036).** Deliberately the narrowest possible access
+boundary: `createMovement()` refuses when the tenant's subscription is SUSPENDED
+(`TenantAccessSuspendedError`); every other Phase 1-9 workflow — gate check-in/check-out, evidence capture,
+exception handling, reconciliation, billing/payment screens — is completely unaffected by subscription
+status. A generic cross-cutting suspension check across the ~30 existing permission resources was
+considered and explicitly rejected as too high-risk (see D-036) for a requirement that explicitly warns
+against silently creating a safety gap.
+
+**P10L — recurring job.** `runRecurringBillingCycle()` wired into the existing `lib/jobs/` architecture
+(new job name `billing.runRecurringCycle`) — snapshots every ACTIVE tenant (excluding the platform tenant
+itself), generates one invoice per tenant per period, marks overdue invoices, applies the automated-
+suspension policy. Proven idempotent by running the identical cycle three times against the same tenant+
+period and confirming exactly one invoice/snapshot survives.
+
+**P10M — permissions.** 7 new resources (`tenantBilling`, `pricingAgreement`, `invoice`, `payment`,
+`billingEmail`, `tenantSubscription`, `platformBilling`), granted per role following the existing
+least-privilege convention — Gate Security Officer, Dispatch and Logistics Officer, Security Supervisor /
+Approving Manager, Fleet and GPS Manager, and External Reviewer receive none of them.
+
+**P10N — security/tenant isolation.** Cross-tenant denial (both a fresh, dedicated second tenant via
+Playwright and unit-level tenant-mismatch cases), webhook authenticity, duplicate-webhook idempotency,
+invoice-number concurrency uniqueness, no card/CVV/banking-credential field anywhere in the schema, and an
+explicit documentation of where the real customer-facing tenant-isolation boundary actually lives (every
+`/api/billing/*` route hardcodes `session.tenantId`; only platform-only-permission-gated routes accept an
+explicit tenant id) — `tests/billing-tenant-isolation.test.ts`.
+
+**P10O — testing.** 71 new Vitest cases across 9 new test files (all passing, run repeatedly clean) plus
+`e2e/billing-workflow.spec.ts` (2 tests, run repeatedly clean against the real dev server): pricing
+negotiation, 15+-vehicle invoice generation, view/download, a genuine provider webhook marking an invoice
+paid, duplicate-webhook idempotency, exactly-once billing email, cross-tenant 404, restricted-role denial
+at every endpoint, and past-due/suspension behaviour. The spec's own idempotent design (checks the
+invoice's current status before re-attempting payment) is what makes repeated runs against the same real
+tenant/period stable — an important lesson from this session: `runRecurringBillingCycle()` and the
+Playwright fixture both operate against genuinely shared state (the whole tenants table, and the real
+current calendar month respectively), which needed deliberate idempotency-aware test design, not just
+fixture isolation, to stay stable under repeated/parallel execution.
+
+**Bug found this session (Phase 10):** BUG-009 — every invoice PDF failed with
+`ENOENT: ...pdfkit\js\data\Helvetica.afm` because Turbopack rewrites `__dirname` to a synthetic path when
+`pdfkit` is bundled into a server route, breaking its internal font-file resolution. Found via live
+Playwright verification (the very first full-workflow run), fixed by adding `serverExternalPackages:
+["pdfkit"]` to `next.config.ts` (DECISIONS.md D-037), verified fixed by rendering and visually inspecting
+both a normal invoice PDF ("VAT was not charged on this invoice") and a VAT-configured tax invoice PDF
+(correct 15% line/total) end-to-end through the real dev server.
+
+**Files changed:** `prisma/schema.prisma` + 1 new migration; `prisma/seed.ts` (billing config/demo-tenant
+seed data, permission grants); `src/lib/auth/permissions.ts` (7 new resources); `src/lib/billing/`
+(`money.ts`, `billing-period.ts`, `invoice-pdf.ts`, `payment-provider.ts`, `billing-email-provider.ts`, all
+new); `src/lib/repositories/` (`platform-billing-repository.ts`, `tenant-billing-repository.ts`,
+`subscription-repository.ts`, `billable-vehicle-repository.ts`, `invoice-repository.ts`,
+`payment-repository.ts`, `billing-email-repository.ts`, `recurring-billing-repository.ts`, all new;
+`media-asset-repository.ts` and `movement-repository.ts` extended); `src/lib/validation/billing.ts` (new);
+`src/app/api/billing/*`, `src/app/api/platform/billing/*`, `src/app/api/jobs/billing/*` (new routes);
+`src/app/platform/billing/` and `src/app/admin/billing/` (new pages); `src/lib/jobs/jobs.ts`,
+`scripts/run-job.mjs` (new job wiring); `next.config.ts` (`serverExternalPackages`); `.env`/`.env.test`/
+`.env.example` (`PAYMENT_PROVIDER`/`BILLING_EMAIL_PROVIDER`); `package.json` (`pdfkit`, `@types/pdfkit`); 9
+new test files; `e2e/billing-workflow.spec.ts` + `e2e/helpers/billing-fixtures.ts` (new); new
+`BILLING_AND_SUBSCRIPTIONS.md`; updates to ARCHITECTURE.md, DATA_MODEL.md, SECURITY_AND_POPIA.md,
+INTEGRATIONS.md, DECISIONS.md, TESTING.md, DEPLOYMENT.md, KNOWN_BUGS.md, PRODUCT_REQUIREMENTS.md,
+MVP_SCOPE.md, TODO.md, CHANGELOG.md.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean, throughout and at the end.
+- `npx eslint` (full repo) — clean.
+- `npm test` — **680/680 passing** (55 files, 75 net new over Phase 9's 605), run consecutively clean.
+- `npm run build` — clean, all new routes/pages present.
+- `npm run verify:clean-migrations` — PASS, all 21 migrations against a genuinely empty database.
+- Playwright: `e2e/billing-workflow.spec.ts` (2 tests) run repeatedly clean against the real dev server,
+  including a genuine cross-tenant 404, a genuine duplicate-webhook no-op, and an exactly-once billing
+  email.
+- Live browser verification: both billing dashboards, the customer Accountant portal, a normal invoice PDF,
+  and a VAT-configured tax invoice PDF all visually inspected and confirmed correct.
+
+**Remaining work:** Phase 10 is complete. Next planned work whenever the user is ready to scope it: a
+production payment-gateway and transactional-email vendor decision (Phase 10's own remaining blockers —
+the provider interfaces and mock implementations are ready for either), full investigation-case management,
+and the still-open production hosting/scheduler decision (blocking several earlier phases' jobs too).
 

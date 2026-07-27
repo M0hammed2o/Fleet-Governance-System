@@ -554,6 +554,107 @@ yet; will be authored once a vendor is selected (see `INTEGRATIONS.md`).
 - [x] Full suite: 605/605 passing, run twice consecutively clean; tenant count in the test database
       confirmed to hold at exactly 1 across both runs.
 
+## Phase 9F coverage (facial-verification browser follow-ups, added 2026-07-27)
+- [x] `GateFacialVerification`'s unsupported-browser, camera-permission-denied, and model-load-failure
+      paths all now report a real, audited `PROVIDER_UNAVAILABLE` `FacialVerificationAttempt` via the
+      existing API (repository-level coverage: `tests/facial-verification-attempt.test.ts`'s existing
+      PROVIDER_UNAVAILABLE case; browser-level: `e2e/facial-verification-gate-smoke.spec.ts`'s new test —
+      stubs `navigator.mediaDevices` to `undefined`, confirms the settled UI never shows "Verified", always
+      shows a safe "Facial verification unavailable" state with a retry and manual-fallback route, the gate
+      event never silently advances past IDENTITY_PENDING, and the attempt is genuinely audited server-side).
+- [x] `e2e/helpers/gate-fixtures.ts` — `e2e/facial-verification-gate-smoke.spec.ts` and
+      `e2e/video-capture-smoke.spec.ts` no longer depend on a specific seeded gate event's status/ordering;
+      each test now builds its own dedicated driver/movement/gate event via real API calls and drives it to
+      the required state deterministically. Both specs run repeatedly clean (`--workers=1`, since several
+      heavy multi-role-login fixture builds against one shared dev server benefit from serial execution —
+      an initial parallel run produced spurious webServer-contention timeouts unrelated to the fix itself).
+
+## Phase 10 coverage (subscriptions, billing and invoicing, added 2026-07-28)
+Full requirement-by-requirement detail in BILLING_AND_SUBSCRIPTIONS.md.
+- [x] `tests/billing-money.test.ts` (8 cases): the approved worked example exactly (15 vehicles -> R6,484
+      subtotal before VAT); 0/1/large fleet counts; VAT applied only when a rate is configured;
+      tenant-negotiated pricing produces a different total; round-half-up VAT rounding; ZAR display
+      formatting.
+- [x] `tests/platform-billing-repository.test.ts` (5 cases): singleton auto-creation; `platformBilling:
+      CONFIGURE`-gated settings update, denied for an unauthorised role; VAT cannot be enabled without a
+      rate configured first; 20 genuinely concurrent `allocateNextInvoiceNumber()` calls produce 20 unique
+      numbers; append-only pricing versions resolve correctly by `effectiveFrom`.
+- [x] `tests/tenant-billing-repository.test.ts` (6 cases): profile view/edit permission boundary; billing
+      contacts create/list/deactivate feed the email-delivery list correctly; a tenant-negotiated agreement
+      overrides the platform default for that tenant only; append-only pricing never retroactively changes
+      an earlier resolved price; rejects a negative/non-integer pricing amount; a customer-tenant role can
+      never edit pricing directly.
+- [x] `tests/billable-vehicle-repository.test.ts` (9 cases): 0/1/15/40-vehicle counts; a DECOMMISSIONED or
+      archived vehicle excluded, a WORKSHOP_LOCKOUT/SECURITY_LOCKOUT vehicle still counted; the approved
+      worked example's exact fees; tenant-negotiated pricing applied; idempotent for the same tenant+period
+      including under real concurrency (10 simultaneous calls -> exactly 1 snapshot row); a price change
+      between periods never retroactively affects an already-generated snapshot.
+- [x] `tests/invoice-repository.test.ts` (15 cases): snapshot-required-first precondition; the exact worked
+      example; VAT applied and "TAX INVOICE" labelling only when the platform's VAT registration + rate are
+      both configured, never charged without a VAT registration number even if a rate exists; 0/1-vehicle
+      edge cases; idempotent per billing period including under real concurrency; unique sequential numbers
+      across concurrent generation for different tenants; a real PDF genuinely rendered and attached via the
+      existing MediaAsset architecture (system-generated, `capturedByUserId` null); an issued snapshot is
+      immutable to a later pricing change; void requires `invoice:EDIT`, refuses an already-PAID or
+      already-VOID invoice, cross-tenant denied; reissue requires VOID first and links back via
+      `reissueOfInvoiceId`; list/get require `invoice:VIEW` and never return another tenant's invoices.
+- [x] `tests/payment-repository.test.ts` (11 cases): `payment:CREATE`-gated initiation, refuses a
+      non-payable invoice; a successful webhook marks the invoice PAID exactly once even processed twice
+      (duplicate webhook -> `DUPLICATE`, no second `Payment` row); FAILED/PENDING provider statuses never
+      mark an invoice paid; amount-mismatch and currency-mismatch webhooks rejected and audited; an invalid
+      webhook signature rejected before any content is trusted; manual payment requires an exact
+      amount/currency match, a proof reference, and `payment:CREATE`; no card/CVV/banking-credential field
+      exists on the `Payment` schema; a successful payment restores a SUSPENDED tenant once no invoices
+      remain outstanding; `listPaymentsForTenant` requires `payment:VIEW` and tenant-isolated.
+- [x] `tests/billing-email-repository.test.ts` (8 cases): `NoOpBillingEmailProvider` never claims delivery;
+      exactly one email per active billing contact for a genuine payment-success event via the mock
+      provider; idempotent per (invoice, payment) including under real concurrency (8 simultaneous calls ->
+      1 delivery); an authorised resend is always a new, deliberate delivery, never blocked by the
+      payment-event idempotency guarantee; a failed send is recorded and never reverses the triggering
+      payment; delivery history requires `billingEmail:VIEW`; no recipients configured sends nothing and
+      never throws.
+- [x] `tests/subscription-repository.test.ts` (9 cases): PENDING never blocks movement creation; suspension
+      requires PAST_DUE first; PAST_DUE is a warning only, never blocks; SUSPENDED blocks new movement
+      creation (`TenantAccessSuspendedError`) but leaves all existing data completely untouched; explicit
+      platform-admin suspend/restore is permission-gated and records the actor; an automated suspension
+      (actor null) is still fully audited; cannot restore an ACTIVE/PENDING subscription;
+      `isEligibleForAutomatedSuspension()` grace-period boundary (pure function); the automated-suspension
+      sweep only acts on a genuinely-elapsed PAST_DUE tenant.
+- [x] `tests/recurring-billing-repository.test.ts` (4 cases, 90s timeout — this function scans every ACTIVE
+      tenant in the whole database, which under Vitest's full-suite parallel execution genuinely takes
+      longer than the default per-test budget when many unrelated test files' tenants exist at once, not a
+      performance defect): generates exactly one invoice per active tenant for the reference month; running
+      the identical cycle three times never duplicates an invoice or a snapshot for the same tenant; never
+      bills the platform tenant itself; marks a backdated invoice overdue and (once the grace period has
+      elapsed) automatically suspends.
+- [x] `tests/billing-tenant-isolation.test.ts` (5 cases, P10N): documents and proves the real cross-tenant
+      boundary (every customer-facing route hardcodes `session.tenantId`, verified directly against route
+      source; only platform-only-permission-gated routes accept an explicit tenant id); there is no code
+      path that lets a client mark an invoice paid directly, only a genuine webhook or an audited manual
+      payment; the `Payment` schema has no card/CVV/banking field; `getInvoiceForTenant` never returns a
+      cross-tenant result even with a valid permission; a session with zero billing permissions is rejected
+      with `ForbiddenError`, never a silent empty result.
+- [x] `e2e/billing-workflow.spec.ts` (2 tests, run repeatedly clean against the real dev server): platform
+      admin negotiates pricing, the Accountant configures the tenant's own billing profile, an invoice is
+      generated for a tenant with 15+ active vehicles, the Accountant views and downloads the real PDF, a
+      restricted role (Gate Security Officer) is denied at every billing endpoint, a dedicated fresh second
+      tenant genuinely receives a 404 for the first tenant's invoice, a real provider webhook marks the
+      invoice paid, the exact same webhook event delivered again produces `DUPLICATE` (still exactly one
+      `Payment` row), the billing email is recorded exactly once for that payment event, both dashboard
+      pages render the expected data; a second test proves a not-yet-PAST_DUE tenant cannot be suspended
+      directly and an ordinary operational role (Dispatch and Logistics Officer) is denied at every billing
+      endpoint. This spec's own idempotent design (checks the invoice's current status before re-attempting
+      payment) is itself what makes repeated runs against the same real tenant/period stable — see the
+      spec's own comments.
+- [x] Visually inspected in a real browser: `/platform/billing` (dashboard list), `/platform/billing/
+      [tenantId]` (drill-down: subscription/pricing/invoices/payments), `/admin/billing` (customer
+      Accountant portal), a normal invoice PDF ("VAT was not charged on this invoice"), and a
+      VAT-configured tax invoice PDF (correct 15% line and total) — found and fixed BUG-009 (pdfkit/
+      Turbopack `__dirname` bundling) via this same live verification.
+- [x] `npm run verify:clean-migrations` — all 21 migrations (1 new: `phase10_billing_and_subscriptions`)
+      apply cleanly to a genuinely empty database.
+- [x] Full suite: 680/680 passing, run consecutively clean.
+
 ## Running tests locally
 1. `docker compose up -d` (Postgres must be running; also used for the test DB, same container).
 2. `npm test` — the `pretest` npm hook (`scripts/test-db-setup.mjs`) loads `.env.test` and runs

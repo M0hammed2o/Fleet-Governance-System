@@ -168,15 +168,58 @@ interface StorageBillingHookProvider {
 (`moveAssetsToArchive()`) and on a schedule (`reportArchiveUsageForAllTenants()`, Phase 8E-004) — the
 periodic call skips any tenant with zero archived bytes entirely, never reporting a phantom R0 usage line.
 
-## Background-job scheduler boundary (Phase 8E-004 — see ARCHITECTURE.md "Background job architecture")
+## PaymentProvider (built, mock only — `src/lib/billing/payment-provider.ts`, Phase 10F/G)
+```ts
+interface PaymentProvider {
+  createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSession>;
+  getPaymentStatus(providerReference: string): Promise<PaymentStatusResult>;
+  validateWebhookAuthenticity(rawBody: string, headers: Record<string, string | undefined>): boolean;
+  parseWebhookEvent(rawBody: string, headers: Record<string, string | undefined>): WebhookEvent;
+  refund(providerReference: string, amountMinorUnits: number): Promise<{...} | null>;
+}
+```
+`NoOpPaymentProvider` reports "no production provider configured" honestly on every call — never
+fabricates a successful payment. `MockPaymentProvider` is a deterministic, in-memory dev/test provider
+(`PAYMENT_PROVIDER=mock`), never contacts any real service. **No production payment gateway has been
+selected or contracted** — PayFast, Peach Payments, Yoco, and Stitch are all plausible South African
+candidates, none evaluated. See BILLING_AND_SUBSCRIPTIONS.md for the full payment lifecycle and "how to add
+a real gateway later."
+
+## BillingEmailProvider (built, mock only — `src/lib/billing/billing-email-provider.ts`, Phase 10H)
+```ts
+interface BillingEmailProvider {
+  send(input: BillingEmailInput): Promise<BillingEmailSendResult>;
+}
+```
+`NoOpBillingEmailProvider` reports non-delivery honestly. `MockBillingEmailProvider` logs the send
+(recipient/subject/invoice-number/PDF-byte-count only, never the PDF content) to the server console
+(`BILLING_EMAIL_PROVIDER=mock`), never sends a real external email. **No production transactional-email
+vendor has been selected or contracted** — same status as `RetentionNotificationProvider`'s email gap
+above; a future real implementation is a drop-in swap, same pattern.
+
+## StorageBillingHookProvider (built, no-op — `src/lib/retention/storage-billing-hook.ts`, Phase 8C)
+```ts
+interface StorageBillingHookProvider {
+  reportUsage(report: StorageBillingUsageReport): Promise<void>;
+}
+```
+`NoOpStorageBillingHookProvider` is the only implementation. Note: Phase 10 built the platform's *actual*
+subscription/invoicing system (BILLING_AND_SUBSCRIPTIONS.md) separately from archive-storage usage
+reporting — this hook remains specifically about *reporting archive-storage usage* for a future billing
+integration to consume, not itself replaced by Phase 10. Called both per-action
+(`moveAssetsToArchive()`) and on a schedule (`reportArchiveUsageForAllTenants()`, Phase 8E-004) — the
+periodic call skips any tenant with zero archived bytes entirely, never reporting a phantom R0 usage line.
+
+## Background-job scheduler boundary (Phase 8E-004/10L — see ARCHITECTURE.md "Background job architecture")
 No production scheduler (cron, queue, managed trigger) is wired into this codebase — that's an explicit,
 intentional gap pending the hosting decision (TODO.md "Blocked"). What exists and is fully tested is the
-boundary such a scheduler would call through: eight job endpoints under `src/app/api/jobs/*`, authorized
-via a shared `x-job-scheduler-token` header (`JOB_SCHEDULER_TOKEN`, fail-closed if unset) or an
-authenticated Platform Administrator session, each with a hard database-level guarantee against running
-twice concurrently. Whichever scheduler the hosting decision implies (a platform-native cron trigger, a
-queue worker, a simple external cron hitting these routes with the token) needs no application-code change
-— only the token configured as a secret and something pointed at these eight URLs on a schedule.
+boundary such a scheduler would call through: nine job endpoints under `src/app/api/jobs/*` (including
+Phase 10L's `billing.runRecurringCycle`), authorized via a shared `x-job-scheduler-token` header
+(`JOB_SCHEDULER_TOKEN`, fail-closed if unset) or an authenticated Platform Administrator session, each with
+a hard database-level guarantee against running twice concurrently. Whichever scheduler the hosting
+decision implies (a platform-native cron trigger, a queue worker, a simple external cron hitting these
+routes with the token) needs no application-code change — only the token configured as a secret and
+something pointed at these nine URLs on a schedule.
 
 ## Hardware/device integration
 Explicitly deferred per build-brief section 8 (no custom GPS/ANPR hardware in V1). Any future barrier or
