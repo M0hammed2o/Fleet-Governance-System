@@ -122,6 +122,18 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "tenantBilling", action: "VIEW" },
       { resource: "invoice", action: "VIEW" },
       { resource: "tenantSubscription", action: "VIEW" },
+      // Phase 11 (P11M) — "Company Administrator manages config/authorised
+      // access": configures TenantInvestigationSettings and manages who has
+      // external-auditor access, plus oversight VIEW/confidential VIEW; can
+      // release an investigation hold (paired with Security Supervisor /
+      // Approving Manager below so dual-authorisation is possible for
+      // high-severity holds, P11G). Deliberately no CREATE/EDIT on cases day
+      // to day, and no finding APPROVE/closure — that is the Internal
+      // Investigator / Auditor + Security Supervisor split below.
+      { resource: "investigationCase", action: "VIEW" }, { resource: "investigationCase", action: "CONFIGURE" },
+      { resource: "investigationConfidentialAccess", action: "VIEW" },
+      { resource: "investigationHold", action: "CONFIGURE" },
+      { resource: "externalAuditorAccess", action: "VIEW" }, { resource: "externalAuditorAccess", action: "CREATE" }, { resource: "externalAuditorAccess", action: "DELETE" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -141,6 +153,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "reconciliation", action: "VIEW" },
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
+      // Phase 11 (P11K/M) — "Security Guard/Dispatch may refer but not
+      // automatically get confidential access": the one narrow permission
+      // this role holds for investigations, nothing else.
+      { resource: "investigationReferral", action: "CREATE" },
     ],
   },
   // --- Primary role 3/6 — unchanged from the original 8-role set. ---
@@ -175,6 +191,9 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // (GPS-002) — resolution is the supervisor's job.
       { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "CREATE" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
+      // Phase 11 (P11K/M) — same narrow referral-only grant as Dispatch and
+      // Logistics Officer, nothing more.
+      { resource: "investigationReferral", action: "CREATE" },
     ],
   },
   // --- Primary role 4/6 — merge of the old "Security Manager" (gate
@@ -210,6 +229,26 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // deliberately not also granted retention:CREATE, so approving a
       // deletion request can never be the same role that initiated it.
       { resource: "retention", action: "VIEW" }, { resource: "retention", action: "APPROVE" },
+      // Phase 11 (P11M) — this is the seed's "Investigation Manager" persona:
+      // already the designated approving-manager role elsewhere (movement/
+      // exception/reconciliation/retention), so approving findings, closing/
+      // reopening cases, releasing holds and granting/revoking external
+      // access sit here too — deliberately NOT the same role as "Internal
+      // Investigator / Auditor" below, so "who investigates/records
+      // findings" and "who approves/closes/grants external access" are
+      // structurally different roles, not just a same-actor runtime check
+      // (P11D separation of duties).
+      { resource: "investigationCase", action: "VIEW" }, { resource: "investigationCase", action: "CREATE" }, { resource: "investigationCase", action: "EDIT" },
+      { resource: "investigationConfidentialAccess", action: "VIEW" },
+      { resource: "investigationSubject", action: "EDIT" },
+      { resource: "investigationEvidence", action: "VIEW" }, { resource: "investigationEvidence", action: "CREATE" }, { resource: "investigationEvidence", action: "EXPORT" },
+      { resource: "investigationNote", action: "CREATE" }, { resource: "investigationNote", action: "VIEW" },
+      { resource: "investigationTask", action: "CREATE" }, { resource: "investigationTask", action: "EDIT" },
+      { resource: "investigationFinding", action: "APPROVE" }, { resource: "investigationFinding", action: "REJECT" },
+      { resource: "investigationHold", action: "CONFIGURE" },
+      { resource: "investigationReport", action: "CREATE" }, { resource: "investigationReport", action: "EXPORT" },
+      { resource: "investigationCaseClosure", action: "APPROVE" }, { resource: "investigationCaseClosure", action: "REJECT" },
+      { resource: "externalAuditorAccess", action: "VIEW" }, { resource: "externalAuditorAccess", action: "CREATE" }, { resource: "externalAuditorAccess", action: "DELETE" },
     ],
   },
   // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
@@ -281,11 +320,15 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "payment", action: "VIEW" }, { resource: "payment", action: "CREATE" },
       { resource: "billingEmail", action: "VIEW" }, { resource: "billingEmail", action: "CREATE" },
       { resource: "tenantSubscription", action: "VIEW" },
+      // Phase 11 (P11M) — "Accountant only where financially relevant": no
+      // standing investigation grant at all by default (least privilege);
+      // a per-user permission override is the intended path if this role
+      // ever needs case visibility for a specific financial-fraud case.
     ],
   },
   // --- Additional non-daily profile 1/3 — renamed "Internal Auditor". ---
   "Internal Investigator / Auditor": {
-    description: "Read-only access to evidence, reports and audit history, for internal investigations. Can record control-test results and findings where authorised (Phase 6 Governance).",
+    description: "Read-only access to evidence, reports and audit history, for internal investigations. Can record control-test results and findings where authorised (Phase 6 Governance). Investigates and records Phase 11 case findings but cannot approve its own findings, close/reopen a case or grant external-auditor access (Security Supervisor / Approving Manager).",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -311,6 +354,20 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "invoice", action: "VIEW" },
       { resource: "payment", action: "VIEW" },
       { resource: "tenantSubscription", action: "VIEW" },
+      // Phase 11 (P11M) — the working-investigator slice: create/edit cases,
+      // manage subjects/evidence/notes/tasks, record findings and generate
+      // reports. Deliberately no investigationFinding:APPROVE/REJECT, no
+      // investigationCaseClosure, no investigationHold:CONFIGURE and no
+      // externalAuditorAccess — those stay with Security Supervisor /
+      // Approving Manager above (P11D separation of duties).
+      { resource: "investigationCase", action: "VIEW" }, { resource: "investigationCase", action: "CREATE" }, { resource: "investigationCase", action: "EDIT" },
+      { resource: "investigationConfidentialAccess", action: "VIEW" },
+      { resource: "investigationSubject", action: "EDIT" },
+      { resource: "investigationEvidence", action: "VIEW" }, { resource: "investigationEvidence", action: "CREATE" }, { resource: "investigationEvidence", action: "EXPORT" },
+      { resource: "investigationNote", action: "CREATE" }, { resource: "investigationNote", action: "VIEW" },
+      { resource: "investigationTask", action: "CREATE" }, { resource: "investigationTask", action: "EDIT" },
+      { resource: "investigationFinding", action: "CREATE" }, { resource: "investigationFinding", action: "EDIT" },
+      { resource: "investigationReport", action: "CREATE" }, { resource: "investigationReport", action: "EXPORT" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the
@@ -319,7 +376,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
   // external party (e.g. insurance/compliance reviewer) sees case-relevant
   // evidence and records, not internal operational configuration. ---
   "External Reviewer": {
-    description: "Restricted read-only access for an external reviewer (e.g. insurer, external compliance auditor) — evidence and records only, no internal staff/configuration visibility, no export.",
+    description: "Restricted read-only access for an external reviewer (e.g. insurer, external compliance auditor) — evidence and records only, no internal staff/configuration visibility, no export. Distinct from the Phase 11 'External Auditor (Case-Scoped)' role below — this role has standing tenant-wide read access under a broader existing mandate; it deliberately receives no Phase 11 investigation permissions.",
     permissions: [
       { resource: "site", action: "VIEW" },
       { resource: "gate", action: "VIEW" },
@@ -355,6 +412,25 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "tenantBilling", action: "VIEW" },
       { resource: "invoice", action: "VIEW" },
       { resource: "tenantSubscription", action: "VIEW" },
+      // Phase 11 (P11K) — aggregate case-count oversight only, no
+      // confidential/evidence/subject access, matching this role's existing
+      // "no media/evidence access" posture.
+      { resource: "investigationCase", action: "VIEW" },
+    ],
+  },
+  // --- Phase 11 addition, deliberately outside the six-primary +
+  // three-additional structure (D-015): the P11L hard requirement is a role
+  // with NO general tenant-wide visibility at all, gated entirely by a
+  // live, case-scoped ExternalAuditorAccessGrant. Reusing "External
+  // Reviewer" (which already holds standing tenant-wide VIEW across most
+  // resources, see above) would violate that requirement outright, so this
+  // is a new, minimal, additive role rather than a reinterpretation of an
+  // existing one — see DECISIONS.md.
+  "External Auditor (Case-Scoped)": {
+    description: "Phase 11 restricted, time-limited, case-scoped external auditor access. Holds no general tenant-wide permission — every case/report/evidence view is additionally gated by a live, non-expired, non-revoked ExternalAuditorAccessGrant naming the exact case.",
+    permissions: [
+      { resource: "externalAuditorPortal", action: "VIEW" },
+      { resource: "externalAuditorPortal", action: "EXPORT" },
     ],
   },
 };
@@ -553,6 +629,11 @@ async function main() {
 
   await seedMasterData(demoTenant.id, site.id, usersByRole);
   await seedBilling(demoTenant.id);
+  await prisma.tenantInvestigationSettings.upsert({
+    where: { tenantId: demoTenant.id },
+    update: {},
+    create: { tenantId: demoTenant.id },
+  });
 
   console.log("\nSeed complete. Dev-only fictional accounts (all share the same dev password):");
   console.log(`  Password: ${DEV_PASSWORD}`);
@@ -590,6 +671,11 @@ function fictionalNameFor(roleName: string): string {
     "Internal Investigator / Auditor": "Andries Pretorius",
     "External Reviewer": "Michael O'Sullivan",
     "Executive Read-Only Viewer": "Lindiwe Zulu",
+    // Phase 11 — deterministic local test user for the restricted,
+    // case-scoped external-auditor mechanism (P11L: "deterministic local
+    // test users, honest no-op invitation provider — do not send a real
+    // external invitation").
+    "External Auditor (Case-Scoped)": "Priya Naidoo",
   };
   return names[roleName] ?? roleName;
 }

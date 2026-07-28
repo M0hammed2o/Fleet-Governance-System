@@ -73,23 +73,39 @@ model Tenant {
   deletionRequests                      DeletionRequest[]
   deletionCertificates                  DeletionCertificate[]
   exportRequests                        ExportRequest[]
-  retentionNotificationRecords           RetentionNotificationRecord[]
-  driverFacialTemplates                  DriverFacialTemplate[]
-  facialVerificationAttempts             FacialVerificationAttempt[]
-  cloudFallbackInvocations               CloudFallbackInvocation[]
+  retentionNotificationRecords          RetentionNotificationRecord[]
+  driverFacialTemplates                 DriverFacialTemplate[]
+  facialVerificationAttempts            FacialVerificationAttempt[]
+  cloudFallbackInvocations              CloudFallbackInvocation[]
 
   // --- Phase 10: subscriptions, billing and invoicing ---------------------
-  billingProfile             TenantBillingProfile?
-  customerBillingContacts    CustomerBillingContact[]
-  pricingAgreements          TenantPricingAgreement[]
-  subscription               TenantSubscription?
-  billingPeriods             BillingPeriod[]
-  billableVehicleSnapshots   BillableVehicleSnapshot[]
-  invoices                   Invoice[]
-  payments                   Payment[]
-  paymentAttempts            PaymentAttempt[]
-  billingEmailDeliveries     BillingEmailDelivery[]
-  creditAdjustments          CreditAdjustment[]
+  billingProfile           TenantBillingProfile?
+  customerBillingContacts  CustomerBillingContact[]
+  pricingAgreements        TenantPricingAgreement[]
+  subscription             TenantSubscription?
+  billingPeriods           BillingPeriod[]
+  billableVehicleSnapshots BillableVehicleSnapshot[]
+  invoices                 Invoice[]
+  payments                 Payment[]
+  paymentAttempts          PaymentAttempt[]
+  billingEmailDeliveries   BillingEmailDelivery[]
+  creditAdjustments        CreditAdjustment[]
+
+  // --- Phase 11: investigation, internal review and external audit case management ---
+  investigationSettings            TenantInvestigationSettings?
+  investigationCaseSequences       InvestigationCaseSequence[]
+  investigationCases               InvestigationCase[]
+  investigationSubjects            InvestigationSubject[]
+  investigationRelatedRecords      InvestigationRelatedRecord[]
+  investigationNotes               InvestigationNote[]
+  investigationTasks               InvestigationTask[]
+  investigationFindings            InvestigationFinding[]
+  investigationApprovals           InvestigationApproval[]
+  investigationEvidenceLinks       InvestigationEvidenceLink[]
+  investigationChronologyEvents    InvestigationChronologyEvent[]
+  externalAuditorAccessGrants      ExternalAuditorAccessGrant[]
+  externalAuditorAccessLogs        ExternalAuditorAccessLog[]
+  investigationNotificationRecords InvestigationNotificationRecord[]
 
   @@map("tenants")
 }
@@ -147,7 +163,7 @@ model Gate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  gateEvents GateEvent[]
+  gateEvents                 GateEvent[]
   facialVerificationAttempts FacialVerificationAttempt[]
 
   @@index([tenantId])
@@ -216,22 +232,49 @@ model User {
   deletionRequestsApproved            DeletionRequest[]                  @relation("DeletionRequestApprovedBy")
   deletionRequestsRejected            DeletionRequest[]                  @relation("DeletionRequestRejectedBy")
   exportRequestsRequested             ExportRequest[]                    @relation("ExportRequestRequestedBy")
-  driverFacialTemplatesEnrolled       DriverFacialTemplate[]              @relation("DriverFacialTemplateEnrolledBy")
-  driverFacialTemplatesRevoked        DriverFacialTemplate[]              @relation("DriverFacialTemplateRevokedBy")
-  facialVerificationAttemptsAsOfficer FacialVerificationAttempt[]         @relation("FacialVerificationAttemptOfficer")
+  driverFacialTemplatesEnrolled       DriverFacialTemplate[]             @relation("DriverFacialTemplateEnrolledBy")
+  driverFacialTemplatesRevoked        DriverFacialTemplate[]             @relation("DriverFacialTemplateRevokedBy")
+  facialVerificationAttemptsAsOfficer FacialVerificationAttempt[]        @relation("FacialVerificationAttemptOfficer")
 
   // --- Phase 10: subscriptions, billing and invoicing ---------------------
-  platformPricingVersionsCreated     PlatformPricingVersion[]   @relation("PlatformPricingVersionCreatedBy")
-  platformBillingSettingsUpdated     PlatformBillingSettings[]  @relation("PlatformBillingSettingsUpdatedBy")
-  tenantPricingAgreementsCreated     TenantPricingAgreement[]   @relation("TenantPricingAgreementCreatedBy")
-  tenantSubscriptionsSuspended       TenantSubscription[]       @relation("TenantSubscriptionSuspendedBy")
-  tenantSubscriptionsRestored        TenantSubscription[]       @relation("TenantSubscriptionRestoredBy")
-  billableVehicleSnapshotsGenerated  BillableVehicleSnapshot[]  @relation("BillableVehicleSnapshotGeneratedBy")
-  invoicesCreated                    Invoice[]                  @relation("InvoiceCreatedBy")
-  invoicesVoided                     Invoice[]                  @relation("InvoiceVoidedBy")
-  paymentsRecorded                   Payment[]                  @relation("PaymentRecordedBy")
-  billingEmailDeliveriesTriggered    BillingEmailDelivery[]     @relation("BillingEmailDeliveryTriggeredBy")
-  creditAdjustmentsCreated           CreditAdjustment[]         @relation("CreditAdjustmentCreatedBy")
+  platformPricingVersionsCreated    PlatformPricingVersion[]  @relation("PlatformPricingVersionCreatedBy")
+  platformBillingSettingsUpdated    PlatformBillingSettings[] @relation("PlatformBillingSettingsUpdatedBy")
+  tenantPricingAgreementsCreated    TenantPricingAgreement[]  @relation("TenantPricingAgreementCreatedBy")
+  tenantSubscriptionsSuspended      TenantSubscription[]      @relation("TenantSubscriptionSuspendedBy")
+  tenantSubscriptionsRestored       TenantSubscription[]      @relation("TenantSubscriptionRestoredBy")
+  billableVehicleSnapshotsGenerated BillableVehicleSnapshot[] @relation("BillableVehicleSnapshotGeneratedBy")
+  invoicesCreated                   Invoice[]                 @relation("InvoiceCreatedBy")
+  invoicesVoided                    Invoice[]                 @relation("InvoiceVoidedBy")
+  paymentsRecorded                  Payment[]                 @relation("PaymentRecordedBy")
+  billingEmailDeliveriesTriggered   BillingEmailDelivery[]    @relation("BillingEmailDeliveryTriggeredBy")
+  creditAdjustmentsCreated          CreditAdjustment[]        @relation("CreditAdjustmentCreatedBy")
+
+  // --- Phase 11: investigation, internal review and external audit case management ---
+  investigationCasesAsReportingPerson   InvestigationCase[]               @relation("InvestigationCaseReportingPerson")
+  investigationCasesAssigned            InvestigationCase[]               @relation("InvestigationCaseAssignedInvestigator")
+  investigationCasesOwned               InvestigationCase[]               @relation("InvestigationCaseOwner")
+  investigationCasesCreated             InvestigationCase[]               @relation("InvestigationCaseCreatedBy")
+  investigationCasesClosed              InvestigationCase[]               @relation("InvestigationCaseClosedBy")
+  investigationCasesReopened            InvestigationCase[]               @relation("InvestigationCaseReopenedBy")
+  investigationCaseHoldsReleased        InvestigationCase[]               @relation("InvestigationCaseHoldReleasedBy")
+  investigationSubjectLinks             InvestigationSubject[]            @relation("InvestigationSubjectUser")
+  investigationSubjectsCreated          InvestigationSubject[]            @relation("InvestigationSubjectCreatedBy")
+  investigationRelatedRecordsLinked     InvestigationRelatedRecord[]      @relation("InvestigationRelatedRecordLinkedBy")
+  investigationNotesAuthored            InvestigationNote[]               @relation("InvestigationNoteAuthor")
+  investigationTasksAssigned            InvestigationTask[]               @relation("InvestigationTaskAssignedTo")
+  investigationTasksCompleted           InvestigationTask[]               @relation("InvestigationTaskCompletedBy")
+  investigationTasksCreated             InvestigationTask[]               @relation("InvestigationTaskCreatedBy")
+  investigationFindingsCreated          InvestigationFinding[]            @relation("InvestigationFindingCreatedBy")
+  investigationFindingsSubmitted        InvestigationFinding[]            @relation("InvestigationFindingSubmittedBy")
+  investigationApprovalActions          InvestigationApproval[]           @relation("InvestigationApprovalActor")
+  investigationEvidenceLinksAdded       InvestigationEvidenceLink[]       @relation("InvestigationEvidenceLinkAddedBy")
+  investigationEvidenceLinksMarkedError InvestigationEvidenceLink[]       @relation("InvestigationEvidenceLinkEnteredInErrorBy")
+  investigationChronologyEventsActed    InvestigationChronologyEvent[]    @relation("InvestigationChronologyEventActor")
+  externalAuditorAccessGrantsAsAuditor  ExternalAuditorAccessGrant[]      @relation("ExternalAuditorAccessGrantAuditor")
+  externalAuditorAccessGrantsGranted    ExternalAuditorAccessGrant[]      @relation("ExternalAuditorAccessGrantGrantedBy")
+  externalAuditorAccessGrantsRevoked    ExternalAuditorAccessGrant[]      @relation("ExternalAuditorAccessGrantRevokedBy")
+  externalAuditorAccessLogsActed        ExternalAuditorAccessLog[]        @relation("ExternalAuditorAccessLogActor")
+  investigationNotificationsReceived    InvestigationNotificationRecord[] @relation("InvestigationNotificationRecipient")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -494,6 +537,7 @@ model Driver {
   vehicleUsePolicies                VehicleUsePolicy[]
   facialTemplates                   DriverFacialTemplate[]
   facialVerificationAttempts        FacialVerificationAttempt[]
+  investigationSubjectLinks         InvestigationSubject[]
 
   @@index([tenantId])
   @@map("drivers")
@@ -577,7 +621,7 @@ model DriverFacialTemplate {
   templateAuthTag    Bytes
   // Which key encrypted this row — supports future key rotation without
   // needing to re-encrypt every row atomically in one pass.
-  encryptionKeyId String
+  encryptionKeyId    String
 
   // FACIAL_VERIFICATION_LICENSING.md's exact package/model identifiers,
   // recorded per template so a future model/package upgrade can identify
@@ -792,16 +836,17 @@ model Vehicle {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  complianceDocuments    ComplianceDocument[]
-  tyres                  VehicleTyre[]
-  movementAuthorisations MovementAuthorisation[]   @relation("MovementVehicle")
-  trailerForMovements    MovementAuthorisation[]   @relation("MovementTrailer")
-  gateEvents             GateEvent[]               @relation("GateEventVehicle")
-  trailerForGateEvents   GateEvent[]               @relation("GateEventTrailer")
-  telematicsExceptions   Exception[]               @relation("ExceptionVehicle")
-  telematicsEvents       TelematicsEvent[]
-  manualGpsConfirmations ManualGpsConfirmation[]
-  usePolicyAssignments   VehicleUsePolicyVehicle[]
+  complianceDocuments       ComplianceDocument[]
+  tyres                     VehicleTyre[]
+  movementAuthorisations    MovementAuthorisation[]   @relation("MovementVehicle")
+  trailerForMovements       MovementAuthorisation[]   @relation("MovementTrailer")
+  gateEvents                GateEvent[]               @relation("GateEventVehicle")
+  trailerForGateEvents      GateEvent[]               @relation("GateEventTrailer")
+  telematicsExceptions      Exception[]               @relation("ExceptionVehicle")
+  telematicsEvents          TelematicsEvent[]
+  manualGpsConfirmations    ManualGpsConfirmation[]
+  usePolicyAssignments      VehicleUsePolicyVehicle[]
+  investigationSubjectLinks InvestigationSubject[]
 
   @@unique([tenantId, registrationNumber])
   @@unique([tenantId, vin])
@@ -1250,10 +1295,10 @@ model GateEvent {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  inspectionResults         GateEventInspectionItem[]
-  exceptions                Exception[]
-  reconciliationAsDeparture Reconciliation?           @relation("ReconciliationDeparture")
-  reconciliationAsReturn    Reconciliation?           @relation("ReconciliationReturn")
+  inspectionResults          GateEventInspectionItem[]
+  exceptions                 Exception[]
+  reconciliationAsDeparture  Reconciliation?             @relation("ReconciliationDeparture")
+  reconciliationAsReturn     Reconciliation?             @relation("ReconciliationReturn")
   facialVerificationAttempts FacialVerificationAttempt[]
 
   @@index([tenantId])
@@ -1444,6 +1489,15 @@ enum MediaAssetOwnerType {
   // (Invoice.pdfMediaAssetId), reusing the existing signed-URL/object-storage
   // architecture rather than a new "documents" store — see D-035.
   INVOICE
+  // Phase 11 (P11F) — an evidence item uploaded directly to an investigation
+  // case (as opposed to a piece of evidence linked in from an already-owned
+  // record, e.g. GATE_EVENT_INSPECTION_ITEM, which keeps its original
+  // ownerType and is simply referenced by InvestigationEvidenceLink).
+  INVESTIGATION_CASE
+  // Phase 11 (P11J) — a generated investigation-case report PDF. Many per
+  // case (one per approved version), same one-directional
+  // (ownerType, ownerId) pattern as INVOICE, not a unique 1:1.
+  INVESTIGATION_REPORT
 }
 
 enum MediaDataClassification {
@@ -1531,12 +1585,12 @@ model MediaAsset {
   idempotencyKey String
 
   // --- Phase 8B: cost-efficient object-storage architecture ---------------
-  category        MediaCategory     @default(OTHER_DOCUMENT)
-  uploadStatus    MediaUploadStatus @default(READY)
+  category            MediaCategory     @default(OTHER_DOCUMENT)
+  uploadStatus        MediaUploadStatus @default(READY)
   // Which ObjectStorageProvider implementation persisted this object
   // ("local" | "r2") — for accounting/dashboards, not used to route reads
   // (a MediaAsset's provider never changes after creation in this phase).
-  storageProvider String            @default("local")
+  storageProvider     String            @default("local")
   // Set only when a compressed/converted version differs from what the
   // client originally sent and policy requires keeping the original too
   // (flagged incidents — see ARCHITECTURE.md). Null otherwise: most evidence
@@ -1555,9 +1609,9 @@ model MediaAsset {
   // --- Phase 8C: retention, archive and deletion ---------------------------
   // Both hard, unconditional blockers on deletion regardless of role/permission
   // — see DECISIONS.md and lib/retention/deletion-rules.ts.
-  legalHold         Boolean              @default(false)
-  investigationHold Boolean              @default(false)
-  retentionStatus   RetentionAssetStatus @default(ACTIVE)
+  legalHold           Boolean              @default(false)
+  investigationHold   Boolean              @default(false)
+  retentionStatus     RetentionAssetStatus @default(ACTIVE)
   // Derived from the applicable RetentionPolicy at capture time
   // (capturedAt + retentionDays); recalculated when the policy or a hold
   // changes. Null means "not yet computed" (no policy existed at capture
@@ -1576,7 +1630,7 @@ model MediaAsset {
   // structured operational records separately from large media files").
   // Once set, storageKey/thumbnailStorageKey/originalStorageKey no longer
   // point at anything readable.
-  binaryDeletedAt DateTime?
+  binaryDeletedAt     DateTime?
 
   createdAt DateTime @default(now())
 
@@ -1587,6 +1641,7 @@ model MediaAsset {
   deletionRequestLinks            DeletionRequestAsset[]
   retentionNotifications          RetentionNotificationRecord[]
   invoiceAsPdf                    Invoice?                          @relation("InvoicePdf")
+  investigationEvidenceLinks      InvestigationEvidenceLink[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
@@ -2049,7 +2104,7 @@ model RetentionPolicy {
 
   retentionDays                 Int     @default(365)
   includedStorageAllowanceBytes Float?
-  archiveEligible                Boolean @default(true)
+  archiveEligible               Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2179,8 +2234,8 @@ model ExportRequest {
   requestedAt       DateTime @default(now())
 
   // { assets: [{ mediaAssetId, fileName, category, checksumSha256, fileSizeBytes, signedUrl }], generatedAt }
-  manifest   Json?
-  expiresAt  DateTime?
+  manifest  Json?
+  expiresAt DateTime?
 
   assetCount Int?
   totalBytes Float?
@@ -2230,7 +2285,7 @@ model RetentionNotificationRecord {
   milestone           Int
   scheduledDeletionAt DateTime
 
-  status RetentionNotificationStatus @default(PENDING)
+  status        RetentionNotificationStatus   @default(PENDING)
   // Null until a delivery attempt actually runs — which provider handled
   // it isn't known at generation time, only at attempt time.
   channel       RetentionNotificationChannel?
@@ -2378,15 +2433,15 @@ model SubscriptionPlan {
 // pricing changes; never edited or deleted (D-035). The current default
 // price is the row with the latest effectiveFrom <= now.
 model PlatformPricingVersion {
-  id                      String    @id @default(cuid())
+  id                      String   @id @default(cuid())
   baseFeeMinorUnits       Int
   perVehicleFeeMinorUnits Int
-  currency                String    @default("ZAR")
-  effectiveFrom           DateTime  @default(now())
+  currency                String   @default("ZAR")
+  effectiveFrom           DateTime @default(now())
   note                    String?
   createdByUserId         String?
-  createdBy               User?     @relation("PlatformPricingVersionCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt               DateTime  @default(now())
+  createdBy               User?    @relation("PlatformPricingVersionCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt               DateTime @default(now())
 
   @@index([effectiveFrom])
   @@map("platform_pricing_versions")
@@ -2455,7 +2510,7 @@ model TenantBillingProfile {
   subscriptionStartDate  DateTime?
   notes                  String?
   createdAt              DateTime  @default(now())
-  updatedAt               DateTime @updatedAt
+  updatedAt              DateTime  @updatedAt
 
   @@map("tenant_billing_profiles")
 }
@@ -2582,7 +2637,7 @@ model Invoice {
 
   subtotalMinorUnits  Int
   vatRateBasisPoints  Int?
-  vatAmountMinorUnits Int @default(0)
+  vatAmountMinorUnits Int  @default(0)
   totalMinorUnits     Int
 
   // Immutable snapshots of supplier/customer identity at issue time (D-035)
@@ -2662,8 +2717,8 @@ model Payment {
   // proof/reference for a payment received outside the payment provider
   // (e.g. an EFT reference), enforced at the application layer (never a
   // card number, CVV, or online-banking credential — P10G).
-  recordedByUserId    String?
-  recordedBy          User?   @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id])
+  recordedByUserId     String?
+  recordedBy           User?   @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id])
   manualProofReference String?
   manualNote           String?
 
@@ -2768,4 +2823,626 @@ model CreditAdjustment {
   createdAt        DateTime @default(now())
 
   @@map("credit_adjustments")
+}
+
+// ===========================================================================
+// Phase 11: Investigation, Internal Review and External Audit Case Management
+// See INVESTIGATIONS_AND_EXTERNAL_AUDIT.md for the full workflow narrative.
+// ===========================================================================
+
+enum InvestigationSource {
+  GATE_EXCEPTION
+  FACIAL_VERIFICATION_FAILURE
+  VEHICLE_INSPECTION_FAILURE
+  CARGO_LOAD_DISCREPANCY
+  RECONCILIATION_DISCREPANCY
+  GPS_GEOFENCE_EXCEPTION
+  MISSING_EVIDENCE
+  SUSPECTED_UNAUTHORISED_USE
+  ODOMETER_FUEL_CONDITION_DISCREPANCY
+  MANUAL_CONCERN
+  OTHER
+}
+
+// Kept as a small fixed enum (rather than a free-text/tenant-configurable
+// catalogue like ExceptionType) so Phase 12 can aggregate by category
+// without a redesign (P11P) — extend this list only, never repurpose a value.
+enum InvestigationCategory {
+  FRAUD
+  THEFT
+  SAFETY
+  POLICY_VIOLATION
+  MISCONDUCT
+  DATA_INTEGRITY
+  UNAUTHORISED_USE
+  OTHER
+}
+
+enum InvestigationStatus {
+  DRAFT
+  OPEN
+  TRIAGE
+  UNDER_INVESTIGATION
+  AWAITING_INFORMATION
+  AWAITING_APPROVAL
+  CLOSED
+  REOPENED
+}
+
+// Deliberately separate from InvestigationStatus (P11A hard requirement) —
+// outcome must never be inferred from status alone, and NOT_DETERMINED is
+// the only valid outcome for every non-CLOSED case.
+enum InvestigationOutcome {
+  NOT_DETERMINED
+  SUBSTANTIATED
+  UNSUBSTANTIATED
+  INCONCLUSIVE
+  REFERRED_FOR_FURTHER_ACTION
+}
+
+enum InvestigationConfidentiality {
+  STANDARD
+  RESTRICTED
+  HIGHLY_RESTRICTED
+}
+
+// A subject is a linked party, never a verdict — the interface must always
+// render this as "case subject", never "suspect"/"guilty" (P11A/E hard rule).
+enum InvestigationPartyRole {
+  SUBJECT
+  WITNESS
+  OTHER_INVOLVED_PARTY
+}
+
+enum InvestigationRelatedRecordType {
+  EXCEPTION
+  GATE_EVENT
+  GATE_EVENT_INSPECTION_ITEM
+  MOVEMENT_AUTHORISATION
+  RECONCILIATION
+  RECONCILIATION_DISCREPANCY
+  FACIAL_VERIFICATION_ATTEMPT
+  TELEMATICS_EVENT
+  VEHICLE
+  DRIVER
+  OTHER
+}
+
+enum InvestigationNoteType {
+  GENERAL
+  INTERVIEW
+  ANALYSIS
+  DECISION
+  SYSTEM
+}
+
+enum InvestigationTaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum InvestigationFindingStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RETURNED_FOR_AMENDMENT
+  REJECTED
+}
+
+enum InvestigationApprovalAction {
+  SUBMIT
+  APPROVE
+  RETURN_FOR_AMENDMENT
+  REJECT
+}
+
+// One settings row per tenant (P11C/D/G). casePrefix is the configurable
+// prefix used by allocateNextInvestigationCaseNumber()
+// (investigation-repository.ts); enforceSeparationOfDuties and
+// requireDualApprovalForHighSeverityHoldRelease are the two configurable
+// safety policies P11D/P11G ask for — see investigation-repository.ts /
+// investigation-hold-repository.ts for how each is actually enforced.
+model TenantInvestigationSettings {
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  casePrefix                                    String  @default("INV")
+  enforceSeparationOfDuties                     Boolean @default(true)
+  requireDualApprovalForHighSeverityHoldRelease Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenant_investigation_settings")
+}
+
+// One row per (tenant, year). nextSequence is allocated via a single atomic
+// Prisma upsert (native Postgres INSERT ... ON CONFLICT DO UPDATE ...
+// RETURNING), the same atomicity guarantee as
+// PlatformBillingSettings.nextInvoiceSequence, so two concurrent
+// case-creation calls in the same tenant/year can never receive the same
+// number (P11C). Historical case numbers never change even if casePrefix is
+// later reconfigured — only the sequence portion is derived from this table.
+model InvestigationCaseSequence {
+  id           String @id @default(cuid())
+  tenantId     String
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year         Int
+  nextSequence Int    @default(1)
+
+  @@unique([tenantId, year])
+  @@map("investigation_case_sequences")
+}
+
+model InvestigationCase {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // e.g. "INV-2026-000001" — see allocateNextInvestigationCaseNumber().
+  caseNumber String
+
+  title       String
+  // The allegation/description as originally reported — kept separate from
+  // verified findings (InvestigationFinding) so nothing in this record
+  // implies an allegation is a proven fact merely because a case exists.
+  description String
+
+  source   InvestigationSource
+  category InvestigationCategory?
+  // Reuses ExceptionSeverity rather than a duplicate enum — same LOW/MEDIUM/
+  // HIGH/CRITICAL scale already used for exceptions and reconciliation
+  // discrepancies, several of which are common referral sources for a case.
+  priority ExceptionSeverity      @default(MEDIUM)
+
+  status  InvestigationStatus  @default(DRAFT)
+  outcome InvestigationOutcome @default(NOT_DETERMINED)
+
+  confidentiality InvestigationConfidentiality @default(STANDARD)
+
+  reportingPersonUserId String?
+  reportingPerson       User?   @relation("InvestigationCaseReportingPerson", fields: [reportingPersonUserId], references: [id])
+  // Free text — the reporter may not be a system user (e.g. an anonymous or
+  // external report), so this is never required to resolve to a User row.
+  reportingPersonName   String?
+
+  assignedInvestigatorUserId String?
+  assignedInvestigator       User?   @relation("InvestigationCaseAssignedInvestigator", fields: [assignedInvestigatorUserId], references: [id])
+
+  caseOwnerUserId String
+  caseOwner       User   @relation("InvestigationCaseOwner", fields: [caseOwnerUserId], references: [id])
+
+  createdByUserId String
+  createdBy       User   @relation("InvestigationCaseCreatedBy", fields: [createdByUserId], references: [id])
+
+  submittedAt DateTime?
+  triagedAt   DateTime?
+
+  // Closure requires all four of these to be set together, enforced in
+  // closeInvestigationCase() — never independently (P11D hard requirement).
+  // The "finding summary" itself is the approved InvestigationFinding's
+  // executiveSummary, not duplicated onto the case row.
+  closedAt       DateTime?
+  closedByUserId String?
+  closedBy       User?     @relation("InvestigationCaseClosedBy", fields: [closedByUserId], references: [id])
+
+  reopenedAt       DateTime?
+  reopenedByUserId String?
+  reopenedBy       User?     @relation("InvestigationCaseReopenedBy", fields: [reopenedByUserId], references: [id])
+  reopenReason     String?
+
+  // Investigation hold on the case as a whole (as distinct from the
+  // per-evidence MediaAsset.investigationHold flag it drives) — set true
+  // automatically when a qualifying case opens (P11G) and only ever released
+  // by an authorised, reasoned, audited action; closing a case does NOT
+  // auto-release this (P11G hard requirement).
+  evidenceHoldActive           Boolean   @default(true)
+  evidenceHoldReleasedAt       DateTime?
+  evidenceHoldReleasedByUserId String?
+  evidenceHoldReleasedBy       User?     @relation("InvestigationCaseHoldReleasedBy", fields: [evidenceHoldReleasedByUserId], references: [id])
+  evidenceHoldReleaseReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subjects                 InvestigationSubject[]
+  relatedRecords           InvestigationRelatedRecord[]
+  notes                    InvestigationNote[]
+  tasks                    InvestigationTask[]
+  findings                 InvestigationFinding[]
+  approvals                InvestigationApproval[]
+  evidenceLinks            InvestigationEvidenceLink[]
+  chronologyEvents         InvestigationChronologyEvent[]
+  externalAccessGrantCases ExternalAuditorAccessGrantCase[]
+  externalAccessLogs       ExternalAuditorAccessLog[]
+  notificationRecords      InvestigationNotificationRecord[]
+
+  @@unique([tenantId, caseNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, assignedInvestigatorUserId])
+  @@map("investigation_cases")
+}
+
+// An involved party linked to a case. Deliberately never described as
+// "suspect" anywhere in code/comments/interface — see InvestigationPartyRole.
+model InvestigationSubject {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  role InvestigationPartyRole
+
+  userId    String?
+  user      User?    @relation("InvestigationSubjectUser", fields: [userId], references: [id])
+  driverId  String?
+  driver    Driver?  @relation(fields: [driverId], references: [id])
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  contractorName String?
+  department     String?
+  site           String?
+
+  notes String?
+
+  // The subject's own account/response, stored separately from findings so
+  // it is never silently dropped from the record (P11E).
+  explanationResponse    String?
+  explanationRespondedAt DateTime?
+
+  createdByUserId String
+  createdBy       User     @relation("InvestigationSubjectCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, caseId])
+  @@index([userId])
+  @@index([driverId])
+  @@index([vehicleId])
+  @@map("investigation_subjects")
+}
+
+// Links a case to an existing operational record WITHOUT copying its
+// mutable data: recordType/recordId is a polymorphic pointer (same pattern
+// as MediaAsset.(ownerType, ownerId) / AuditLog.(entityType, entityId)), and
+// snapshotSummary is an immutable, point-in-time display snapshot captured
+// only for read convenience — linking a record never modifies it (P11B hard
+// requirement: opening a case must not silently resolve, approve or alter
+// the source record).
+model InvestigationRelatedRecord {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  recordType      InvestigationRelatedRecordType
+  recordId        String
+  snapshotSummary Json
+
+  // True for the single record that triggered this case's creation as a
+  // referral — used by investigation-referral-repository.ts to detect and
+  // prevent an accidental duplicate referral of the same source record into
+  // a second still-open case.
+  isReferralSource Boolean @default(false)
+
+  linkedByUserId String
+  linkedBy       User     @relation("InvestigationRelatedRecordLinkedBy", fields: [linkedByUserId], references: [id])
+  linkedAt       DateTime @default(now())
+
+  @@index([tenantId, recordType, recordId])
+  @@index([tenantId, caseId])
+  @@map("investigation_related_records")
+}
+
+// Append-only. An amendment/correction is always a NEW row with
+// supersedesNoteId pointing at the note it corrects — the original row's
+// content is never edited or deleted (P11H hard requirement).
+model InvestigationNote {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  authorUserId String
+  author       User   @relation("InvestigationNoteAuthor", fields: [authorUserId], references: [id])
+
+  noteType        InvestigationNoteType        @default(GENERAL)
+  confidentiality InvestigationConfidentiality @default(STANDARD)
+  content         String
+
+  supersedesNoteId String?            @unique
+  supersedesNote   InvestigationNote? @relation("InvestigationNoteAmendment", fields: [supersedesNoteId], references: [id])
+  amendedBy        InvestigationNote? @relation("InvestigationNoteAmendment")
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, caseId, createdAt])
+  @@map("investigation_notes")
+}
+
+model InvestigationTask {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  description      String
+  assignedToUserId String
+  assignedTo       User                    @relation("InvestigationTaskAssignedTo", fields: [assignedToUserId], references: [id])
+  dueDate          DateTime?
+  status           InvestigationTaskStatus @default(OPEN)
+
+  completionNote    String?
+  completedByUserId String?
+  completedBy       User?     @relation("InvestigationTaskCompletedBy", fields: [completedByUserId], references: [id])
+  completedAt       DateTime?
+
+  createdByUserId String
+  createdBy       User     @relation("InvestigationTaskCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, caseId])
+  @@index([tenantId, assignedToUserId, status])
+  @@map("investigation_tasks")
+}
+
+// One immutable version per submit-approve cycle. A change after approval
+// always creates a NEW row with version = previous + 1 and status DRAFT —
+// the approved version itself is never edited (P11I hard requirement).
+model InvestigationFinding {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  version Int
+
+  executiveSummary       String
+  detailedFindings       String
+  evidenceRelied         String?
+  contradictoryEvidence  String?
+  subjectResponseSummary String?
+  outcome                InvestigationOutcome
+  recommendations        String?
+  correctiveActions      String?
+  controlWeaknesses      String?
+  followUpDate           DateTime?
+
+  status InvestigationFindingStatus @default(DRAFT)
+
+  createdByUserId String
+  createdBy       User     @relation("InvestigationFindingCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  submittedByUserId String?
+  submittedBy       User?     @relation("InvestigationFindingSubmittedBy", fields: [submittedByUserId], references: [id])
+  submittedAt       DateTime?
+
+  approvals InvestigationApproval[]
+
+  @@unique([caseId, version])
+  @@index([tenantId, caseId])
+  @@map("investigation_findings")
+}
+
+// Append-only decision log for a finding's approval workflow — separate
+// from InvestigationChronologyEvent so the approval-specific fields
+// (action/reason/actor) stay strongly typed rather than living only in a
+// Json chronology payload. Separation-of-duties (the same actor may not
+// both submit and approve a configured case) is enforced in
+// investigation-approval-repository.ts, not by this table's shape alone.
+model InvestigationApproval {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  findingId String
+  finding   InvestigationFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  action      InvestigationApprovalAction
+  actorUserId String
+  actor       User                        @relation("InvestigationApprovalActor", fields: [actorUserId], references: [id])
+  reason      String?
+  createdAt   DateTime                    @default(now())
+
+  @@index([tenantId, caseId])
+  @@index([findingId])
+  @@map("investigation_approvals")
+}
+
+// Links a MediaAsset (reused exactly as-is — no duplicated storage) to a
+// case as a numbered evidence item. Append-only: an item added in error is
+// marked enteredInError with a reason, never deleted (chain-of-custody
+// requirement, P11F). Confidentiality/relevance/hold-status/access-log are
+// deliberately not re-implemented here where MediaAsset already carries the
+// equivalent field (investigationHold, and the mint-time audit entry from
+// mintSignedUrlForMediaAsset serves as the access log).
+model InvestigationEvidenceLink {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  evidenceNumber Int
+
+  mediaAssetId String
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id])
+
+  description      String
+  sourceRecordType String?
+  sourceRecordId   String?
+  relevance        String?
+  confidentiality  InvestigationConfidentiality @default(STANDARD)
+
+  addedByUserId String
+  addedBy       User     @relation("InvestigationEvidenceLinkAddedBy", fields: [addedByUserId], references: [id])
+  addedAt       DateTime @default(now())
+
+  enteredInError         Boolean   @default(false)
+  enteredInErrorReason   String?
+  enteredInErrorByUserId String?
+  enteredInErrorBy       User?     @relation("InvestigationEvidenceLinkEnteredInErrorBy", fields: [enteredInErrorByUserId], references: [id])
+  enteredInErrorAt       DateTime?
+
+  @@unique([caseId, evidenceNumber])
+  @@index([tenantId, caseId])
+  @@index([mediaAssetId])
+  @@map("investigation_evidence_links")
+}
+
+// The case's own full ordered lifecycle timeline, written alongside (not
+// instead of) the platform AuditLog by recordInvestigationEvent()
+// (investigation-audit.ts), so the UI can show a single case-scoped
+// chronology without joining across every sub-entity's own AuditLog rows.
+model InvestigationChronologyEvent {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  eventType   String
+  description String
+  actorUserId String?
+  actor       User?    @relation("InvestigationChronologyEventActor", fields: [actorUserId], references: [id])
+  metadata    Json?
+  occurredAt  DateTime @default(now())
+
+  @@index([tenantId, caseId, occurredAt])
+  @@map("investigation_chronology_events")
+}
+
+// A dedicated, restricted external-auditor access mechanism (P11L).
+// Deliberately NOT SupportAccessSession (that is unrestricted platform-admin
+// access to a whole tenant, D-016/D-021) — this grant is scoped to specific
+// case IDs only (ExternalAuditorAccessGrantCase), read-only by default
+// (canDownloadReport/canDownloadEvidence opt-in), time-limited and
+// immediately revocable.
+model ExternalAuditorAccessGrant {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  externalAuditorUserId String
+  externalAuditor       User   @relation("ExternalAuditorAccessGrantAuditor", fields: [externalAuditorUserId], references: [id])
+
+  grantedByUserId String
+  grantedBy       User   @relation("ExternalAuditorAccessGrantGrantedBy", fields: [grantedByUserId], references: [id])
+  reason          String
+
+  canDownloadReport   Boolean @default(false)
+  canDownloadEvidence Boolean @default(false)
+
+  startAt   DateTime @default(now())
+  expiresAt DateTime
+
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedBy       User?     @relation("ExternalAuditorAccessGrantRevokedBy", fields: [revokedByUserId], references: [id])
+  revokedReason   String?
+
+  createdAt DateTime @default(now())
+
+  cases      ExternalAuditorAccessGrantCase[]
+  accessLogs ExternalAuditorAccessLog[]
+
+  @@index([tenantId, externalAuditorUserId])
+  @@map("external_auditor_access_grants")
+}
+
+model ExternalAuditorAccessGrantCase {
+  id      String                     @id @default(cuid())
+  grantId String
+  grant   ExternalAuditorAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  caseId  String
+  case    InvestigationCase          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([grantId, caseId])
+  @@index([caseId])
+  @@map("external_auditor_access_grant_cases")
+}
+
+// Every view/download by an external auditor is recorded here (P11L hard
+// requirement) — separate from InvestigationChronologyEvent so a
+// per-grant auditor-access audit trail can be queried without filtering the
+// case's whole internal timeline.
+enum InvestigationNotificationEventType {
+  ASSIGNMENT
+  INFORMATION_REQUESTED
+  OVERDUE_TASK
+  ESCALATION
+  APPROVAL_REQUIRED
+  APPROVAL_RETURNED
+  APPROVAL_REJECTED
+  CLOSURE
+  EXTERNAL_ACCESS_GRANTED
+  EXTERNAL_ACCESS_EXPIRING
+  EXTERNAL_ACCESS_REVOKED
+}
+
+enum InvestigationNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// One row per investigation-event notification attempt (P11N), same
+// "persist the attempt, don't just fire-and-forget" shape as
+// RetentionNotificationRecord — failures stay visible (status FAILED +
+// failureReason) and are retried on the next
+// retryFailedInvestigationNotifications() job run, without ever touching
+// the case's own status (P11N hard requirement).
+model InvestigationNotificationRecord {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  eventType       InvestigationNotificationEventType
+  recipientUserId String
+  recipient       User                               @relation("InvestigationNotificationRecipient", fields: [recipientUserId], references: [id])
+
+  status        InvestigationNotificationStatus @default(PENDING)
+  channel       String?
+  attemptedAt   DateTime?
+  deliveredAt   DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, caseId])
+  @@index([tenantId, status])
+  @@map("investigation_notification_records")
+}
+
+model ExternalAuditorAccessLog {
+  id       String                     @id @default(cuid())
+  tenantId String
+  tenant   Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  grantId  String
+  grant    ExternalAuditorAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  caseId   String
+  case     InvestigationCase          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  actorUserId String
+  actor       User     @relation("ExternalAuditorAccessLogActor", fields: [actorUserId], references: [id])
+  action      String
+  occurredAt  DateTime @default(now())
+
+  @@index([tenantId, grantId])
+  @@index([tenantId, caseId])
+  @@map("external_auditor_access_logs")
 }

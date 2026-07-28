@@ -192,6 +192,88 @@ const TENANT_SUBSCRIPTION_ACTIONS = ["VIEW", "CONFIGURE"] as const;
 // support-access-session concern — mirrors platformTenant, D-005).
 const PLATFORM_BILLING_ACTIONS = ["VIEW", "CONFIGURE"] as const;
 
+// Phase 11 — investigation, internal review and external audit case
+// management (PRODUCT_REQUIREMENTS.md P11A..P11T). Split into narrow
+// resources (the same convention as Phase 10's billing split) so a broad
+// referring role (Gate Security Officer/Dispatch) can hold exactly
+// `investigationReferral:CREATE` and nothing else, and an investigator vs. an
+// approving manager can hold genuinely different slices — see
+// prisma/seed.ts for the actual per-role grants and the reasoning behind
+// which role gets which resource.
+//
+// investigationCase: VIEW covers seeing non-confidential case list/detail;
+// CREATE covers manually opening a case; EDIT covers triage/assign/
+// reassign/severity/link-records/status transitions short of closing or
+// reopening (those are their own resource below so separation-of-duties is
+// meaningfully testable, not vacuous); CONFIGURE manages
+// TenantInvestigationSettings (case-number prefix, separation-of-duties
+// policy toggle).
+const INVESTIGATION_CASE_ACTIONS = ["VIEW", "CREATE", "EDIT", "CONFIGURE"] as const;
+// investigationReferral: the narrow permission a wide, low-privilege role
+// (Gate Security Officer/Dispatch) can hold to raise a case referral from an
+// exception/inspection-failure/discrepancy they encounter, without any
+// other investigation visibility (P11K "may refer but not automatically get
+// confidential access").
+const INVESTIGATION_REFERRAL_ACTIONS = ["CREATE"] as const;
+// investigationConfidentialAccess: a second gate on top of
+// investigationCase:VIEW — without this, a case's confidential content
+// (RESTRICTED/HIGHLY_RESTRICTED notes, subject explanation/response) is
+// withheld even from a role that can otherwise see the case (P11E).
+const INVESTIGATION_CONFIDENTIAL_ACCESS_ACTIONS = ["VIEW"] as const;
+// investigationSubject: linking/updating subjects (add/link a subject,
+// record a subject's explanation/response) — a distinct grantable action
+// from ordinary case editing, since subject handling carries the fairness
+// requirements in P11E.
+const INVESTIGATION_SUBJECT_ACTIONS = ["EDIT"] as const;
+// investigationEvidence: VIEW = see the evidence manifest; CREATE = link/
+// upload evidence and mark an item entered-in-error; EXPORT = download an
+// evidence file's signed URL (mirrors mediaAsset:VIEW's role for signed-URL
+// minting, kept separate here so evidence access is independently
+// auditable from ordinary case evidence-listing).
+const INVESTIGATION_EVIDENCE_ACTIONS = ["VIEW", "CREATE", "EXPORT"] as const;
+// investigationNote: CREATE = add a note or an amendment/correction record;
+// VIEW = see RESTRICTED/HIGHLY_RESTRICTED notes specifically (STANDARD
+// notes are visible with investigationCase:VIEW alone).
+const INVESTIGATION_NOTE_ACTIONS = ["CREATE", "VIEW"] as const;
+// investigationTask: CREATE = create/assign a task; EDIT = update status/
+// completion note as the assignee or case owner.
+const INVESTIGATION_TASK_ACTIONS = ["CREATE", "EDIT"] as const;
+// investigationFinding: CREATE = record findings/recommendations/corrective
+// actions and submit for approval; EDIT = amend a returned finding into a
+// new version; APPROVE/REJECT = the separate sign-off actions — kept apart
+// from CREATE the same way exception/reconciliation/retention already
+// split "who asked" from "who signed off", and enforced further by the
+// hard same-actor check in investigation-approval-repository.ts (not by
+// this permission split alone).
+const INVESTIGATION_FINDING_ACTIONS = ["CREATE", "EDIT", "APPROVE", "REJECT"] as const;
+// investigationHold: CONFIGURE = place/release the case-level evidence hold
+// — deliberately its own resource (not folded into investigationCase:EDIT)
+// since releasing a hold is the one action that can weaken a retention
+// safeguard, so it must be independently grantable/auditable (P11G).
+const INVESTIGATION_HOLD_ACTIONS = ["CONFIGURE"] as const;
+// investigationReport: CREATE = generate a new report PDF version; EXPORT =
+// download an existing report's signed URL.
+const INVESTIGATION_REPORT_ACTIONS = ["CREATE", "EXPORT"] as const;
+// investigationCaseClosure: APPROVE = close a case (the authorised closing
+// action, separate from investigationCase:EDIT so "who investigates/edits"
+// and "who closes" can be different roles — P11D separation of duties);
+// REJECT = reopen a closed case (reuses REJECT as "reverse a finalised
+// decision", the same semantic direction REJECT already has for
+// deletion-request/movement approvals elsewhere in this codebase).
+const INVESTIGATION_CASE_CLOSURE_ACTIONS = ["APPROVE", "REJECT"] as const;
+// externalAuditorAccess: the internal-facing management of a grant — CREATE
+// = grant access; DELETE = revoke; VIEW = list/see grants and their audit
+// history. Only ever held by a role authorised to manage external access
+// (P11L), never by the External Auditor themselves.
+const EXTERNAL_AUDITOR_ACCESS_ACTIONS = ["VIEW", "CREATE", "DELETE"] as const;
+// externalAuditorPortal: the restricted, case-scoped read surface an
+// External Auditor role itself holds — VIEW = see a case they have an
+// active grant for; EXPORT = download its report/evidence if the specific
+// grant allows it. Holding this permission is necessary but not
+// sufficient: every route also re-checks a live, non-expired, non-revoked
+// ExternalAuditorAccessGrant naming the exact case ID (P11L, P11O).
+const EXTERNAL_AUDITOR_PORTAL_ACTIONS = ["VIEW", "EXPORT"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -224,6 +306,19 @@ export const PERMISSION_CATALOGUE = {
   billingEmail: BILLING_EMAIL_ACTIONS,
   tenantSubscription: TENANT_SUBSCRIPTION_ACTIONS,
   platformBilling: PLATFORM_BILLING_ACTIONS,
+  investigationCase: INVESTIGATION_CASE_ACTIONS,
+  investigationReferral: INVESTIGATION_REFERRAL_ACTIONS,
+  investigationConfidentialAccess: INVESTIGATION_CONFIDENTIAL_ACCESS_ACTIONS,
+  investigationSubject: INVESTIGATION_SUBJECT_ACTIONS,
+  investigationEvidence: INVESTIGATION_EVIDENCE_ACTIONS,
+  investigationNote: INVESTIGATION_NOTE_ACTIONS,
+  investigationTask: INVESTIGATION_TASK_ACTIONS,
+  investigationFinding: INVESTIGATION_FINDING_ACTIONS,
+  investigationHold: INVESTIGATION_HOLD_ACTIONS,
+  investigationReport: INVESTIGATION_REPORT_ACTIONS,
+  investigationCaseClosure: INVESTIGATION_CASE_CLOSURE_ACTIONS,
+  externalAuditorAccess: EXTERNAL_AUDITOR_ACCESS_ACTIONS,
+  externalAuditorPortal: EXTERNAL_AUDITOR_PORTAL_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;
