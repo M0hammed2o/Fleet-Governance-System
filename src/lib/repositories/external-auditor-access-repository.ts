@@ -261,6 +261,32 @@ export async function getEvidenceForAuditor(session: AuthenticatedSession, caseI
   return mintSignedUrlForMediaAsset(session.tenantId, session.userId, link.mediaAssetId);
 }
 
+/** Metadata-only manifest (no signed URLs minted, no access-log entry) — a grant is still required to list it at all. */
+export async function listEvidenceManifestForAuditor(session: AuthenticatedSession, caseId: string) {
+  await requirePermission(session, "externalAuditorPortal", "VIEW");
+  const grant = await getActiveGrantForCase(session, caseId);
+  if (!grant) throw new AuditorAccessDeniedError();
+
+  return prisma.investigationEvidenceLink.findMany({
+    where: tenantWhere(session.tenantId, { caseId }),
+    select: { id: true, evidenceNumber: true, description: true, addedAt: true, enteredInError: true, confidentiality: true },
+    orderBy: { evidenceNumber: "asc" },
+  });
+}
+
+/** Metadata-only manifest, same shape as listEvidenceManifestForAuditor. */
+export async function listReportsForAuditor(session: AuthenticatedSession, caseId: string) {
+  await requirePermission(session, "externalAuditorPortal", "VIEW");
+  const grant = await getActiveGrantForCase(session, caseId);
+  if (!grant) throw new AuditorAccessDeniedError();
+
+  return prisma.mediaAsset.findMany({
+    where: { tenantId: session.tenantId, ownerType: "INVESTIGATION_REPORT", ownerId: caseId },
+    select: { id: true, fileName: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function listAccessLogsForGrant(session: AuthenticatedSession, grantId: string) {
   await requirePermission(session, "externalAuditorAccess", "VIEW");
   const grant = await prisma.externalAuditorAccessGrant.findFirst({ where: tenantWhere(session.tenantId, { id: grantId }) });
