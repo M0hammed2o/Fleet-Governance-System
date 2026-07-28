@@ -18,14 +18,15 @@ export interface DeletionEligibility {
 
 /**
  * "Evidence under legal hold, investigation hold, an unresolved exception,
- * insurance claim, dispute or open audit cannot be deleted." This codebase
- * has no InsuranceClaim/Dispute/AuditCase model — MVP_SCOPE.md explicitly
- * scopes full investigation-case management out of this build — so those
- * three conditions cannot be programmatically checked and are **not**
- * enforced here. This is a disclosed, documented gap (TODO.md), not a
- * silent omission: legal hold, investigation hold, and an unresolved
- * exception linked to the evidence are the three conditions this codebase
- * can actually evaluate today.
+ * insurance claim, dispute or open audit cannot be deleted." Phase 11
+ * (P11G) closed the investigation-hold half of this gap: opening a case
+ * sets InvestigationCase.evidenceHoldActive, and every evidence item linked
+ * to that case has MediaAsset.investigationHold driven from it (see
+ * investigation-evidence-repository.ts / investigation-hold-repository.ts)
+ * — so `investigationHold` below is no longer only a manually-toggled flag.
+ * This codebase still has no InsuranceClaim/Dispute model, so those two
+ * conditions remain out of scope and are **not** enforced here — a
+ * disclosed, documented gap (TODO.md), not a silent omission.
  */
 export function evaluateDeletionEligibility(asset: DeletableAssetLike): DeletionEligibility {
   const blockingReasons: string[] = [];

@@ -6,6 +6,7 @@ import { cleanupFailedUploads } from "@/lib/repositories/media-asset-repository"
 import { expireDueSupportAccessSessions } from "@/lib/repositories/support-access-repository";
 import { recalculateStorageUsageSummaries } from "@/lib/repositories/storage-dashboard-repository";
 import { runRecurringBillingCycle } from "@/lib/repositories/recurring-billing-repository";
+import { retryFailedInvestigationNotifications, notifyOverdueInvestigationTasks, notifyExpiringExternalAccess } from "@/lib/repositories/investigation-notification-repository";
 
 /**
  * The full list of idempotent background jobs this platform needs (8E-004),
@@ -28,6 +29,9 @@ export const JOB_NAMES = [
   "supportAccess.expireDueSessions",
   "storage.recalculateUsageSummaries",
   "billing.runRecurringCycle",
+  "investigation.retryFailedNotifications",
+  "investigation.notifyOverdueTasks",
+  "investigation.notifyExpiringExternalAccess",
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -70,6 +74,18 @@ export function runRecurringBillingCycleJob() {
   return runJob("billing.runRecurringCycle", () => runRecurringBillingCycle());
 }
 
+export function retryFailedInvestigationNotificationsJob() {
+  return runJob("investigation.retryFailedNotifications", () => retryFailedInvestigationNotifications());
+}
+
+export function notifyOverdueInvestigationTasksJob() {
+  return runJob("investigation.notifyOverdueTasks", () => notifyOverdueInvestigationTasks());
+}
+
+export function notifyExpiringExternalAccessJob() {
+  return runJob("investigation.notifyExpiringExternalAccess", () => notifyExpiringExternalAccess());
+}
+
 export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "retention.generateNotifications": generateRetentionNotificationsJob,
   "retention.deliverNotifications": deliverRetentionNotificationsJob,
@@ -80,4 +96,7 @@ export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "supportAccess.expireDueSessions": expireSupportAccessSessionsJob,
   "storage.recalculateUsageSummaries": recalculateStorageUsageSummariesJob,
   "billing.runRecurringCycle": runRecurringBillingCycleJob,
+  "investigation.retryFailedNotifications": retryFailedInvestigationNotificationsJob,
+  "investigation.notifyOverdueTasks": notifyOverdueInvestigationTasksJob,
+  "investigation.notifyExpiringExternalAccess": notifyExpiringExternalAccessJob,
 };
