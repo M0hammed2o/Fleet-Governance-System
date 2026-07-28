@@ -177,6 +177,13 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "INVOICE":
       found = await prisma.invoice.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
+    // Phase 11 — both many-to-one against InvestigationCase (a case can have
+    // several directly-uploaded evidence files and several generated report
+    // versions), same pattern as MOVEMENT_DOCUMENT above, not a 1:1 like INVOICE.
+    case "INVESTIGATION_CASE":
+    case "INVESTIGATION_REPORT":
+      found = await prisma.investigationCase.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
+      break;
   }
   if (!found) throw new MediaOwnerNotFoundError(ownerType, ownerId);
 }

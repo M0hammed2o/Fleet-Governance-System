@@ -3,6 +3,8 @@ import { apiErrorResponse } from "@/lib/auth/api-guard";
 
 const FORBIDDEN_ERROR_NAMES = new Set(["AuditorAccessDeniedError", "DownloadNotPermittedByGrantError"]);
 
+const CONFLICT_ERROR_NAMES = new Set(["IdempotencyKeyConflictError"]);
+
 // Every non-"...NotFoundError" error class the investigation repository
 // layer can throw for an invalid-but-recognised request (state-machine
 // violations, validation, dual-control/separation-of-duties refusals).
@@ -27,6 +29,14 @@ const BAD_REQUEST_ERROR_NAMES = new Set([
   "GrantCaseNotInTenantError",
   "GrantAlreadyRevokedError",
   "FindingNotApprovedForReportError",
+  // Thrown by uploadMediaAsset() (media-asset-repository.ts), reached via
+  // uploadEvidenceToCase() — the evidence-upload route reuses the same
+  // validation as api/media/upload, so it needs the same error mapping.
+  "InvalidFileTypeError",
+  "EmptyFileError",
+  "FileTooLargeError",
+  "ChecksumMismatchError",
+  "MediaProcessingError",
 ]);
 
 /**
@@ -42,6 +52,7 @@ export function investigationErrorResponse(err: unknown): NextResponse {
   if (err instanceof Error) {
     if (err.name.endsWith("NotFoundError")) return NextResponse.json({ error: err.message }, { status: 404 });
     if (FORBIDDEN_ERROR_NAMES.has(err.name)) return NextResponse.json({ error: err.message }, { status: 403 });
+    if (CONFLICT_ERROR_NAMES.has(err.name)) return NextResponse.json({ error: err.message }, { status: 409 });
     if (BAD_REQUEST_ERROR_NAMES.has(err.name)) return NextResponse.json({ error: err.message }, { status: 400 });
   }
   return apiErrorResponse(err);
