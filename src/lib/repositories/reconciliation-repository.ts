@@ -221,22 +221,31 @@ export async function buildReconciliation(input: BuildReconciliationInput) {
 
   let reconciliation;
   try {
-    reconciliation = await prisma.reconciliation.create({
-      data: {
-        tenantId: input.tenantId,
-        movementAuthorisationId: movement.id,
-        departureGateEventId: departure.id,
-        returnGateEventId: returnEvent.id,
-        departureOdometer: computed.departureOdometer != null ? Math.round(computed.departureOdometer) : null,
-        returnOdometer: computed.returnOdometer != null ? Math.round(computed.returnOdometer) : null,
-        kmTravelled: computed.kmTravelled != null ? Math.round(computed.kmTravelled) : null,
-        departureFuelPercent: computed.departureFuelPercent,
-        returnFuelPercent: computed.returnFuelPercent,
-        fuelDeltaPercent: computed.fuelDeltaPercent,
-        status,
-        builtByUserId: input.actorUserId ?? null,
-        discrepancies: {
-          create: computed.discrepancies.map((d) => ({
+    // P11-000 (DECISIONS.md D-038): discrepancies are created via a
+    // separate, explicit createMany() rather than a nested
+    // `discrepancies: { create: [...] }` write — see the same pattern's
+    // rationale in invoice-repository.ts.
+    reconciliation = await prisma.$transaction(async (tx) => {
+      const created = await tx.reconciliation.create({
+        data: {
+          tenantId: input.tenantId,
+          movementAuthorisationId: movement.id,
+          departureGateEventId: departure.id,
+          returnGateEventId: returnEvent.id,
+          departureOdometer: computed.departureOdometer != null ? Math.round(computed.departureOdometer) : null,
+          returnOdometer: computed.returnOdometer != null ? Math.round(computed.returnOdometer) : null,
+          kmTravelled: computed.kmTravelled != null ? Math.round(computed.kmTravelled) : null,
+          departureFuelPercent: computed.departureFuelPercent,
+          returnFuelPercent: computed.returnFuelPercent,
+          fuelDeltaPercent: computed.fuelDeltaPercent,
+          status,
+          builtByUserId: input.actorUserId ?? null,
+        },
+      });
+      if (computed.discrepancies.length > 0) {
+        await tx.reconciliationDiscrepancy.createMany({
+          data: computed.discrepancies.map((d) => ({
+            reconciliationId: created.id,
             tenantId: input.tenantId,
             category: d.category,
             severity: d.severity,
@@ -246,9 +255,9 @@ export async function buildReconciliation(input: BuildReconciliationInput) {
             deltaValue: d.deltaValue,
             inspectionItemId: d.inspectionItemId,
           })),
-        },
-      },
-      include: RECONCILIATION_INCLUDE,
+        });
+      }
+      return tx.reconciliation.findUniqueOrThrow({ where: { id: created.id }, include: RECONCILIATION_INCLUDE });
     });
   } catch (err) {
     if (err instanceof Error && "code" in err && (err as { code?: string }).code === "P2002") {

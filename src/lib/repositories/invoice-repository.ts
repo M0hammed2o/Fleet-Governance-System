@@ -11,6 +11,7 @@ import { allocateNextInvoiceNumber, getPlatformBillingSettingsUnchecked } from "
 import { getTenantBillingProfileUnchecked } from "@/lib/repositories/tenant-billing-repository";
 import { activateTenantSubscription, markTenantPastDue } from "@/lib/repositories/subscription-repository";
 import { uploadMediaAsset, mintSignedUrlForMediaAsset } from "@/lib/repositories/media-asset-repository";
+import type { Prisma } from "@/generated/prisma/client";
 
 /**
  * Phase 10 (P10E) — invoice generation from an already-snapshotted
@@ -104,6 +105,29 @@ export async function generateInvoiceForBillingPeriod(billingPeriodId: string, a
     customerReference: tenantProfile?.customerReference,
   };
 
+  // P11-000: line items are created via a separate, explicitly-sequenced
+  // createMany() call rather than a nested `lineItems: { create: [...] }`
+  // write — see DECISIONS.md D-038 / KNOWN_BUGS.md BUG-010. A nested create
+  // with 2+ array items, interpreted by Prisma's query-compiler runtime
+  // inside an interactive transaction against the pg driver adapter, was
+  // traced (via `NODE_OPTIONS=--trace-deprecation`) as the source of pg's
+  // "client.query() when the client is already executing a query"
+  // deprecation warning under real multi-worker test load — a single
+  // `createMany()` compiles to one SQL statement instead of N per-item
+  // INSERTs, avoiding the pattern entirely.
+  const lineItemsToCreate: Prisma.InvoiceLineItemCreateManyInput[] = [
+    { invoiceId: "", kind: "BASE_FEE", description: "Monthly platform base fee", quantity: 1, unitPriceMinorUnits: snapshot.baseFeeMinorUnitsApplied, lineTotalMinorUnits: snapshot.baseFeeMinorUnitsApplied, sortOrder: 0 },
+    {
+      invoiceId: "",
+      kind: "VEHICLE_FEE",
+      description: `Active vehicle fee — ${snapshot.vehicleCount} vehicle${snapshot.vehicleCount === 1 ? "" : "s"} (${formatBillingPeriodLabel(billingPeriod.periodStart)})`,
+      quantity: snapshot.vehicleCount,
+      unitPriceMinorUnits: snapshot.perVehicleFeeMinorUnitsApplied,
+      lineTotalMinorUnits: fees.vehicleFeeMinorUnits,
+      sortOrder: 1,
+    },
+  ];
+
   let invoice;
   try {
     invoice = await prisma.$transaction(async (tx) => {
@@ -124,24 +148,14 @@ export async function generateInvoiceForBillingPeriod(billingPeriodId: string, a
           customerSnapshot,
           customerPoReference: tenantProfile?.customerReference,
           createdByUserId: actorUserId,
-          lineItems: {
-            create: [
-              { kind: "BASE_FEE", description: "Monthly platform base fee", quantity: 1, unitPriceMinorUnits: snapshot.baseFeeMinorUnitsApplied, lineTotalMinorUnits: snapshot.baseFeeMinorUnitsApplied, sortOrder: 0 },
-              {
-                kind: "VEHICLE_FEE",
-                description: `Active vehicle fee — ${snapshot.vehicleCount} vehicle${snapshot.vehicleCount === 1 ? "" : "s"} (${formatBillingPeriodLabel(billingPeriod.periodStart)})`,
-                quantity: snapshot.vehicleCount,
-                unitPriceMinorUnits: snapshot.perVehicleFeeMinorUnitsApplied,
-                lineTotalMinorUnits: fees.vehicleFeeMinorUnits,
-                sortOrder: 1,
-              },
-            ],
-          },
         },
-        include: { lineItems: true },
       });
+      await tx.invoiceLineItem.createMany({
+        data: lineItemsToCreate.map((li) => ({ ...li, invoiceId: created.id })),
+      });
+      const lineItems = await tx.invoiceLineItem.findMany({ where: { invoiceId: created.id }, orderBy: { sortOrder: "asc" } });
       await tx.billingPeriod.update({ where: { id: billingPeriod.id }, data: { status: "INVOICED" } });
-      return created;
+      return { ...created, lineItems };
     });
   } catch (err) {
     if (isUniqueConstraintViolation(err, "billingPeriodId")) {
@@ -298,6 +312,8 @@ export async function reissueInvoice(session: AuthenticatedSession, originalInvo
   const invoiceNumber = await allocateNextInvoiceNumber();
   const dueDate = new Date(Date.now() + (original.dueDate.getTime() - original.issueDate.getTime()));
 
+  // P11-000: createMany() rather than a nested lineItems create — see the
+  // comment in generateInvoiceForBillingPeriod() above (DECISIONS.md D-038).
   const reissued = await prisma.$transaction(async (tx) => {
     const created = await tx.invoice.create({
       data: {
@@ -316,11 +332,13 @@ export async function reissueInvoice(session: AuthenticatedSession, originalInvo
         customerPoReference: original.customerPoReference,
         reissueOfInvoiceId: original.id,
         createdByUserId: session.userId,
-        lineItems: { create: original.lineItems.map((li) => ({ kind: li.kind, description: li.description, quantity: li.quantity, unitPriceMinorUnits: li.unitPriceMinorUnits, lineTotalMinorUnits: li.lineTotalMinorUnits, sortOrder: li.sortOrder })) },
       },
-      include: { lineItems: true },
     });
-    return created;
+    await tx.invoiceLineItem.createMany({
+      data: original.lineItems.map((li) => ({ invoiceId: created.id, kind: li.kind, description: li.description, quantity: li.quantity, unitPriceMinorUnits: li.unitPriceMinorUnits, lineTotalMinorUnits: li.lineTotalMinorUnits, sortOrder: li.sortOrder })),
+    });
+    const lineItems = await tx.invoiceLineItem.findMany({ where: { invoiceId: created.id }, orderBy: { sortOrder: "asc" } });
+    return { ...created, lineItems };
   });
 
   await recordAudit({

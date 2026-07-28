@@ -976,7 +976,11 @@ async function seedGateOperations(
     include: { items: true },
   });
   if (!template) {
-    template = await prisma.inspectionTemplate.create({
+    // P11-000 (DECISIONS.md D-038): items created via a separate createMany()
+    // rather than a nested `items: { create: [...] }` write — same fix
+    // applied throughout src/lib/repositories/ for the pg deprecation
+    // warning this pattern was traced to under real load.
+    const createdTemplate = await prisma.inspectionTemplate.create({
       data: {
         tenantId,
         name: templateName,
@@ -985,27 +989,27 @@ async function seedGateOperations(
         version: 1,
         isActive: true,
         isSystem: true,
-        items: {
-          create: [
-            { section: "DRIVER_AUTHORISATION", label: "Driver licence matches movement authorisation", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
-            { section: "DRIVER_AUTHORISATION", label: "PDP valid for this vehicle class (where required)", sortOrder: 1, responseType: "CHECK" },
-            { section: "VEHICLE_IDENTITY", label: "Registration number matches approved movement", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
-            { section: "VEHICLE_IDENTITY", label: "VIN/chassis number visible and matches", sortOrder: 1, responseType: "CHECK" },
-            { section: "EXTERIOR_CONDITION", label: "No new visible body damage", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "MEDIUM" },
-            { section: "EXTERIOR_CONDITION", label: "Windscreen and mirrors intact", sortOrder: 1, responseType: "CHECK" },
-            { section: "LIGHTS", label: "Headlights operational", sortOrder: 0, responseType: "CHECK" },
-            { section: "LIGHTS", label: "Indicators and brake lights operational", sortOrder: 1, responseType: "CHECK" },
-            { section: "TYRES_WHEELS", label: "Tyre tread depth (all positions)", sortOrder: 0, responseType: "READING", unit: "mm", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
-            { section: "TYRES_WHEELS", label: "Tyre condition — no visible damage", sortOrder: 1, responseType: "CHECK" },
-            { section: "OPERATIONAL_INFO", label: "Odometer reading recorded", sortOrder: 0, responseType: "READING", unit: "km" },
-            { section: "OPERATIONAL_INFO", label: "Fuel level recorded", sortOrder: 1, responseType: "READING", unit: "%" },
-            { section: "LOAD_VERIFICATION", label: "Cargo matches approved cargo summary", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
-            { section: "LOAD_VERIFICATION", label: "Seal/container reference matches", sortOrder: 1, responseType: "CHECK" },
-          ],
-        },
       },
-      include: { items: true },
     });
+    await prisma.inspectionItem.createMany({
+      data: [
+        { templateId: createdTemplate.id, section: "DRIVER_AUTHORISATION", label: "Driver licence matches movement authorisation", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
+        { templateId: createdTemplate.id, section: "DRIVER_AUTHORISATION", label: "PDP valid for this vehicle class (where required)", sortOrder: 1, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "VEHICLE_IDENTITY", label: "Registration number matches approved movement", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
+        { templateId: createdTemplate.id, section: "VEHICLE_IDENTITY", label: "VIN/chassis number visible and matches", sortOrder: 1, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "EXTERIOR_CONDITION", label: "No new visible body damage", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "MEDIUM" },
+        { templateId: createdTemplate.id, section: "EXTERIOR_CONDITION", label: "Windscreen and mirrors intact", sortOrder: 1, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "LIGHTS", label: "Headlights operational", sortOrder: 0, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "LIGHTS", label: "Indicators and brake lights operational", sortOrder: 1, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "TYRES_WHEELS", label: "Tyre tread depth (all positions)", sortOrder: 0, responseType: "READING", unit: "mm", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
+        { templateId: createdTemplate.id, section: "TYRES_WHEELS", label: "Tyre condition — no visible damage", sortOrder: 1, responseType: "CHECK" },
+        { templateId: createdTemplate.id, section: "OPERATIONAL_INFO", label: "Odometer reading recorded", sortOrder: 0, responseType: "READING", unit: "km" },
+        { templateId: createdTemplate.id, section: "OPERATIONAL_INFO", label: "Fuel level recorded", sortOrder: 1, responseType: "READING", unit: "%" },
+        { templateId: createdTemplate.id, section: "LOAD_VERIFICATION", label: "Cargo matches approved cargo summary", sortOrder: 0, responseType: "CHECK", defaultExceptionSeverity: "HIGH", requiresSupervisorApprovalOnFail: true },
+        { templateId: createdTemplate.id, section: "LOAD_VERIFICATION", label: "Seal/container reference matches", sortOrder: 1, responseType: "CHECK" },
+      ],
+    });
+    template = await prisma.inspectionTemplate.findUniqueOrThrow({ where: { id: createdTemplate.id }, include: { items: true } });
   }
 
   // --- Tenant-configurable exception-type catalogue (DocumentExpiryRule-equivalent for exceptions) ---

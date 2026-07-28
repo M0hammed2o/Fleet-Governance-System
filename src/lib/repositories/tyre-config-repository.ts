@@ -25,18 +25,23 @@ export interface CreateTyrePositionConfigInput {
   positions: { code: string; label: string }[];
 }
 
+// P11-000 (DECISIONS.md D-038): positions are created via a separate,
+// explicit createMany() rather than a nested `positions: { create: [...] }`
+// write — see the same pattern's rationale in invoice-repository.ts.
 export async function createTyrePositionConfig(input: CreateTyrePositionConfigInput) {
-  return prisma.tyrePositionConfig.create({
-    data: {
-      tenantId: input.tenantId,
-      name: input.name,
-      category: input.category,
-      isSystem: false,
-      positions: {
-        create: input.positions.map((p, index) => ({ code: p.code, label: p.label, sortOrder: index })),
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.tyrePositionConfig.create({
+      data: {
+        tenantId: input.tenantId,
+        name: input.name,
+        category: input.category,
+        isSystem: false,
       },
-    },
-    include: { positions: true },
+    });
+    await tx.tyrePositionDefinition.createMany({
+      data: input.positions.map((p, index) => ({ configId: created.id, code: p.code, label: p.label, sortOrder: index })),
+    });
+    return tx.tyrePositionConfig.findUniqueOrThrow({ where: { id: created.id }, include: { positions: true } });
   });
 }
 

@@ -344,18 +344,26 @@ export async function createDeletionRequest(input: CreateDeletionRequestInput) {
 
   const totalBytes = eligible.reduce((sum, a) => sum + a.fileSizeBytes, 0);
 
-  const request = await prisma.deletionRequest.create({
-    data: {
-      tenantId: input.tenantId,
-      categories: input.scope.categories,
-      dateRangeStart: input.scope.dateRangeStart ?? null,
-      dateRangeEnd: input.scope.dateRangeEnd ?? null,
-      initiatedByUserId: input.actorUserId,
-      recoveryDays: input.recoveryDays ?? DEFAULT_RECOVERY_DAYS,
-      assetCount: eligible.length,
-      totalBytes,
-      assets: { create: eligible.map((a) => ({ mediaAssetId: a.id })) },
-    },
+  // P11-000 (DECISIONS.md D-038): asset links are created via a separate,
+  // explicit createMany() rather than a nested `assets: { create: [...] }`
+  // write — see the same pattern's rationale in invoice-repository.ts.
+  const request = await prisma.$transaction(async (tx) => {
+    const created = await tx.deletionRequest.create({
+      data: {
+        tenantId: input.tenantId,
+        categories: input.scope.categories,
+        dateRangeStart: input.scope.dateRangeStart ?? null,
+        dateRangeEnd: input.scope.dateRangeEnd ?? null,
+        initiatedByUserId: input.actorUserId,
+        recoveryDays: input.recoveryDays ?? DEFAULT_RECOVERY_DAYS,
+        assetCount: eligible.length,
+        totalBytes,
+      },
+    });
+    await tx.deletionRequestAsset.createMany({
+      data: eligible.map((a) => ({ deletionRequestId: created.id, mediaAssetId: a.id })),
+    });
+    return created;
   });
 
   await recordAudit({

@@ -801,6 +801,41 @@ for what is otherwise a well-known, documented bundler/pdfkit interaction with a
 **Consequences:** None — this is the standard fix recommended for `pdfkit` (and several other packages that
 read files relative to their own package directory) used inside a Next.js server context.
 
+## D-038 — 2026-07-28 — Every multi-row nested relational write inside an interactive transaction was restructured into an explicit createMany(), independent of whether it fully resolved the pg overlapping-query warning
+**Context:** P11-000 investigated pg's "Calling client.query() when the client is already executing a
+query" deprecation warning observed during Phase 10's final test runs. `NODE_OPTIONS=--trace-deprecation`
+traced every occurrence to `PgTransaction.performIO` inside `@prisma/adapter-pg`, called from Prisma's own
+`interpretNode`/`Array.map` query-compiler frames — never from any application-code frame. Six repository
+call sites (plus `prisma/seed.ts`) used a nested relational write with 2+ array items (e.g.
+`lineItems: { create: [...] }`) inside an interactive `$transaction`, which Prisma decomposes into multiple
+per-row `performIO()` calls against the transaction's single pinned `pg.Client`.
+**Decision:** Replaced every one of those nested-array-create sites with an explicit
+`tx.parent.create()` → `tx.child.createMany()` → (re-fetch if the caller needs the created child rows)
+sequence — each step separately awaited by this codebase's own code, not left to Prisma's internal
+nested-write interpreter. This is kept as a permanent improvement (a `createMany()` compiles to one SQL
+statement instead of N separate per-row INSERTs — strictly more efficient) even though, once measured,
+**it did not eliminate the pg warning** — re-tracing after the change showed the identical
+`PgTransaction.performIO`/`Array.map` stack shape now originating from the `createMany()` calls themselves,
+proving the trigger is Prisma's own internal handling of *any* multi-row write inside an interactive
+transaction against the pg driver adapter, not specific to nested writes. Confirmed via public upstream
+reports (prisma/prisma issues #29646 and #29407, see KNOWN_BUGS.md BUG-010) that this is a known defect in
+`@prisma/adapter-pg`'s `PgTransaction` implementation, not fixable from calling code.
+**Alternatives considered:** Reverting the `createMany()` refactor since it didn't fix the targeted warning
+— rejected; the refactor is independently correct and more efficient, verified by the full existing test
+suite for every affected repository with no behaviour change. Upgrading Prisma to chase a fix — tested
+(7.8.0 → 7.9.1, the latest available stable, a minor version bump) and confirmed the warning persists
+identically; reverted back to the pinned 7.8.0 rather than carry an upgrade with no measured benefit
+(DEPLOYMENT.md's dependency-stability posture, and the task's own "do not upgrade major database packages
+unnecessarily" instruction). Suppressing the warning (`process.noDeprecation`, log filtering) — explicitly
+rejected per instruction; it is documented instead (KNOWN_BUGS.md BUG-010), not hidden.
+**Consequences:** The warning remains visible in test/dev output. It is cosmetic only — every test and
+live workflow passes correctly regardless, no data corruption or incorrect result has ever accompanied it,
+and `pg`'s own changelog confirms the underlying behavior it warns about won't actually be removed until
+`pg@9.0`, so there is no urgency.
+**Revisit condition:** Re-run the exact reproduction (`NODE_OPTIONS=--trace-deprecation npx vitest run`)
+after any future `@prisma/client`/`@prisma/adapter-pg` upgrade, or if prisma/prisma #29646/#29407 are
+closed upstream.
+
 ## Open / not yet decided (tracked, not blocking)
 - **Facial-verification provider** — blocked, no vendor selected. Interface + mock built regardless.
 - **Telematics provider** — blocked, no vendor selected (GPS-BLOCKED). `TelematicsProvider` interface +

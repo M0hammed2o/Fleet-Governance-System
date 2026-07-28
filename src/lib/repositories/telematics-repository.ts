@@ -452,32 +452,42 @@ export async function createVehicleUsePolicy(input: CreateVehicleUsePolicyInput)
     if (!geofence) throw new GeofenceNotFoundError();
   }
 
-  const policy = await prisma.vehicleUsePolicy.create({
-    data: {
-      tenantId: input.tenantId,
-      name: input.name,
-      driverId: input.driverId,
-      effectiveFrom: input.effectiveFrom,
-      effectiveTo: input.effectiveTo ?? null,
-      permittedDaysOfWeek: input.permittedDaysOfWeek ?? [],
-      permittedStartTime: input.permittedStartTime ?? null,
-      permittedEndTime: input.permittedEndTime ?? null,
-      approvedDestination: input.approvedDestination ?? null,
-      approvedGeofenceId: input.approvedGeofenceId ?? null,
-      kmLimitPerTrip: input.kmLimitPerTrip ?? null,
-      kmLimitPerDay: input.kmLimitPerDay ?? null,
-      kmLimitPerWeek: input.kmLimitPerWeek ?? null,
-      kmLimitPerMonth: input.kmLimitPerMonth ?? null,
-      allowAfterHours: input.allowAfterHours ?? false,
-      allowWeekend: input.allowWeekend ?? false,
-      allowPrivateUse: input.allowPrivateUse ?? false,
-      privateUseKmAllowanceKm: input.privateUseKmAllowanceKm ?? null,
-      expectedReturnTime: input.expectedReturnTime ?? null,
-      approvingManagerUserId: input.approvingManagerUserId ?? null,
-      status: "DRAFT",
-      vehicles: { create: input.vehicleIds.map((vehicleId) => ({ vehicleId })) },
-    },
-    include: { vehicles: { include: { vehicle: true } }, driver: true, approvedGeofence: true },
+  // P11-000 (DECISIONS.md D-038): vehicle links are created via a separate,
+  // explicit createMany() rather than a nested `vehicles: { create: [...] }`
+  // write — see the same pattern's rationale in invoice-repository.ts.
+  const policy = await prisma.$transaction(async (tx) => {
+    const created = await tx.vehicleUsePolicy.create({
+      data: {
+        tenantId: input.tenantId,
+        name: input.name,
+        driverId: input.driverId,
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo ?? null,
+        permittedDaysOfWeek: input.permittedDaysOfWeek ?? [],
+        permittedStartTime: input.permittedStartTime ?? null,
+        permittedEndTime: input.permittedEndTime ?? null,
+        approvedDestination: input.approvedDestination ?? null,
+        approvedGeofenceId: input.approvedGeofenceId ?? null,
+        kmLimitPerTrip: input.kmLimitPerTrip ?? null,
+        kmLimitPerDay: input.kmLimitPerDay ?? null,
+        kmLimitPerWeek: input.kmLimitPerWeek ?? null,
+        kmLimitPerMonth: input.kmLimitPerMonth ?? null,
+        allowAfterHours: input.allowAfterHours ?? false,
+        allowWeekend: input.allowWeekend ?? false,
+        allowPrivateUse: input.allowPrivateUse ?? false,
+        privateUseKmAllowanceKm: input.privateUseKmAllowanceKm ?? null,
+        expectedReturnTime: input.expectedReturnTime ?? null,
+        approvingManagerUserId: input.approvingManagerUserId ?? null,
+        status: "DRAFT",
+      },
+    });
+    await tx.vehicleUsePolicyVehicle.createMany({
+      data: input.vehicleIds.map((vehicleId) => ({ policyId: created.id, vehicleId })),
+    });
+    return tx.vehicleUsePolicy.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { vehicles: { include: { vehicle: true } }, driver: true, approvedGeofence: true },
+    });
   });
 
   await recordAudit({

@@ -228,6 +228,90 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
   including a real PDF download and content-type check; both a normal invoice PDF and a VAT-configured tax
   invoice PDF were rendered and visually inspected end-to-end through the real dev server.
 
+## BUG-010 — `@prisma/adapter-pg` 7.8.0/7.9.1 issues overlapping `client.query()` calls on one transaction-pinned `pg.Client`, triggering pg's own "already executing a query" deprecation warning (P11-000, confirmed unavoidable upstream defect)
+- Severity: low (cosmetic — a deprecation warning printed to stderr; every automated test and live workflow
+  passes correctly regardless, and no data corruption, lost write, or incorrect result has ever been
+  observed alongside it)
+- Package/version: `@prisma/client` 7.8.0 and `@prisma/adapter-pg` 7.8.0 (also confirmed still present on
+  the latest available stable, 7.9.1 — tested directly, see "Investigation" below); `pg` 8.22.0 (the
+  deprecation itself is `pg`'s own new client-level guard, added specifically to catch exactly this pattern
+  in any caller, including Prisma).
+- Reproduction steps: run `NODE_OPTIONS=--trace-deprecation npx vitest run` (the full suite, or any subset
+  that exercises an interactive `prisma.$transaction(async (tx) => {...})` containing more than one
+  statement against `tx`) against this project's local Postgres. The warning appears intermittently — not
+  on every run, and never in a small isolated single-process repro script, only under the real full-suite's
+  multi-worker load/timing.
+- Expected result: no deprecation warning; each transaction-pinned client only ever runs one query at a
+  time, exactly as the application code itself always does (every `$transaction(async (tx) => {...})` in
+  this codebase awaits each `tx.*` call in sequence — verified by direct inspection of every call site
+  before starting the investigation below).
+- Actual result: `DeprecationWarning: Calling client.query() when the client is already executing a query
+  is deprecated and will be removed in pg@9.0.` printed with a stack trace (via `--trace-deprecation`)
+  rooted entirely inside Prisma's own runtime:
+  `Client.query` (`node_modules/pg/lib/client.js:715`) →
+  `PgTransaction.performIO` → `PgTransaction.queryRaw` (`@prisma/adapter-pg/dist/index.mjs`) →
+  several frames of `@prisma/client/runtime/client.js`'s `interpretNode`/`Array.map` — never a single frame
+  of application code between the awaited `tx.*` call and the internal `Client.query()` call.
+- Investigation (P11-000, exhaustive, see WORKLOG.md Session 20):
+  1. Audited every `prisma.$transaction(async (tx) => {...})` call site in `src/`, `tests/helpers/
+     fixtures.ts`, and `scripts/cleanup-test-db-fixtures.mjs` — every single one already awaits each `tx.*`
+     query sequentially. No overlapping application-code query usage exists or ever existed.
+  2. Found and fixed 6 call sites (`invoice-repository.ts` ×2, `inspection-template-repository.ts` ×2,
+     `reconciliation-repository.ts`, `retention-repository.ts`, `telematics-repository.ts`,
+     `tyre-config-repository.ts`, plus the equivalent in `prisma/seed.ts`) using a nested relational write
+     with an array of 2+ related records (e.g. `lineItems: { create: [...] }`) inside an interactive
+     transaction — Prisma decomposes this into multiple per-row statements internally. Replaced every one
+     with an explicit, separately-awaited `tx.parent.create()` → `tx.child.createMany()` →
+     (re-fetch where the caller needs the created rows) sequence (DECISIONS.md D-038) — a genuine code
+     quality improvement (one SQL statement instead of N per-row inserts) independent of whether it fixed
+     the warning.
+  3. Re-ran the full suite with `--trace-deprecation` after the fix — **the warning still appeared**, now
+     traced to `tx.child.createMany()` calls (my own replacement code) with the identical
+     `PgTransaction.performIO`/`interpretNode`/`Array.map` stack shape. This proved the trigger is not
+     specific to nested writes — Prisma's driver-adapter runtime appears to internally decompose *any*
+     multi-row write inside an interactive transaction into multiple sequential `performIO()` calls, and
+     under some timing condition two of them are not fully sequenced against the transaction's single
+     pinned `pg.Client`.
+  4. Tested whether the latest available stable Prisma release fixes it: upgraded `prisma`/`@prisma/client`/
+     `@prisma/adapter-pg` from 7.8.0 to 7.9.1 (a minor version, not a major upgrade) and re-ran the same
+     traced reproduction — **the warning still appeared**, identical stack shape. Reverted cleanly back to
+     the pinned 7.8.0 (`git checkout -- package-lock.json`, `npm install`, `npx prisma generate`) since the
+     upgrade provided no benefit for this issue and this project's standing instruction is not to upgrade
+     database packages unnecessarily.
+  5. Searched for prior reports: this is a **confirmed, publicly tracked upstream Prisma defect**, not
+     unique to this codebase — see prisma/prisma issue
+     [#29646](https://github.com/prisma/prisma/issues/29646) ("DeprecationWarning with @prisma/adapter-pg
+     v7.8.0", opened 2026-06-15) and issue
+     [#29407](https://github.com/prisma/prisma/issues/29407) ("`adapter-pg`: `PgTransaction.performIO`
+     called concurrently on single `pg` Client ..., triggering deprecation warning", opened 2026-03-27).
+     Per the community investigation referenced there, `PgTransaction.performIO` passes the same `values`
+     parameter both inside the query-config object and as `client.query()`'s second positional argument,
+     which is itself enough to route through pg's newly-added deprecated call path — and because
+     `PgTransaction` pins one single `pg.Client` (not a pool) for the whole transaction's duration by
+     design (required for transactional atomicity), any of the adapter's own internal multi-statement
+     sequencing that isn't perfectly serialized will trip pg's new client-side guard.
+- Suspected cause: an upstream defect in `@prisma/adapter-pg`'s `PgTransaction`/`performIO` implementation,
+  not in this codebase's own query usage (proven by exhaustive audit, item 1 above) and not fixable by
+  restructuring application-side write patterns (proven by item 3 above, where even the "fixed" code
+  triggers it identically).
+- Status: **open — proven unavoidable upstream defect**, not fixed in this codebase (nothing here can fix
+  it) and not silently suppressed (no `process.noDeprecation`, no log filtering, no `--no-deprecation` flag
+  added anywhere). Purely cosmetic: confirmed via two consecutive full-suite runs, both 685/685 passing,
+  with the warning appearing on both runs and having no effect on correctness, data integrity, or test
+  outcome. The `createMany()` refactor (item 2 above) is kept regardless, as a genuine, independent code
+  quality improvement.
+- Upgrade path: track prisma/prisma issues #29646 and #29407 upstream; re-run this exact reproduction
+  (`NODE_OPTIONS=--trace-deprecation npx vitest run`) after any future `@prisma/client`/`@prisma/adapter-pg`
+  upgrade to check whether it has been resolved. Do not upgrade preemptively to an unreleased/dev version
+  to chase this — it is cosmetic, not correctness-affecting, and `pg`'s own changelog confirms the
+  underlying `client.query()` behavior itself won't actually change until `pg@9.0`, so there is no urgency.
+- Fix verification: n/a for the warning itself (confirmed unavoidable, not fixed). The `createMany()`
+  refactor's own correctness was verified by the full existing test suite for every affected repository
+  (`tests/invoice-repository.test.ts`, `tests/inspection-template-repository.test.ts`,
+  `tests/reconciliation-repository.test.ts`, `tests/retention-repository.test.ts`,
+  `tests/telematics-repository.test.ts`, `tests/tyre-config-repository.test.ts` where present) all passing
+  unchanged after the refactor, plus two consecutive full-suite runs (685/685 both times).
+
 ## Known, disclosed: intermittent full-suite-only flake in one reconciliation test (not fixed, not blocking)
 - Severity: low
 - Reproduction steps: run `npm test` (the full 34-file suite) repeatedly. Roughly 1 run in 2-4,

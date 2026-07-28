@@ -69,30 +69,40 @@ export interface CreateInspectionTemplateInput {
  * always starts a fresh name/version lineage.
  */
 export async function createInspectionTemplate(input: CreateInspectionTemplateInput) {
-  const template = await prisma.inspectionTemplate.create({
-    data: {
-      tenantId: input.tenantId,
-      name: input.name,
-      description: input.description ?? null,
-      vehicleCategory: input.vehicleCategory ?? null,
-      version: 1,
-      isActive: true,
-      isSystem: input.isSystem ?? false,
-      items: {
-        create: input.items.map((item, index) => ({
-          section: item.section,
-          label: item.label,
-          description: item.description ?? null,
-          sortOrder: index,
-          responseType: item.responseType ?? "CHECK",
-          unit: item.unit ?? null,
-          isRequired: item.isRequired ?? true,
-          defaultExceptionSeverity: item.defaultExceptionSeverity ?? null,
-          requiresSupervisorApprovalOnFail: item.requiresSupervisorApprovalOnFail ?? false,
-        })),
+  // P11-000 (DECISIONS.md D-038): items are created via a separate,
+  // explicit createMany() rather than a nested `items: { create: [...] }`
+  // write — a multi-item nested relational create, interpreted by Prisma's
+  // query-compiler runtime inside its own implicit transaction, was traced
+  // as a source of pg's "client.query() when the client is already
+  // executing a query" deprecation warning under real load.
+  const template = await prisma.$transaction(async (tx) => {
+    const created = await tx.inspectionTemplate.create({
+      data: {
+        tenantId: input.tenantId,
+        name: input.name,
+        description: input.description ?? null,
+        vehicleCategory: input.vehicleCategory ?? null,
+        version: 1,
+        isActive: true,
+        isSystem: input.isSystem ?? false,
       },
-    },
-    include: { items: true },
+    });
+    await tx.inspectionItem.createMany({
+      data: input.items.map((item, index) => ({
+        templateId: created.id,
+        section: item.section,
+        label: item.label,
+        description: item.description ?? null,
+        sortOrder: index,
+        responseType: item.responseType ?? "CHECK",
+        unit: item.unit ?? null,
+        isRequired: item.isRequired ?? true,
+        defaultExceptionSeverity: item.defaultExceptionSeverity ?? null,
+        requiresSupervisorApprovalOnFail: item.requiresSupervisorApprovalOnFail ?? false,
+      })),
+    });
+    const items = await tx.inspectionItem.findMany({ where: { templateId: created.id }, orderBy: { sortOrder: "asc" } });
+    return { ...created, items };
   });
 
   await recordAudit({
@@ -122,8 +132,15 @@ export async function createNewTemplateVersion(
   const previous = await prisma.inspectionTemplate.findFirst({ where: tenantWhere(tenantId, { id: previousTemplateId }) });
   if (!previous) return null;
 
-  const [created] = await prisma.$transaction([
-    prisma.inspectionTemplate.create({
+  // P11-000 (DECISIONS.md D-038): an explicit interactive transaction with a
+  // separate createMany() for items, replacing both the nested
+  // `items: { create: [...] }` write and the array-style (non-interactive)
+  // `$transaction([...])` batch API — array-style batched operations are
+  // sent together without this code controlling their exact sequencing
+  // against the driver-adapter's pinned transaction client, the same class
+  // of issue as the nested-create nested-write nested pattern above.
+  const created = await prisma.$transaction(async (tx) => {
+    const createdTemplate = await tx.inspectionTemplate.create({
       data: {
         tenantId,
         name: previous.name,
@@ -132,24 +149,26 @@ export async function createNewTemplateVersion(
         version: previous.version + 1,
         isActive: true,
         isSystem: previous.isSystem,
-        items: {
-          create: input.items.map((item, index) => ({
-            section: item.section,
-            label: item.label,
-            description: item.description ?? null,
-            sortOrder: index,
-            responseType: item.responseType ?? "CHECK",
-            unit: item.unit ?? null,
-            isRequired: item.isRequired ?? true,
-            defaultExceptionSeverity: item.defaultExceptionSeverity ?? null,
-            requiresSupervisorApprovalOnFail: item.requiresSupervisorApprovalOnFail ?? false,
-          })),
-        },
       },
-      include: { items: true },
-    }),
-    prisma.inspectionTemplate.update({ where: { id: previous.id }, data: { isActive: false } }),
-  ]);
+    });
+    await tx.inspectionItem.createMany({
+      data: input.items.map((item, index) => ({
+        templateId: createdTemplate.id,
+        section: item.section,
+        label: item.label,
+        description: item.description ?? null,
+        sortOrder: index,
+        responseType: item.responseType ?? "CHECK",
+        unit: item.unit ?? null,
+        isRequired: item.isRequired ?? true,
+        defaultExceptionSeverity: item.defaultExceptionSeverity ?? null,
+        requiresSupervisorApprovalOnFail: item.requiresSupervisorApprovalOnFail ?? false,
+      })),
+    });
+    await tx.inspectionTemplate.update({ where: { id: previous.id }, data: { isActive: false } });
+    const items = await tx.inspectionItem.findMany({ where: { templateId: createdTemplate.id }, orderBy: { sortOrder: "asc" } });
+    return { ...createdTemplate, items };
+  });
 
   await recordAudit({
     tenantId,

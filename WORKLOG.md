@@ -2174,3 +2174,70 @@ production payment-gateway and transactional-email vendor decision (Phase 10's o
 the provider interfaces and mock implementations are ready for either), full investigation-case management,
 and the still-open production hosting/scheduler decision (blocking several earlier phases' jobs too).
 
+## Session 20 — P11-000: PostgreSQL "overlapping query" warning investigation
+
+**Trigger.** The final Phase 10 test runs passed but PostgreSQL/`pg` logged: `Calling client.query() when
+the client is already executing a query is deprecated and will be removed in pg@9.0.` Instruction was
+explicit: do not merely suppress it — find the exact source, fix unsafe overlapping-query usage if it
+exists in application code, and if it proves to be an unavoidable third-party defect, document it rather
+than chase it further.
+
+**Investigation.**
+1. Re-ran the full suite with `NODE_OPTIONS=--trace-deprecation npx vitest run` to capture the exact stack
+   trace rather than guessing. The trace pointed into `@prisma/adapter-pg`'s `PgTransaction.performIO`, not
+   into any application call site.
+2. Audited every `prisma.$transaction(...)` call site in the repo. Found six locations using Prisma's
+   nested relational-write shorthand (`parentModel.create({ data: { child: { create: [...] } } })`) with
+   2+ child rows inside an interactive transaction: `invoice-repository.ts` (`generateInvoiceForBillingPeriod`,
+   `reissueInvoice`), `inspection-template-repository.ts` (`createInspectionTemplate`,
+   `createNewTemplateVersion` — the latter using the array-style `prisma.$transaction([...])` batch API),
+   `reconciliation-repository.ts` (`buildReconciliation`), `retention-repository.ts`
+   (`createDeletionRequest`), `telematics-repository.ts` (`createVehicleUsePolicy`),
+   `tyre-config-repository.ts` (`createTyrePositionConfig`), and the default inspection-template seed data
+   in `prisma/seed.ts`. Prisma's query-compiler decomposes these nested multi-row writes into several
+   per-row `Client.query()` calls against the transaction's single pinned `pg.Client` — a legitimate
+   code-quality issue independent of the warning, so all seven sites were restructured to build the parent
+   row first, then write children via an explicit, single `createMany()` call, then re-read via
+   `findMany`/`findUniqueOrThrow` to preserve each function's original return shape. The array-style
+   `$transaction([...])` call in `createNewTemplateVersion` was also converted to the interactive callback
+   form, since the array form gives no control over sequencing against the adapter's pinned client.
+3. Re-ran `--trace-deprecation` after the refactor. The warning was still present, now originating from the
+   `createMany()` calls themselves rather than the original nested creates — proving the trigger is not the
+   nested-create shorthand specifically, but Prisma's internal handling of any multi-statement sequence
+   inside an interactive transaction on `@prisma/adapter-pg`.
+4. Tested a Prisma upgrade (7.8.0 -> 7.9.1, the latest stable at the time) as a possible fix. The warning
+   was still present on 7.9.1. Fully reverted: `npm install prisma@7.8.0 @prisma/client@7.8.0
+   @prisma/adapter-pg@7.8.0`, `git checkout -- package-lock.json`, `npm install`, `npx prisma generate`;
+   confirmed `git diff --stat package.json package-lock.json` produced no output (byte-identical to the
+   committed state).
+5. Searched public GitHub issues and found this is a known, currently open upstream defect:
+   prisma/prisma#29646 and prisma/prisma#29407, both describing `PgTransaction.performIO` triggering pg's
+   deprecation guard on a transaction-pinned client. Documented as BUG-010 in KNOWN_BUGS.md (package/
+   version, repro, upgrade path, explicit instruction not to upgrade preemptively to chase it) and as
+   DECISIONS.md D-038 (decision to keep the createMany() refactor as a genuine code-quality improvement
+   regardless of it not eliminating the warning).
+
+**Outcome.** No application-code overlapping-query misuse was found or existed. The `createMany()` refactor
+is a real improvement (explicit, single write instead of Prisma-decomposed per-row writes) and was kept.
+The warning itself is proven to originate inside `@prisma/adapter-pg` 7.8.0/7.9.1 and is not fixable from
+application code; it is documented, not suppressed, per BUG-010.
+
+**Files changed:** `src/lib/repositories/invoice-repository.ts`, `inspection-template-repository.ts`,
+`reconciliation-repository.ts`, `retention-repository.ts`, `telematics-repository.ts`,
+`tyre-config-repository.ts`; `prisma/seed.ts`; `KNOWN_BUGS.md` (BUG-010); `DECISIONS.md` (D-038); `TODO.md`.
+
+**Tests run:**
+- `npx tsc --noEmit` — clean.
+- `npx eslint` (full repo) — clean.
+- `npm run build` — clean.
+- `npm test` — **685/685 passing**, run twice consecutively (including
+  `tests/invoice-repository.test.ts`, `tests/inspection-template-repository.test.ts`,
+  `tests/reconciliation-repository.test.ts`, `tests/telematics-repository.test.ts`, which exercise the
+  refactored functions directly).
+- `NODE_OPTIONS=--trace-deprecation npx vitest run` — warning still present; traced to
+  `@prisma/adapter-pg` internals, confirmed not application-code-triggerable.
+
+**Remaining work:** None for P11-000 — closed as an unavoidable, documented upstream defect (BUG-010).
+Tracking the two upstream GitHub issues is the only open follow-up. Phase 11 (Investigation, Internal
+Review and External Audit Case Management) begins next — see TODO.md P11A-P11T.
+
