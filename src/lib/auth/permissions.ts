@@ -274,6 +274,14 @@ const EXTERNAL_AUDITOR_ACCESS_ACTIONS = ["VIEW", "CREATE", "DELETE"] as const;
 // ExternalAuditorAccessGrant naming the exact case ID (P11L, P11O).
 const EXTERNAL_AUDITOR_PORTAL_ACTIONS = ["VIEW", "EXPORT"] as const;
 
+// Phase 12 — deterministic governance analytics. VIEW is deliberately
+// separate from indicator review/configuration/export so executive oversight
+// does not imply the ability to change rules or dispose of review items.
+const GOVERNANCE_ANALYTICS_ACTIONS = ["VIEW"] as const;
+const ANALYTICS_INDICATOR_ACTIONS = ["VIEW", "EDIT", "CREATE"] as const;
+const ANALYTICS_RULE_ACTIONS = ["VIEW", "CONFIGURE"] as const;
+const ANALYTICS_EXPORT_ACTIONS = ["EXPORT"] as const;
+
 export const PERMISSION_CATALOGUE = {
   platformTenant: PLATFORM_TENANT_ACTIONS,
   tenant: TENANT_ACTIONS,
@@ -319,6 +327,10 @@ export const PERMISSION_CATALOGUE = {
   investigationCaseClosure: INVESTIGATION_CASE_CLOSURE_ACTIONS,
   externalAuditorAccess: EXTERNAL_AUDITOR_ACCESS_ACTIONS,
   externalAuditorPortal: EXTERNAL_AUDITOR_PORTAL_ACTIONS,
+  governanceAnalytics: GOVERNANCE_ANALYTICS_ACTIONS,
+  analyticsIndicator: ANALYTICS_INDICATOR_ACTIONS,
+  analyticsRule: ANALYTICS_RULE_ACTIONS,
+  analyticsExport: ANALYTICS_EXPORT_ACTIONS,
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;

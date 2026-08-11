@@ -107,6 +107,12 @@ model Tenant {
   externalAuditorAccessLogs        ExternalAuditorAccessLog[]
   investigationNotificationRecords InvestigationNotificationRecord[]
 
+  // --- Phase 12: governance analytics and explainable risk indicators ---
+  analyticsRules           AnalyticsRule[]
+  analyticsIndicators      AnalyticsIndicator[]
+  analyticsIndicatorEvents AnalyticsIndicatorEvent[]
+  analyticsCalculationRuns AnalyticsCalculationRun[]
+
   @@map("tenants")
 }
 
@@ -275,6 +281,11 @@ model User {
   externalAuditorAccessGrantsRevoked    ExternalAuditorAccessGrant[]      @relation("ExternalAuditorAccessGrantRevokedBy")
   externalAuditorAccessLogsActed        ExternalAuditorAccessLog[]        @relation("ExternalAuditorAccessLogActor")
   investigationNotificationsReceived    InvestigationNotificationRecord[] @relation("InvestigationNotificationRecipient")
+
+  // --- Phase 12: governance analytics and explainable risk indicators ---
+  analyticsRulesConfigured      AnalyticsRule[]           @relation("AnalyticsRuleConfiguredBy")
+  analyticsIndicatorsReviewed   AnalyticsIndicator[]      @relation("AnalyticsIndicatorReviewedBy")
+  analyticsIndicatorEventsActed AnalyticsIndicatorEvent[] @relation("AnalyticsIndicatorEventActor")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1498,6 +1509,10 @@ enum MediaAssetOwnerType {
   // case (one per approved version), same one-directional
   // (ownerType, ownerId) pattern as INVOICE, not a unique 1:1.
   INVESTIGATION_REPORT
+  // Phase 12 governance analytics report. ownerId is the tenant ID; the
+  // specialised analytics download route still applies analyticsExport:
+  // EXPORT and a tenant match before minting a signed URL.
+  GOVERNANCE_ANALYTICS_REPORT
 }
 
 enum MediaDataClassification {
@@ -3053,17 +3068,18 @@ model InvestigationCase {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  subjects                 InvestigationSubject[]
-  relatedRecords           InvestigationRelatedRecord[]
-  notes                    InvestigationNote[]
-  tasks                    InvestigationTask[]
-  findings                 InvestigationFinding[]
-  approvals                InvestigationApproval[]
-  evidenceLinks            InvestigationEvidenceLink[]
-  chronologyEvents         InvestigationChronologyEvent[]
-  externalAccessGrantCases ExternalAuditorAccessGrantCase[]
-  externalAccessLogs       ExternalAuditorAccessLog[]
-  notificationRecords      InvestigationNotificationRecord[]
+  subjects                  InvestigationSubject[]
+  relatedRecords            InvestigationRelatedRecord[]
+  notes                     InvestigationNote[]
+  tasks                     InvestigationTask[]
+  findings                  InvestigationFinding[]
+  approvals                 InvestigationApproval[]
+  evidenceLinks             InvestigationEvidenceLink[]
+  chronologyEvents          InvestigationChronologyEvent[]
+  externalAccessGrantCases  ExternalAuditorAccessGrantCase[]
+  externalAccessLogs        ExternalAuditorAccessLog[]
+  notificationRecords       InvestigationNotificationRecord[]
+  linkedAnalyticsIndicators AnalyticsIndicator[]
 
   @@unique([tenantId, caseNumber])
   @@index([tenantId, status])
@@ -3450,4 +3466,178 @@ model ExternalAuditorAccessLog {
   @@index([tenantId, grantId])
   @@index([tenantId, caseId])
   @@map("external_auditor_access_logs")
+}
+
+// ===========================================================================
+// Phase 12: Governance Analytics, Risk Indicators and Data Mining
+// Deterministic, explainable rules only. Indicators are prompts for human
+// review and never findings, accusations, or disciplinary decisions.
+// ===========================================================================
+
+enum AnalyticsSubjectType {
+  TENANT
+  SITE
+  GATE
+  VEHICLE
+  DRIVER
+  MOVEMENT
+}
+
+enum AnalyticsDataQuality {
+  COMPLETE
+  INCOMPLETE
+  MOCK
+  MANUAL
+  MIXED
+  UNAVAILABLE
+}
+
+enum AnalyticsIndicatorStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
+  ESCALATED
+}
+
+enum AnalyticsCalculationStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// Updating a rule creates a new immutable version and supersedes the old
+// row. Historical indicators retain both the FK and a complete JSON
+// threshold snapshot, so later configuration changes never rewrite history.
+model AnalyticsRule {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code        String
+  label       String
+  description String
+  version     Int     @default(1)
+  enabled     Boolean @default(true)
+
+  evaluationPeriodDays   Int               @default(30)
+  minimumOccurrenceCount Int               @default(3)
+  severity               ExceptionSeverity @default(MEDIUM)
+  percentageThreshold    Float?
+  numericThreshold       Float?
+  operatingHourStart     String?
+  operatingHourEnd       String?
+  staleDataHours         Int?
+  baselinePeriodDays     Int?
+  minimumSampleSize      Int               @default(3)
+  cooldownDays           Int               @default(7)
+
+  // Null only for the documented system safe-default version. Every human
+  // configuration change records its actual authorised actor.
+  configuredByUserId String?
+  configuredBy       User?     @relation("AnalyticsRuleConfiguredBy", fields: [configuredByUserId], references: [id])
+  configuredAt       DateTime  @default(now())
+  supersededAt       DateTime?
+
+  indicators AnalyticsIndicator[]
+
+  @@unique([tenantId, code, version])
+  @@index([tenantId, code, supersededAt])
+  @@map("analytics_rules")
+}
+
+model AnalyticsIndicator {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  ruleId       String
+  rule         AnalyticsRule @relation(fields: [ruleId], references: [id])
+  ruleCode     String
+  ruleVersion  Int
+  ruleSnapshot Json
+
+  evaluationStart DateTime
+  evaluationEnd   DateTime
+  subjectType     AnalyticsSubjectType
+  subjectId       String
+  subjectLabel    String
+  severity        ExceptionSeverity
+
+  title             String
+  explanation       String
+  recommendedAction String
+  supportingRecords Json
+  dataQuality       AnalyticsDataQuality
+  firstDetectedAt   DateTime
+  lastDetectedAt    DateTime
+  occurrenceCount   Int
+
+  status           AnalyticsIndicatorStatus @default(OPEN)
+  reviewedByUserId String?
+  reviewedBy       User?                    @relation("AnalyticsIndicatorReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  reviewNotes      String?
+
+  linkedInvestigationCaseId String?
+  linkedInvestigationCase   InvestigationCase? @relation(fields: [linkedInvestigationCaseId], references: [id])
+
+  // A deterministic tenant/rule/subject/window key. The database constraint
+  // makes concurrent calculation retries safe rather than trusting a
+  // read-before-write check alone.
+  calculationKey String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events AnalyticsIndicatorEvent[]
+
+  @@unique([tenantId, ruleCode, subjectType, subjectId, evaluationStart, evaluationEnd])
+  @@index([tenantId, status, severity, lastDetectedAt])
+  @@index([tenantId, subjectType, subjectId])
+  @@index([tenantId, ruleCode, lastDetectedAt])
+  @@map("analytics_indicators")
+}
+
+// Append-only review chronology. A dismissal/reopen never deletes or edits
+// the history that preceded it.
+model AnalyticsIndicatorEvent {
+  id          String             @id @default(cuid())
+  tenantId    String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  indicatorId String
+  indicator   AnalyticsIndicator @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+
+  action      String
+  fromStatus  AnalyticsIndicatorStatus?
+  toStatus    AnalyticsIndicatorStatus?
+  note        String?
+  actorUserId String
+  actor       User                      @relation("AnalyticsIndicatorEventActor", fields: [actorUserId], references: [id])
+  occurredAt  DateTime                  @default(now())
+
+  @@index([tenantId, indicatorId, occurredAt])
+  @@map("analytics_indicator_events")
+}
+
+// Per-tenant result inside the globally concurrency-protected scheduled job.
+// This supplies the dashboard's latest-calculation timestamp and an honest
+// record of partial/failing tenant evaluations.
+model AnalyticsCalculationRun {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  status               AnalyticsCalculationStatus @default(RUNNING)
+  startedAt            DateTime                   @default(now())
+  finishedAt           DateTime?
+  rulesEvaluated       Int                        @default(0)
+  indicatorsCreated    Int                        @default(0)
+  indicatorsUpdated    Int                        @default(0)
+  indicatorsSuppressed Int                        @default(0)
+  dataQuality          AnalyticsDataQuality       @default(COMPLETE)
+  resultSummary        Json?
+  errorMessage         String?
+
+  @@index([tenantId, startedAt])
+  @@map("analytics_calculation_runs")
 }

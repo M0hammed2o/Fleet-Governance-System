@@ -113,11 +113,21 @@ export async function createUser(params: { tenantId: string; roleId: string; ema
 }
 
 export async function grantPermission(roleId: string, resource: string, action: string) {
-  const permission = await prisma.permission.upsert({
-    where: { resource_action: { resource, action: action as never } },
-    update: {},
-    create: { resource, action: action as never },
-  });
+  let permission;
+  try {
+    permission = await prisma.permission.upsert({
+      where: { resource_action: { resource, action: action as never } },
+      update: {},
+      create: { resource, action: action as never },
+    });
+  } catch (error) {
+    // Test files run in parallel. Two first-time fixtures may concurrently
+    // bootstrap the same global catalogue row; the DB correctly allows one.
+    // Re-read the winner rather than turning that expected P2002 race into a
+    // fixture failure.
+    if (typeof error !== "object" || error === null || !("code" in error) || (error as { code?: string }).code !== "P2002") throw error;
+    permission = await prisma.permission.findUniqueOrThrow({ where: { resource_action: { resource, action: action as never } } });
+  }
   return prisma.rolePermission.create({ data: { roleId, permissionId: permission.id } });
 }
 

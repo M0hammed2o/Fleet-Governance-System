@@ -134,6 +134,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "investigationConfidentialAccess", action: "VIEW" },
       { resource: "investigationHold", action: "CONFIGURE" },
       { resource: "externalAuditorAccess", action: "VIEW" }, { resource: "externalAuditorAccess", action: "CREATE" }, { resource: "externalAuditorAccess", action: "DELETE" },
+      // Phase 12 — company-wide governance oversight and configuration.
+      { resource: "governanceAnalytics", action: "VIEW" },
+      { resource: "analyticsIndicator", action: "VIEW" }, { resource: "analyticsIndicator", action: "EDIT" }, { resource: "analyticsIndicator", action: "CREATE" },
+      { resource: "analyticsRule", action: "VIEW" }, { resource: "analyticsRule", action: "CONFIGURE" },
+      { resource: "analyticsExport", action: "EXPORT" },
     ],
   },
   // --- Primary role 2/6 — new, carved out of the old "Fleet Manager"'s
@@ -249,6 +254,12 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "investigationReport", action: "CREATE" }, { resource: "investigationReport", action: "EXPORT" },
       { resource: "investigationCaseClosure", action: "APPROVE" }, { resource: "investigationCaseClosure", action: "REJECT" },
       { resource: "externalAuditorAccess", action: "VIEW" }, { resource: "externalAuditorAccess", action: "CREATE" }, { resource: "externalAuditorAccess", action: "DELETE" },
+      // Phase 12 — primary operational reviewer; may review/escalate but not
+      // alter the tenant's rule thresholds.
+      { resource: "governanceAnalytics", action: "VIEW" },
+      { resource: "analyticsIndicator", action: "VIEW" }, { resource: "analyticsIndicator", action: "EDIT" }, { resource: "analyticsIndicator", action: "CREATE" },
+      { resource: "analyticsRule", action: "VIEW" },
+      { resource: "analyticsExport", action: "EXPORT" },
     ],
   },
   // --- Primary role 5/6 — renamed/refocused "Fleet Manager": keeps
@@ -280,6 +291,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // catalogue (role description above), per this role's Phase 6 scope.
       { resource: "telematics", action: "VIEW" }, { resource: "telematics", action: "CREATE" }, { resource: "telematics", action: "CONFIGURE" },
       { resource: "vehicleUsePolicy", action: "VIEW" }, { resource: "vehicleUsePolicy", action: "CREATE" }, { resource: "vehicleUsePolicy", action: "EDIT" },
+      // Phase 12 — operational/fleet trend visibility and indicator review;
+      // no configuration or export by default.
+      { resource: "governanceAnalytics", action: "VIEW" },
+      { resource: "analyticsIndicator", action: "VIEW" }, { resource: "analyticsIndicator", action: "EDIT" },
+      { resource: "analyticsRule", action: "VIEW" },
     ],
   },
   // --- Primary role 6/6 — renamed/refocused "Risk/Compliance Manager".
@@ -368,6 +384,11 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "investigationTask", action: "CREATE" }, { resource: "investigationTask", action: "EDIT" },
       { resource: "investigationFinding", action: "CREATE" }, { resource: "investigationFinding", action: "EDIT" },
       { resource: "investigationReport", action: "CREATE" }, { resource: "investigationReport", action: "EXPORT" },
+      // Phase 12 — working governance analyst/investigator.
+      { resource: "governanceAnalytics", action: "VIEW" },
+      { resource: "analyticsIndicator", action: "VIEW" }, { resource: "analyticsIndicator", action: "EDIT" }, { resource: "analyticsIndicator", action: "CREATE" },
+      { resource: "analyticsRule", action: "VIEW" },
+      { resource: "analyticsExport", action: "EXPORT" },
     ],
   },
   // --- Additional non-daily profile 2/3 — new. More restricted than the
@@ -416,6 +437,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // confidential/evidence/subject access, matching this role's existing
       // "no media/evidence access" posture.
       { resource: "investigationCase", action: "VIEW" },
+      // Phase 12 — aggregate/read-only executive intelligence. Export and
+      // review/configuration are intentionally independent and not granted.
+      { resource: "governanceAnalytics", action: "VIEW" },
+      { resource: "analyticsIndicator", action: "VIEW" },
     ],
   },
   // --- Phase 11 addition, deliberately outside the six-primary +
