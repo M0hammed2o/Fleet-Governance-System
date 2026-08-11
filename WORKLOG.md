@@ -2271,3 +2271,81 @@ PgTransaction.performIO → Prisma interpreter`, confirming BUG-010.
 or invitation was used. Notification and invitation adapters remained no-op.
 
 **Remaining work.** None for Phase 11. Phase 12 is intentionally not started; await explicit direction.
+
+## Session 22 — Phase 12 completion: Governance Analytics and Risk Indicators
+
+**Scope completed.** Implemented the Phase 12 governance-analytics capability without starting a live
+telematics integration or changing any production environment. The work adds immutable versioned rules,
+tenant-local calculation windows, indicator snapshots and append-only chronology, dashboard aggregation,
+human review/dismiss/reopen/escalation workflows, restricted supporting-record links, CSV export, stored
+PDF reports, and the overlap-protected `analytics.calculateIndicators` scheduled job. Twelve conservative
+default rules cover repeated vehicle/driver exceptions, inspection failures, clearances with exceptions,
+late returns, long movements, missing reconciliations, data inconsistencies, tracker staleness, site
+concentration, outside-hours activity, and sudden exception increases. Indicators remain decision-support
+signals: calculations never automatically accuse a person, create a case/finding, or send a message.
+
+**Data quality and access control.** Tracker-derived analytics disclose whether their source is live,
+manual/mock, incomplete, stale, or unavailable. All dashboard, rule, calculation, indicator, export,
+report, and workflow paths enforce the session tenant plus their dedicated least-privilege permissions.
+Supporting references are re-authorized when read, foreign-tenant identifiers are suppressed, and
+confidential investigation references require the existing confidential-case capability. Human escalation
+can create or link one same-tenant investigation case and preserves the originating indicator and event
+history.
+
+**Schema and migrations.** Added `AnalyticsRule`, `AnalyticsIndicator`, `AnalyticsIndicatorEvent`, and
+`AnalyticsCalculationRun`, their enums/indexes/constraints, and the governance-report media owner type.
+Two committed migrations (`20260811180000_phase12_governance_analytics` and
+`20260811181500_phase12_system_rule_provenance`) bring the repository to **26 migrations**. Both the
+development status check and two genuinely empty-database replays passed without checksum edits.
+
+**UI and exports.** Added `/analytics`, `/analytics/rules`, and `/analytics/indicators/[id]` with a default
+30-day tenant-local range, a 366-day bound, operational/investigation filters and aggregates, textual data-
+quality/status cues, role-aware actions, and responsive layouts. CSV export is RFC-compatible, bounded to
+5,000 rows, includes the filter/quality/disclaimer context, and neutralizes spreadsheet formula prefixes.
+PDF reports are stored as MediaAssets and include tenant/period/filter provenance, metrics, data-quality
+and tracker limitations, indicators, disclaimers, and page footers. Desktop, tablet, mobile, rule,
+indicator-detail, empty/filtered/mock states, CSV output, and both PDF pages were inspected directly.
+
+**Defects found and resolved.** BUG-013 was a Phase 12 PDF warning panel overlapping following content;
+the panel measurement/flow was corrected and the rendered pages were re-inspected. A first attempted
+second browser gate exposed BUG-014: an existing shared billing login helper could lose its filled form
+during a cold Next dev-server route reload and wait until the whole workflow timeout. The helper now
+asserts its filled values, uses a bounded dashboard wait, and retries the complete login once. Its focused
+2-test billing run passed, and the complete verification count was restarted after this change. A transient
+TypeScript read of `.next/dev/types` while the failed dev server was shutting down disappeared on the
+immediate standalone rerun; generated sources were valid and both final gates passed from a quiescent
+server.
+
+**Automated coverage.** Added 30 Phase 12 Vitest cases across calculation determinism and concurrency,
+DST/calendar windows, minimum samples/cooldowns, immutable rule versions/snapshots, all filters and
+aggregates, data-quality disclosure, authorization/confidentiality/tenant isolation, hostile supporting-
+reference injection, review chronology, same-tenant escalation/linkage, CSV injection hardening, PDF
+report isolation, and job overlap/retry behavior. Added three real Chromium Phase 12 workflows covering
+manager review/export, permission and cross-tenant denial (including a real foreign-tenant indicator), and
+case escalation.
+
+**Final verification — two consecutive stable gates after the last code change.** Gate A: Prisma
+format/validate/generate/status passed; all 26 migrations replayed from empty; TypeScript and ESLint passed;
+**68 files / 765 tests** passed; Next 16.2.10 production build passed with **103/103** static pages; and the
+Playwright run marker reported `passed` with no failed tests (**14/14**). Gate B repeated the complete gate:
+Prisma format/validate/generate/status, clean replay of all 26 migrations, TypeScript and ESLint passed;
+**68 files / 765 tests** passed; the production build compiled and generated **103/103** static pages; and
+**14/14 Playwright tests passed** in 7.5 minutes with exit code 0. The known BUG-010 upstream
+`@prisma/adapter-pg`/`pg` warning, Next dev-server `MaxListenersExceededWarning`, and normal MediaPipe WASM
+diagnostics remained non-fatal and were not suppressed.
+
+**External effects.** No production migration, production deployment, vendor integration, external
+account, paid service, payment, email, invitation, or outbound message was created or used. Provider and
+notification adapters remain mock/no-op where the business has not selected a live service.
+
+**Commits.** `89859c6` (versioned rules and calculation engine), `48e93c9` (dashboard and indicator review
+workflow), and `f2e0cfb` (exports, reports, jobs, and browser coverage), followed by the Phase 12 closeout
+documentation/browser-fixture hardening commit.
+
+**Recommended next action.** Treat Phase 13 as a business-readiness decision gate before writing live-
+provider code: approve the production hosting/database/object-storage/scheduler and monitoring stack;
+choose the tracker vendor and supply its API contract, authentication/data fields, rate limits, sample test
+data, and retention/privacy terms; confirm tenant operating hours, department model, rule owners/thresholds,
+report volumes and legal/POPIA retention requirements; and resolve the still-open payment/email vendor
+choices. Only after those inputs are approved should production accounts, credentials, integrations, or
+deployments be created.

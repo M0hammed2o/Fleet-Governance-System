@@ -8,7 +8,29 @@ Session 19 closed the two remaining Phase 9 browser follow-ups (P9F-001/002 belo
 in full (Subscriptions, Billing and Invoicing, P10A-P10P below) — see WORKLOG.md Session 19 and
 BILLING_AND_SUBSCRIPTIONS.md. Session 20 closed the P11-000 PostgreSQL-warning investigation. Session 21
 completed Phase 11 (Investigation, Internal Review and External Audit Case Management, P11A-P11T below).
-Phase 12 has deliberately not started; await explicit product direction.
+Session 22 completed Phase 12 governance analytics and deterministic risk indicators. The next authorised
+phase is Phase 13 production-integration discovery; do not connect vendors or create paid accounts until
+the business supplies its provider choices, contracts, data-quality expectations, and credentials.
+
+## Phase 12 (P12) — Governance Analytics, Risk Indicators and Data Mining — Session 22
+
+- [x] **P12A** — Versioned tenant analytics rules, materialised explainable indicators, append-only review
+      chronology, per-tenant calculation runs, database uniqueness/indexes, and two forward migrations.
+- [x] **P12B** — Executive and operational dashboard with tenant-local bounded dates, site/gate/vehicle/
+      driver/movement/department/severity/exception/investigation filters and honest unavailable metrics.
+- [x] **P12C** — Twelve conservative deterministic rules, immutable threshold snapshots, minimum samples,
+      cooldown/duplicate suppression, data-quality classifications, and no accusation/automatic finding.
+- [x] **P12D** — Review, dismissal, reopen, new/existing-investigation escalation, filtered supporting
+      references, full chronology, audit logging, and tenant-safe not-found behavior.
+- [x] **P12E** — Aggregated/redacted investigation analytics and explicit mock/manual/incomplete/
+      unavailable tracker transparency; no route deviation without sufficient data.
+- [x] **P12F** — Formula-safe bounded CSV, professional stored PDF with signed download, filter/period/
+      quality/disclaimer metadata, and independently enforced export permission.
+- [x] **P12G** — Authenticated idempotent `analytics.calculateIndicators` job, tenant-by-tenant execution,
+      global overlap prevention, calculation result records, and local CLI route.
+- [x] **P12H** — Conservative seed role matrix, comprehensive repository/security tests, three serial
+      Chromium workflows, manual responsive/report inspection, clean migration replay, docs, and double
+      final verification gate.
 
 ## P11-000 — PostgreSQL overlapping-query warning investigation — Session 20
 - [x] **P11-000** — Investigated pg's "client.query() when the client is already executing a query"
@@ -119,14 +141,11 @@ Phase 12 has deliberately not started; await explicit product direction.
 - [x] **P10P** — Documentation: update existing docs + new `BILLING_AND_SUBSCRIPTIONS.md` | Priority: high
       | Deps: P10A-P10O
 
-Phases 5B/5C/6/7 (an earlier run's full scope) are **all complete** — see the Revised build order below and
-WORKLOG.md Sessions 9-12. Phase 10 (Subscriptions, Billing and Invoicing) is now also **complete** — see
-above and BILLING_AND_SUBSCRIPTIONS.md. Full investigation-case management remains explicitly not started
-— case creation, findings, disposition tracking; External Reviewer / Internal Investigator profiles already
-exist for evidence access (Phase 5A), but no case-management module itself. Also still open: production
-hosting/deployment target (Unresolved questions #3, PRODUCT_REQUIREMENTS.md), facial-verification and
-telematics production vendor selection, and Phase 10's own remaining blockers (payment-gateway/email
-vendor — see "Blocked" below).
+Phases 1–12 are complete; the current canonical guides include `BILLING_AND_SUBSCRIPTIONS.md`,
+`INVESTIGATIONS_AND_EXTERNAL_AUDIT.md`, and `GOVERNANCE_ANALYTICS_AND_RISK_INDICATORS.md`. Still open are
+the production hosting/scheduler target, facial/liveness and telematics production provider selection,
+payment gateway and transactional-message vendors, and real platform legal/banking details. These require
+explicit business approval before Phase 13 writes or paid accounts.
 
 ## Revised build order (2026-07-23, per user instruction — target: October 2026 pilot)
 Phase 5A (role realignment) — **done**, see WORKLOG.md Session 7. Phase 5B (Reconciliation) — **done**, see

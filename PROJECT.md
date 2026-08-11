@@ -72,6 +72,16 @@ versioned findings with independent approval, stored PDF reports, scheduled noti
 and a dedicated case-scoped external-auditor portal. The canonical operating guide is
 `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md`; Session 21 in `WORKLOG.md` records verification evidence.
 
-The Phase 11 gate is 64 Vitest files / 735 tests, a clean Next 16 production build, and 11 Playwright
+The Phase 11 gate was 64 Vitest files / 735 tests, a clean Next 16 production build, and 11 Playwright
 tests, including the complete investigation lifecycle and referral/source-immutability workflows.
-Phase 12 analytics was deliberately not started.
+
+**Phase 12 is complete.** It adds a permission-controlled executive/operational analytics dashboard,
+tenant-local filters, 12 configurable deterministic risk rules, immutable version/threshold snapshots,
+materialised explainable indicators, append-only review/dismissal/reopen/escalation chronology, aggregate
+investigation analytics, explicit mock/manual/unavailable tracker classification, bounded CSV/PDF exports,
+and an idempotent tenant-by-tenant calculation job. The canonical guide is
+`GOVERNANCE_ANALYTICS_AND_RISK_INDICATORS.md`. No production provider, scheduler, deployment, or opaque
+accusation model was added.
+
+The Phase 12 final gate is 68 Vitest files / 765 tests, a clean Next 16 production build with 103/103
+static pages, and 14 Playwright tests. The complete gate passed twice after the final code change.

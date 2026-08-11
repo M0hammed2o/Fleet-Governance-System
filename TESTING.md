@@ -686,3 +686,29 @@ Full requirement-by-requirement detail in BILLING_AND_SUBSCRIPTIONS.md.
 - Final baseline: **64 files / 735 Vitest tests**, **11 Playwright tests**, clean TypeScript/ESLint/build,
   Prisma validation/status, and all 24 migrations replayed from empty.
 - Known non-failing output: BUG-010's pg adapter deprecation and Next dev socket-listener warnings.
+
+## Phase 12 verification — governance analytics and risk indicators
+
+- Four new Vitest files add 30 tests for tenant/time-zone date boundaries, dashboard aggregate/filter
+  correctness, rule versioning and immutable snapshots, minimum samples, deterministic persistence,
+  cooldown/idempotency, eight-way constraint concurrency, mock/manual/unavailable data, review chronology,
+  dismissal/reopen/escalation/linkage, supporting-record permissions, confidential aggregate redaction,
+  formula-safe CSV, PDF disclosure/isolation, and job retry/overlap behavior.
+- `e2e/governance-analytics-workflow.spec.ts` adds three serial Chromium tests: manager dashboard/filter/
+  rule/review/dismiss/export/report; denied/restricted/foreign-tenant/altered-ID separation; and
+  deterministic indicator escalation with persisted same-tenant case linkage.
+- Visual artifacts cover desktop, 768px tablet, 390px mobile, rule configuration, indicator detail,
+  chronology, empty filtered indicators, mock disclosure, CSV, and both rendered PDF pages. The PDF review
+  found and fixed BUG-013 before final verification.
+- The shared Playwright login helper verifies populated fields and retries one cold-dev-server reload after
+  a bounded 45 seconds (BUG-014); this prevents an empty login page from consuming a whole workflow timeout.
+- Focused development command:
+
+  `npx vitest run tests/analytics-rules-and-timezone.test.ts tests/analytics-calculation-repository.test.ts tests/analytics-indicator-workflow.test.ts tests/analytics-dashboard-export-job.test.ts`
+
+- Final gate also runs `npx prisma format`, `npx prisma validate`, `npx prisma generate`,
+  `npx prisma migrate status`, `npm run verify:clean-migrations`, `npx tsc --noEmit`, `npm run lint`,
+  `npm test`, `npm run build`, and `npx playwright test`, twice from a stable tree.
+- Final baseline: **68 files / 765 Vitest tests**, **14 Playwright tests**, **103/103** generated static
+  pages, clean TypeScript/ESLint/build, Prisma validation/status, and all **26 migrations** replayed from
+  empty in each gate.

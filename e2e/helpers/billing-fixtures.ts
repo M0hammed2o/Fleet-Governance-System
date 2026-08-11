@@ -23,13 +23,25 @@ export async function loginNewContext(
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
-  await page.goto("/login");
-  await page.getByLabel("Company").fill(tenantSlug);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(DEV_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL("**/dashboard");
-  return { context, page };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto("/login");
+    await page.getByLabel("Company").fill(tenantSlug);
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(DEV_PASSWORD);
+    await expect(page.getByLabel("Company")).toHaveValue(tenantSlug);
+    await expect(page.getByLabel("Email")).toHaveValue(email);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    try {
+      await page.waitForURL("**/dashboard", { timeout: 45_000 });
+      return { context, page };
+    } catch (error) {
+      if (attempt === 1) throw error;
+      // A cold Next dev server can rebuild/reload the login route between
+      // fill and submit. Retry once with fresh fields instead of consuming
+      // the entire 180-second workflow timeout on an empty login page.
+    }
+  }
+  throw new Error("Unable to complete the test login flow.");
 }
 
 /** Creates a brand-new, empty second tenant (no roles/users) via the real platform-tenant API — enough to prove an invoice/tenant-scoped resource never leaks across a tenant boundary, without needing a second fully-onboarded customer. */

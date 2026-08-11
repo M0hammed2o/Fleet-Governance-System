@@ -353,6 +353,33 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
 - Status: fixed — 2026-08-11. That fixture now starts on 2026-07-01.
 - Fix verification: focused telematics test and the full 735-test suite pass.
 
+## BUG-013 — Governance analytics report notice overlapped report metadata
+
+- Severity: medium
+- Reproduction steps: generate a filtered Phase 12 PDF and rasterise its first page.
+- Expected result: report identity, period, generation metadata, human-review notice, and first section are
+  separated with no clipping or overflow.
+- Actual result before fix: PDFKit's flow cursor was reused after drawing a fixed-position notice; the
+  notice text overlapped metadata and its border surrounded the following data-quality section.
+- Status: fixed — 2026-08-11. The notice now uses an explicit top coordinate and advances `doc.y` to the
+  exact bottom of its fixed-height box.
+- Fix verification: the Playwright workflow generated a fresh two-page report; both pages were rasterised
+  at 2x and manually inspected with clean headings, wrapping, page breaks, and `Page 1/2` footers.
+
+## BUG-014 — Cold Next dev reload could consume the full browser-workflow timeout on an empty login form
+
+- Severity: low (test infrastructure only)
+- Reproduction steps: start the complete serial Playwright suite on a cold dev server under local resource
+  contention. The server may rebuild/reload `/login` between field entry and form submission.
+- Expected result: a shared fixture either reaches `/dashboard` promptly or retries a freshly populated
+  form within a bounded interval.
+- Actual result before fix: `page.waitForURL()` inherited the whole 180-second test timeout; one Phase 10
+  pass ended on an empty reloaded login form even though the identical workflow passed in 30 seconds in
+  the preceding gate and every later test remained green.
+- Status: fixed — 2026-08-11. The shared helper verifies company/email values and retries the UI login once
+  after an explicit 45-second bound.
+- Fix verification: focused billing Playwright rerun passed 2/2; final complete gates exercise every caller.
+
 ## Template for new entries
 ```
 ### BUG-NNN — <short title>

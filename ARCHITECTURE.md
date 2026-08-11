@@ -805,3 +805,25 @@ rechecks tenant, exact case, start/expiry, revocation, and download flags; views
 is independent of platform support access. Invitation/notification adapters default to honest no-op.
 
 See `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md` for state transitions, roles, routes, jobs, and operations.
+
+## Governance analytics architecture (Phase 12)
+
+Analytics is a server-side, tenant-scoped read model over existing movement, gate, inspection,
+reconciliation, exception, telematics, investigation, and audit-era records. Dashboard queries have a
+30-day default, a 366-day hard range, and 10,000-row per-source bounds. UTC storage is converted to the
+tenant's IANA time zone for date boundaries, buckets, and operating-hour rules.
+
+Risk rules are immutable tenant versions (`AnalyticsRule`). Calculation persists `AnalyticsIndicator`
+with its rule/version, threshold JSON snapshot, evaluation window, subject, supporting references,
+quality classification, and a deterministic calculation key. Database uniqueness covers both the key
+and tenant/rule/subject/window. `AnalyticsIndicatorEvent` is append-only review chronology;
+`AnalyticsCalculationRun` records each tenant's result. Dashboard reads never perform recalculation.
+
+The shared job wrapper provides global overlap prevention and authentication; the analytics function then
+evaluates tenants sequentially. CSV is bounded and formula-safe. PDF reports reuse `MediaAsset`, object
+storage, checksum validation, and signed downloads under `GOVERNANCE_ANALYTICS_REPORT`. Investigation
+analytics contains aggregates only, never case titles, allegations, identities, notes, or evidence.
+
+Tracking is provider-neutral and truthfully classified as mock, manual, incomplete, mixed, or unavailable.
+There is no production tracker connection and no route-deviation calculation in this phase. See
+`GOVERNANCE_ANALYTICS_AND_RISK_INDICATORS.md` for definitions and limits.

@@ -850,9 +850,8 @@ closed upstream.
   vendor selection, and the platform company's real legal/registration/VAT/banking details (currently
   fictional dev/demo values) — see BILLING_AND_SUBSCRIPTIONS.md "Decisions still required from the
   business."
-- **Full investigation-case management** — explicitly out of scope for this run; External Reviewer /
-  Internal Investigator profiles exist for evidence access, but no dedicated case-management module
-  (case creation, findings, disposition tracking) is planned in Phases 5-7.
+- **Full investigation-case management** — complete in Phase 11; see D-039 and
+  `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md`.
 
 ## D-039 — 2026-08-11 — Race-safe active referral identity and a distinct external-audit boundary
 
@@ -867,5 +866,34 @@ the dedicated minimal role and grant/case/log tables. Every portal call revalida
 prevent a later new case. External users cannot enumerate tenant cases, use internal mutation routes, or
 retain access after expiry/revocation. The additive migration replays cleanly from empty.
 
-**Supersedes:** The note above described Phases 5–7 only. Phase 11 case management is complete; Phase 12
-remains out of scope.
+**Supersedes:** The note above described Phases 5–7 only. Phase 11 case management and Phase 12 analytics
+are now complete.
+
+## D-040 — 2026-08-11 — Persist explainable deterministic indicators; do not score people or recalculate on dashboard reads
+
+**Context:** Phase 12 requires reproducible review prompts, immutable thresholds, lifecycle history,
+duplicate resistance, and realistic dashboard performance. An on-demand opaque score cannot meet those
+requirements and would risk presenting correlation as a finding.
+
+**Decision:** Use tenant-versioned deterministic `AnalyticsRule` rows and materialised
+`AnalyticsIndicator` rows. Persist the complete threshold snapshot, reporting window, neutral explanation,
+permitted supporting references, quality class, and a deterministic calculation key. Enforce uniqueness
+in Postgres. Calculate explicitly or through the shared job wrapper; dashboard reads consume persisted
+results. Never create a finding, disciplinary decision, message, or conclusion automatically.
+
+**Consequences:** Results can be reproduced and reviewed after a tenant changes a rule. Retry/concurrent
+calculation is safe, and dashboard cost stays bounded. The trade-off is that an indicator is only as fresh
+as the latest calculation timestamp, which is displayed prominently.
+
+## D-041 — 2026-08-11 — Tracking analytics are source-labelled and may be unavailable; no Phase 12 route deviation
+
+**Context:** The repository contains a provider-neutral tracker boundary and mock/manual records but no
+production provider credentials or sufficiently complete planned-route data.
+
+**Decision:** Classify tracker contributions as `MOCK`, `MANUAL`, `MIXED`, `INCOMPLETE`, or `UNAVAILABLE`;
+never infer `LIVE` from a provider-looking reference. Stale/unavailable tracking is a data-quality prompt,
+not evidence of misconduct. Do not calculate route deviation in Phase 12.
+
+**Consequences:** Reports remain honest and useful without overstating integration maturity. Production
+provider validation, route semantics, and credentials are Phase 13 dependencies requiring a separate
+business/vendor decision.

@@ -59,3 +59,23 @@ Not yet defined — depends on the hosting decision above.
   all 735 tests, production build, and all 11 serial Playwright tests. Seed only local fictional data.
 - BUG-010 remains a visible upstream adapter warning; do not suppress it or upgrade database packages
   solely to chase it. Re-run the documented trace after a planned Prisma/adapter upgrade.
+
+## Phase 12 deployment notes
+
+- Apply all 26 migrations in order. The two newest migrations add analytics enums/tables/indexes/foreign
+  keys and then make the system-safe-default configurator nullable. They were applied only to local dev/
+  test and replayed from empty; no production migration occurred.
+- `analytics.calculateIndicators` is callable through `/api/jobs/analytics/calculate-indicators` or
+  `npm run job -- analytics.calculateIndicators`. It requires `JOB_SCHEDULER_TOKEN`; no production
+  scheduler is configured. Run it at an agreed tenant cadence after migration and monitor per-tenant
+  `AnalyticsCalculationRun` results.
+- Analytics reports use the existing object-storage provider. Production must supply durable storage,
+  HTTPS, signed-URL configuration, backup/restore, and retention policy before customer use.
+- Dashboard ranges are capped at 366 days; source queries at 10,000 rows, dashboard/list indicators at
+  100, and CSV indicators at 5,000. Do not raise these limits as a substitute for warehouse/snapshot
+  design when production volume is known.
+- Rollback is application rollback plus a forward corrective migration. Do not drop indicator/rule/history
+  tables or the appended enum value if customer review history exists.
+- Phase 13 still needs explicit production decisions: hosting/database/storage, scheduler, tracker vendor
+  and field semantics, message providers, monitoring/alerting, retention requirements, pilot reporting
+  volume, and approved operating hours/threshold owners. No production credentials are present.
