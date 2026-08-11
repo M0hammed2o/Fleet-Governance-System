@@ -7,6 +7,7 @@ import { expireDueSupportAccessSessions } from "@/lib/repositories/support-acces
 import { recalculateStorageUsageSummaries } from "@/lib/repositories/storage-dashboard-repository";
 import { runRecurringBillingCycle } from "@/lib/repositories/recurring-billing-repository";
 import { retryFailedInvestigationNotifications, notifyOverdueInvestigationTasks, notifyExpiringExternalAccess } from "@/lib/repositories/investigation-notification-repository";
+import { calculateAnalyticsForAllTenants } from "@/lib/repositories/analytics-calculation-repository";
 
 /**
  * The full list of idempotent background jobs this platform needs (8E-004),
@@ -32,6 +33,7 @@ export const JOB_NAMES = [
   "investigation.retryFailedNotifications",
   "investigation.notifyOverdueTasks",
   "investigation.notifyExpiringExternalAccess",
+  "analytics.calculateIndicators",
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -86,6 +88,10 @@ export function notifyExpiringExternalAccessJob() {
   return runJob("investigation.notifyExpiringExternalAccess", () => notifyExpiringExternalAccess());
 }
 
+export function calculateAnalyticsIndicatorsJob() {
+  return runJob("analytics.calculateIndicators", () => calculateAnalyticsForAllTenants());
+}
+
 export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "retention.generateNotifications": generateRetentionNotificationsJob,
   "retention.deliverNotifications": deliverRetentionNotificationsJob,
@@ -99,4 +105,5 @@ export const JOB_FUNCTIONS: Record<JobName, () => Promise<unknown>> = {
   "investigation.retryFailedNotifications": retryFailedInvestigationNotificationsJob,
   "investigation.notifyOverdueTasks": notifyOverdueInvestigationTasksJob,
   "investigation.notifyExpiringExternalAccess": notifyExpiringExternalAccessJob,
+  "analytics.calculateIndicators": calculateAnalyticsIndicatorsJob,
 };

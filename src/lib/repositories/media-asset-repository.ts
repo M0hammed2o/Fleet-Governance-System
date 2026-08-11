@@ -184,6 +184,12 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "INVESTIGATION_REPORT":
       found = await prisma.investigationCase.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
+    case "GOVERNANCE_ANALYTICS_REPORT":
+      // Analytics reports are tenant-level snapshots rather than evidence
+      // owned by one operational record. ownerId is therefore the tenant ID
+      // and must match both arguments exactly.
+      found = ownerId === tenantId ? await prisma.tenant.findUnique({ where: { id: tenantId } }) : null;
+      break;
   }
   if (!found) throw new MediaOwnerNotFoundError(ownerType, ownerId);
 }

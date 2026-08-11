@@ -29,6 +29,10 @@ const JOB_ROUTES = {
   "supportAccess.expireDueSessions": "/api/jobs/support-access/expire-due-sessions",
   "storage.recalculateUsageSummaries": "/api/jobs/storage/recalculate-usage-summaries",
   "billing.runRecurringCycle": "/api/jobs/billing/run-recurring-cycle",
+  "investigation.retryFailedNotifications": "/api/jobs/investigations/retry-failed-notifications",
+  "investigation.notifyOverdueTasks": "/api/jobs/investigations/notify-overdue-tasks",
+  "investigation.notifyExpiringExternalAccess": "/api/jobs/investigations/notify-expiring-external-access",
+  "analytics.calculateIndicators": "/api/jobs/analytics/calculate-indicators",
 };
 
 const jobName = process.argv[2];
