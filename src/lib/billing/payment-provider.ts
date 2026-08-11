@@ -37,6 +37,23 @@ export interface PaymentStatusResult {
   currency: string;
 }
 
+export interface PaymentProviderCapabilities {
+  checkout: boolean;
+  recurringSubscriptions: boolean;
+  cancellation: boolean;
+  reactivation: boolean;
+  refunds: boolean;
+  reconciliation: boolean;
+}
+
+export interface BillingCustomerResult { providerCustomerReference: string; }
+export interface ProviderSubscriptionResult {
+  providerSubscriptionReference: string;
+  status: "TRIAL" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED";
+  billingCycleStart: Date;
+  billingCycleEnd: Date;
+}
+
 export interface WebhookEvent {
   provider: string;
   externalEventId: string;
@@ -66,6 +83,7 @@ export interface PaymentProvider {
   readonly name: string;
   /** True for a provider that can actually process a real payment; false for NoOp. */
   readonly isProductionCapable: boolean;
+  readonly capabilities: PaymentProviderCapabilities;
 
   createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSession>;
   getPaymentStatus(providerReference: string): Promise<PaymentStatusResult>;
@@ -74,6 +92,11 @@ export interface PaymentProvider {
   parseWebhookEvent(rawBody: string, headers: Record<string, string | undefined>): WebhookEvent;
   /** Optional — returns null when refunds are not supported by this provider/phase (explicitly deferred, per P10F). */
   refund(providerReference: string, amountMinorUnits: number): Promise<{ providerReference: string; status: PaymentProviderPaymentStatus } | null>;
+  upsertCustomer(input: { idempotencyKey: string; tenantReference: string }): Promise<BillingCustomerResult>;
+  upsertSubscription(input: { idempotencyKey: string; providerCustomerReference: string; planReference: string; trialEndsAt: Date | null }): Promise<ProviderSubscriptionResult>;
+  cancelSubscription(providerSubscriptionReference: string, effectiveAt: Date): Promise<ProviderSubscriptionResult>;
+  reactivateSubscription(providerSubscriptionReference: string): Promise<ProviderSubscriptionResult>;
+  reconcilePayment(providerReference: string): Promise<PaymentStatusResult>;
 }
 
 /**
@@ -85,6 +108,7 @@ export interface PaymentProvider {
 export class NoOpPaymentProvider implements PaymentProvider {
   readonly name: string;
   readonly isProductionCapable = false;
+  readonly capabilities = { checkout: false, recurringSubscriptions: false, cancellation: false, reactivation: false, refunds: false, reconciliation: false };
 
   constructor(name = "noop") {
     this.name = name;
@@ -105,6 +129,11 @@ export class NoOpPaymentProvider implements PaymentProvider {
   async refund(): Promise<null> {
     return null;
   }
+  async upsertCustomer(input: { idempotencyKey: string; tenantReference: string }): Promise<BillingCustomerResult> { void input; throw new PaymentProviderUnavailableError(this.name); }
+  async upsertSubscription(input: { idempotencyKey: string; providerCustomerReference: string; planReference: string; trialEndsAt: Date | null }): Promise<ProviderSubscriptionResult> { void input; throw new PaymentProviderUnavailableError(this.name); }
+  async cancelSubscription(providerSubscriptionReference: string, effectiveAt: Date): Promise<ProviderSubscriptionResult> { void providerSubscriptionReference; void effectiveAt; throw new PaymentProviderUnavailableError(this.name); }
+  async reactivateSubscription(providerSubscriptionReference: string): Promise<ProviderSubscriptionResult> { void providerSubscriptionReference; throw new PaymentProviderUnavailableError(this.name); }
+  async reconcilePayment(providerReference: string): Promise<PaymentStatusResult> { void providerReference; throw new PaymentProviderUnavailableError(this.name); }
 }
 
 interface MockSessionRecord {
@@ -126,6 +155,7 @@ interface MockSessionRecord {
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = "mock";
   readonly isProductionCapable = false;
+  readonly capabilities = { checkout: true, recurringSubscriptions: true, cancellation: true, reactivation: true, refunds: true, reconciliation: true };
 
   private sessions = new Map<string, MockSessionRecord>();
   private webhookSecret = "mock-webhook-secret";
@@ -174,6 +204,22 @@ export class MockPaymentProvider implements PaymentProvider {
   async refund(providerReference: string): Promise<{ providerReference: string; status: PaymentProviderPaymentStatus } | null> {
     return { providerReference, status: "SUCCESSFUL" };
   }
+
+  async upsertCustomer(input: { idempotencyKey: string; tenantReference: string }): Promise<BillingCustomerResult> {
+    return { providerCustomerReference: `mock_customer_${input.tenantReference}` };
+  }
+
+  private subscription(providerSubscriptionReference: string, status: ProviderSubscriptionResult["status"]): ProviderSubscriptionResult {
+    const start = new Date("2026-08-01T00:00:00.000Z");
+    return { providerSubscriptionReference, status, billingCycleStart: start, billingCycleEnd: new Date("2026-09-01T00:00:00.000Z") };
+  }
+
+  async upsertSubscription(input: { idempotencyKey: string; providerCustomerReference: string; planReference: string; trialEndsAt: Date | null }): Promise<ProviderSubscriptionResult> {
+    return this.subscription(`mock_subscription_${input.providerCustomerReference}_${input.planReference}`, input.trialEndsAt ? "TRIAL" : "ACTIVE");
+  }
+  async cancelSubscription(providerSubscriptionReference: string, effectiveAt: Date): Promise<ProviderSubscriptionResult> { void effectiveAt; return this.subscription(providerSubscriptionReference, "CANCELLED"); }
+  async reactivateSubscription(providerSubscriptionReference: string): Promise<ProviderSubscriptionResult> { return this.subscription(providerSubscriptionReference, "ACTIVE"); }
+  async reconcilePayment(providerReference: string): Promise<PaymentStatusResult> { return this.getPaymentStatus(providerReference); }
 
   /** Test/dev helper — builds a webhook payload+headers pair matching this provider's own signature rule. */
   buildWebhookRequest(event: { externalEventId: string; eventType: string; providerReference: string; status: PaymentProviderPaymentStatus; amountMinorUnits: number; currency: string }): { rawBody: string; headers: Record<string, string> } {

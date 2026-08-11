@@ -34,6 +34,27 @@ export class InvoiceForPaymentNotFoundError extends Error {
   }
 }
 
+export class InvalidPaymentReturnUrlError extends Error {
+  constructor() {
+    super("Payment return URL must use the configured application origin.");
+    this.name = "InvalidPaymentReturnUrlError";
+  }
+}
+
+export function validatePaymentReturnUrl(rawUrl: string, configuredApplicationUrl = process.env.APP_BASE_URL): string {
+  let candidate: URL;
+  try { candidate = new URL(rawUrl); } catch { throw new InvalidPaymentReturnUrlError(); }
+  if (!['http:', 'https:'].includes(candidate.protocol) || candidate.username || candidate.password) throw new InvalidPaymentReturnUrlError();
+  if (configuredApplicationUrl) {
+    let application: URL;
+    try { application = new URL(configuredApplicationUrl); } catch { throw new InvalidPaymentReturnUrlError(); }
+    if (candidate.origin !== application.origin) throw new InvalidPaymentReturnUrlError();
+  } else if (process.env.APP_ENV === "production" || !(candidate.hostname === "localhost" || candidate.hostname === "127.0.0.1" || candidate.hostname.endsWith(".test"))) {
+    throw new InvalidPaymentReturnUrlError();
+  }
+  return candidate.toString();
+}
+
 async function getPayableInvoiceOrThrow(tenantId: string, invoiceId: string) {
   const invoice = await prisma.invoice.findFirst({ where: tenantWhere(tenantId, { id: invoiceId }) });
   if (!invoice) throw new InvoiceForPaymentNotFoundError();
@@ -53,6 +74,7 @@ export async function initiateProviderPayment(session: AuthenticatedSession, inv
   await requirePermission(session, "payment", "CREATE");
   const invoice = await getPayableInvoiceOrThrow(session.tenantId, invoiceId);
 
+  const safeReturnUrl = validatePaymentReturnUrl(returnUrl);
   const idempotencyKey = `invoice:${invoiceId}:attempt:${crypto.randomUUID()}`;
   const checkout = await provider.createCheckoutSession({
     idempotencyKey,
@@ -60,7 +82,7 @@ export async function initiateProviderPayment(session: AuthenticatedSession, inv
     amountMinorUnits: invoice.totalMinorUnits,
     currency: invoice.currency,
     description: `Invoice ${invoice.invoiceNumber}`,
-    returnUrl,
+    returnUrl: safeReturnUrl,
   });
 
   const attempt = await prisma.paymentAttempt.create({
