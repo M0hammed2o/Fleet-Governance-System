@@ -29,7 +29,10 @@ export interface BillingEmailProvider {
 
 /** Honest failure — reports no production email provider configured, never fabricates delivery. */
 export class NoOpBillingEmailProvider implements BillingEmailProvider {
-  readonly name = "noop";
+  readonly name: string;
+  constructor(name = "noop") {
+    this.name = name;
+  }
   async send(_input: BillingEmailInput): Promise<BillingEmailSendResult> {
     void _input;
     return { provider: this.name, delivered: false, errorMessage: "No production billing-email provider is configured." };
@@ -63,6 +66,9 @@ let cachedProvider: BillingEmailProvider | null = null;
 /** `BILLING_EMAIL_PROVIDER=mock` for dev/test; anything else (including unset) is the honest NoOp. */
 export function getDefaultBillingEmailProvider(): BillingEmailProvider {
   if (cachedProvider) return cachedProvider;
-  cachedProvider = process.env.BILLING_EMAIL_PROVIDER === "mock" ? new MockBillingEmailProvider() : new NoOpBillingEmailProvider();
+  const selected = process.env.BILLING_EMAIL_PROVIDER ?? "noop";
+  cachedProvider = selected === "mock" && process.env.APP_ENV !== "production"
+    ? new MockBillingEmailProvider()
+    : new NoOpBillingEmailProvider(selected);
   return cachedProvider;
 }

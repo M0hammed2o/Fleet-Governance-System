@@ -57,6 +57,8 @@ export class MockAuditorInvitationProvider implements AuditorInvitationProvider 
 let cachedProvider: AuditorInvitationProvider | null = null;
 export function getDefaultAuditorInvitationProvider(): AuditorInvitationProvider {
   if (cachedProvider) return cachedProvider;
-  cachedProvider = process.env.AUDITOR_INVITATION_PROVIDER === "mock" ? new MockAuditorInvitationProvider() : new NoOpAuditorInvitationProvider();
+  cachedProvider = process.env.AUDITOR_INVITATION_PROVIDER === "mock" && process.env.APP_ENV !== "production"
+    ? new MockAuditorInvitationProvider()
+    : new NoOpAuditorInvitationProvider();
   return cachedProvider;
 }

@@ -83,8 +83,12 @@ export interface PaymentProvider {
  * a real gateway.
  */
 export class NoOpPaymentProvider implements PaymentProvider {
-  readonly name = "noop";
+  readonly name: string;
   readonly isProductionCapable = false;
+
+  constructor(name = "noop") {
+    this.name = name;
+  }
 
   async createCheckoutSession(): Promise<CheckoutSession> {
     throw new PaymentProviderUnavailableError(this.name);
@@ -182,6 +186,13 @@ let cachedProvider: PaymentProvider | null = null;
 /** `PAYMENT_PROVIDER=mock` for dev/test; anything else (including unset) is the honest NoOp — never a fabricated production integration (standing instruction). */
 export function getDefaultPaymentProvider(): PaymentProvider {
   if (cachedProvider) return cachedProvider;
-  cachedProvider = process.env.PAYMENT_PROVIDER === "mock" ? new MockPaymentProvider() : new NoOpPaymentProvider();
+  const selected = process.env.PAYMENT_PROVIDER ?? "noop";
+  if (selected === "mock" && process.env.APP_ENV !== "production") {
+    cachedProvider = new MockPaymentProvider();
+  } else {
+    // `payfast` names the future boundary only. Until an official adapter
+    // and credentials exist it remains an honest fail-closed provider.
+    cachedProvider = new NoOpPaymentProvider(selected);
+  }
   return cachedProvider;
 }

@@ -23,7 +23,16 @@ const DEV_FALLBACK_SECRET = "dev-only-insecure-media-signing-secret-change-me";
 
 /** Dev-only fallback so local/test environments work without extra setup — never used if MEDIA_URL_SIGNING_SECRET is set (see .env.example). */
 export function getMediaSigningSecret(): string {
+  if (!process.env.MEDIA_URL_SIGNING_SECRET && process.env.APP_ENV === "production") {
+    throw new Error("MEDIA_URL_SIGNING_SECRET is required in production.");
+  }
   return process.env.MEDIA_URL_SIGNING_SECRET || DEV_FALLBACK_SECRET;
+}
+
+function configuredVerificationSecrets(): string[] {
+  return [getMediaSigningSecret(), process.env.MEDIA_URL_SIGNING_SECRET_PREVIOUS].filter(
+    (value): value is string => Boolean(value),
+  );
 }
 
 /**
@@ -62,13 +71,15 @@ export function verifyResourceAccess(
   expiresAt: number,
   signature: string,
   purpose: ResourceAccessPurpose = "read",
-  secret: string = getMediaSigningSecret(),
+  secret?: string,
   now: Date = new Date(),
 ): ResourceAccessVerification {
-  const expected = computeSignature(resourceKey, expiresAt, purpose, secret);
-  const expectedBuf = Buffer.from(expected, "hex");
   const actualBuf = Buffer.from(signature, "hex");
-  const signatureValid = expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);
+  const secrets = secret ? [secret] : configuredVerificationSecrets();
+  const signatureValid = secrets.some((candidate) => {
+    const expectedBuf = Buffer.from(computeSignature(resourceKey, expiresAt, purpose, candidate), "hex");
+    return expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);
+  });
   if (!signatureValid) return { valid: false, reason: "invalid_signature" };
   if (expiresAt < Math.floor(now.getTime() / 1000)) return { valid: false, reason: "expired" };
   return { valid: true };

@@ -86,6 +86,12 @@ export interface DeliverRetentionNotificationsResult {
   recordsUpdated: number;
 }
 
+function getDefaultRetentionNotificationProvider(): RetentionNotificationProvider {
+  return process.env.RETENTION_NOTIFICATION_PROVIDER === "dev-console" && process.env.APP_ENV !== "production"
+    ? new DevConsoleRetentionNotificationProvider()
+    : new NoOpRetentionNotificationProvider();
+}
+
 interface PendingRecordWithAsset {
   id: string;
   tenantId: string;
@@ -108,7 +114,7 @@ function groupKey(tenantId: string, category: MediaCategory, milestone: number):
  * together with that group's single delivery outcome.
  */
 export async function deliverPendingRetentionNotifications(
-  provider: RetentionNotificationProvider = new DevConsoleRetentionNotificationProvider(),
+  provider: RetentionNotificationProvider = getDefaultRetentionNotificationProvider(),
   now: Date = new Date(),
   tenantId?: string,
 ): Promise<DeliverRetentionNotificationsResult> {

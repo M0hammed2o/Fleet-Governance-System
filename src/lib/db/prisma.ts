@@ -8,7 +8,26 @@ function createPrismaClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env and configure it.");
   }
-  const adapter = new PrismaPg({ connectionString });
+  const max = Number(process.env.DATABASE_MAX_CONNECTIONS ?? 10);
+  const connectionTimeoutMillis = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? 5_000);
+  const statementTimeout = Number(process.env.DATABASE_QUERY_TIMEOUT_MS ?? 15_000);
+  const idleInTransactionSessionTimeout = Number(process.env.DATABASE_TRANSACTION_TIMEOUT_MS ?? 30_000);
+  const adapter = new PrismaPg({
+    connectionString,
+    max: Number.isInteger(max) && max > 0 ? Math.min(max, 50) : 10,
+    connectionTimeoutMillis:
+      Number.isInteger(connectionTimeoutMillis) && connectionTimeoutMillis >= 500
+        ? Math.min(connectionTimeoutMillis, 30_000)
+        : 5_000,
+    statement_timeout:
+      Number.isInteger(statementTimeout) && statementTimeout >= 1_000
+        ? Math.min(statementTimeout, 120_000)
+        : 15_000,
+    idle_in_transaction_session_timeout:
+      Number.isInteger(idleInTransactionSessionTimeout) && idleInTransactionSessionTimeout >= 1_000
+        ? Math.min(idleInTransactionSessionTimeout, 300_000)
+        : 30_000,
+  });
   return new PrismaClient({ adapter });
 }
 

@@ -39,6 +39,8 @@ export class NoOpInvestigationNotificationProvider implements InvestigationNotif
 let cachedProvider: InvestigationNotificationProvider | null = null;
 export function getDefaultInvestigationNotificationProvider(): InvestigationNotificationProvider {
   if (cachedProvider) return cachedProvider;
-  cachedProvider = process.env.INVESTIGATION_NOTIFICATION_PROVIDER === "dev-console" ? new DevConsoleInvestigationNotificationProvider() : new NoOpInvestigationNotificationProvider();
+  cachedProvider = process.env.INVESTIGATION_NOTIFICATION_PROVIDER === "dev-console" && process.env.APP_ENV !== "production"
+    ? new DevConsoleInvestigationNotificationProvider()
+    : new NoOpInvestigationNotificationProvider();
   return cachedProvider;
 }

@@ -9,6 +9,7 @@ export default async function DashboardPage() {
     redirect("/login");
   }
   const canViewGovernanceAnalytics = await hasPermission(session, "governanceAnalytics", "VIEW");
+  const canViewPlatformReadiness = await hasPermission(session, "platformTenant", "CONFIGURE");
 
   return (
     <main className="min-h-screen bg-slate-50 p-8">
@@ -27,6 +28,7 @@ export default async function DashboardPage() {
           exceptions, and documents exist to summarise.
         </p>
         {canViewGovernanceAnalytics && <Link href="/analytics" className="mt-6 block rounded-lg border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950 hover:border-cyan-400"><strong className="block">Governance analytics</strong><span className="mt-1 block text-cyan-800">Open the tenant-scoped executive dashboard and explainable risk indicators.</span></Link>}
+        {canViewPlatformReadiness && <Link href="/platform/readiness" className="mt-3 block rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950 hover:border-indigo-400"><strong className="block">Production readiness</strong><span className="mt-1 block text-indigo-800">Review provider-neutral release blockers, dependency state and scheduled-job health.</span></Link>}
       </div>
     </main>
   );

@@ -13,6 +13,9 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "verify:clean-migrations": "node scripts/verify-clean-migrations.mjs",
+    "production:check": "tsx scripts/production-readiness.ts",
+    "production:check:json": "tsx scripts/production-readiness.ts --json",
+    "security:scan": "node scripts/verify-no-secrets.mjs",
     "job": "node scripts/run-job.mjs"
   },
   "dependencies": {

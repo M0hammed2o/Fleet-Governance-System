@@ -13,11 +13,16 @@ import { PassthroughVideoCompressionProvider } from "@/lib/storage/video-compres
 import { getEffectiveRetentionPolicy } from "@/lib/repositories/retention-policy-repository";
 import { computeScheduledDeletionAt } from "@/lib/retention/deletion-rules";
 import type { MediaAssetOwnerType, MediaCategory, Prisma } from "@/generated/prisma/client";
+import { isProductionDeployment } from "@/lib/config/runtime-config";
 
 export { classifyContentType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/storage/media-categories";
 
 function createDefaultProvider(): { provider: ObjectStorageProvider; name: string } {
-  const name = process.env.STORAGE_PROVIDER === "r2" ? "r2" : "local";
+  const configured = process.env.STORAGE_PROVIDER ?? "local";
+  if (isProductionDeployment() && configured !== "r2") {
+    throw new Error("Production evidence storage is fail-closed until a durable object-storage provider is configured.");
+  }
+  const name = configured === "r2" ? "r2" : "local";
   return name === "r2" ? { provider: new R2CompatibleStorageProvider(), name } : { provider: new LocalFilesystemStorageProvider(), name };
 }
 const { provider: defaultProvider, name: defaultProviderName } = createDefaultProvider();

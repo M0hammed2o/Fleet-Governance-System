@@ -52,3 +52,18 @@ export interface TelematicsProvider {
    */
   getSnapshot(providerVehicleId: string): Promise<VehicleTelematicsSnapshot>;
 }
+
+/** Honest fail-closed provider used until a tenant-approved live adapter exists. */
+export class DisabledTelematicsProvider implements TelematicsProvider {
+  async testConnection(): Promise<TelematicsConnectionResult> {
+    return { ok: false, message: "No production tracker provider is configured." };
+  }
+
+  async listVehicles(): Promise<ProviderVehicle[]> {
+    throw new TelematicsProviderUnavailableError("No production tracker provider is configured.");
+  }
+
+  async getSnapshot(): Promise<VehicleTelematicsSnapshot> {
+    throw new TelematicsProviderUnavailableError("No production tracker provider is configured.");
+  }
+}

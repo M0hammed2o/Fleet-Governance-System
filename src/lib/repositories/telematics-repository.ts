@@ -5,10 +5,14 @@ import { recordAudit } from "@/lib/audit/record-audit";
 import { evaluatePolicyCompliance, type PolicyViolation } from "@/lib/telematics/geofence-engine";
 import { computeDistanceSoFar } from "@/lib/telematics/distance-engine";
 import { MockTelematicsProvider } from "@/lib/telematics/mock-provider";
-import { TelematicsProviderUnavailableError, type TelematicsProvider } from "@/lib/telematics/provider";
+import { DisabledTelematicsProvider, TelematicsProviderUnavailableError, type TelematicsProvider } from "@/lib/telematics/provider";
 import type { Prisma } from "@/generated/prisma/client";
 
-const defaultProvider: TelematicsProvider = new MockTelematicsProvider();
+const defaultProvider: TelematicsProvider =
+  process.env.TELEMATICS_PROVIDER === "mock" ||
+  (!process.env.TELEMATICS_PROVIDER && process.env.APP_ENV !== "production")
+    ? new MockTelematicsProvider()
+    : new DisabledTelematicsProvider();
 
 // A snapshot older than this is never trusted as "current" — flagged stale
 // instead (GPS-006 "stale data is flagged, not silently trusted"), and

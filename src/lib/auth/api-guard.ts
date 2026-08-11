@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSession, type AuthenticatedSession } from "@/lib/auth/session";
 import { hasPermission, ForbiddenError } from "@/lib/auth/authorize";
 import type { PermissionResource, PermissionAction } from "@/lib/auth/permissions";
+import { logger } from "@/lib/observability/logger";
 
 export class ApiError extends Error {
   status: number;
@@ -44,6 +45,6 @@ export function apiErrorResponse(err: unknown): NextResponse {
   if (err instanceof ForbiddenError) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  console.error(err);
+  logger.error("api.unhandled_error", { error: err });
   return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }

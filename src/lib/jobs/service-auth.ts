@@ -1,4 +1,5 @@
 import "server-only";
+import crypto from "node:crypto";
 import { requireApiPermission } from "@/lib/auth/api-guard";
 
 /**
@@ -33,6 +34,12 @@ export class InvalidServiceTokenError extends Error {
 
 const SERVICE_TOKEN_HEADER = "x-job-scheduler-token";
 
+function securelyMatches(provided: string, expected: string): boolean {
+  const providedDigest = crypto.createHash("sha256").update(provided).digest();
+  const expectedDigest = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(providedDigest, expectedDigest);
+}
+
 /**
  * Authorizes one job-endpoint request. Two independent paths, either is
  * sufficient:
@@ -48,9 +55,13 @@ const SERVICE_TOKEN_HEADER = "x-job-scheduler-token";
 export async function authorizeJobRequest(request: Request): Promise<void> {
   const provided = request.headers.get(SERVICE_TOKEN_HEADER);
   if (provided !== null) {
-    const configured = process.env.JOB_SCHEDULER_TOKEN;
-    if (!configured) throw new ServiceAuthNotConfiguredError();
-    if (provided !== configured) throw new InvalidServiceTokenError();
+    const configured = [process.env.JOB_SCHEDULER_TOKEN, process.env.JOB_SCHEDULER_TOKEN_PREVIOUS].filter(
+      (value): value is string => Boolean(value),
+    );
+    if (configured.length === 0) throw new ServiceAuthNotConfiguredError();
+    if (!configured.some((candidate) => securelyMatches(provided, candidate))) {
+      throw new InvalidServiceTokenError();
+    }
     return;
   }
   await requireApiPermission("platformTenant", "CONFIGURE");

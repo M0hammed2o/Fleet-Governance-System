@@ -9,6 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Managed Postgres commonly exposes a pooled runtime URL and a direct
+    // migration URL. Prisma CLI operations must prefer the direct URL.
+    url: process.env["DIRECT_DATABASE_URL"] || process.env["DATABASE_URL"],
   },
 });

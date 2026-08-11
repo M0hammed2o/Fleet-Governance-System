@@ -5,12 +5,23 @@ import { prisma } from "@/lib/db/prisma";
 import type { PrismaClient } from "@/generated/prisma/client";
 
 export const SESSION_COOKIE_NAME = "gfg_session";
+const DEV_SESSION_SECRET = "dev-only-insecure-secret-change-me";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours — gate shifts are long; revisit if too short in practice.
 
 type PrismaTx = Pick<PrismaClient, "session">;
 
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
+function configuredSessionSecrets(): string[] {
+  const current = process.env.SESSION_SECRET;
+  if (!current && process.env.APP_ENV === "production") {
+    throw new Error("SESSION_SECRET is required in production.");
+  }
+  return [current || DEV_SESSION_SECRET, process.env.SESSION_SECRET_PREVIOUS].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
+function hashToken(token: string, secret: string = configuredSessionSecrets()[0]): string {
+  return crypto.createHmac("sha256", secret).update(token).digest("hex");
 }
 
 export interface CreateSessionInput {
@@ -120,9 +131,9 @@ export async function getSession(): Promise<AuthenticatedSession | null> {
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return null;
 
-  const tokenHash = hashToken(token);
-  const record = await prisma.session.findUnique({
-    where: { tokenHash },
+  const tokenHashes = configuredSessionSecrets().map((secret) => hashToken(token, secret));
+  const record = await prisma.session.findFirst({
+    where: { tokenHash: { in: tokenHashes } },
     include: { user: { include: { role: true, tenant: true } } },
   });
 
