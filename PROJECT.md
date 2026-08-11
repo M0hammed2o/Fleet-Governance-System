@@ -85,3 +85,6 @@ accusation model was added.
 
 The Phase 12 final gate is 68 Vitest files / 765 tests, a clean Next 16 production build with 103/103
 static pages, and 14 Playwright tests. The complete gate passed twice after the final code change.
+# Phase 13A checkpoint (2026-08-11)
+
+Provider-neutral production readiness is implemented locally: typed fail-closed configuration, terminal readiness report, safe health/diagnostics and platform UI, managed-PostgreSQL connection controls, guarded backup/restore proof, durable-storage contract, tracker/email/payment contracts, authenticated bounded jobs, structured redaction, login throttling, security headers/CSRF, non-deploying CI and non-root container artifacts. Real hosting/providers, legal confirmations, credentials, production migration and pilot approval remain external blockers; see `PRODUCTION_READINESS_AND_PROVIDER_INTEGRATIONS.md`.

@@ -43,3 +43,8 @@ This is the engineering security checklist. Privacy/legal context lives in `SECU
 Do not include production secrets or personal information in an issue. Provide the affected route,
 tenant/role preconditions, expected boundary, observed result, and a minimal reproduction to the repository
 owner through the organisation's approved private security channel. No public channel is configured yet.
+# Phase 13A production hardening
+
+Production now has CSP, HSTS, clickjacking/MIME/referrer/permissions headers; same-origin mutation checks in Next.js `proxy.ts`; secure server-side authorization remains mandatory on every route; same-origin payment return URLs; timing-safe rotated scheduler tokens; HMAC session identifiers; hashed login-throttle dimensions and generic failures; short-lived rotated signed media; fail-closed provider selection; structured redaction; minimal public health; authenticated diagnostics; bounded retries/scans; and secret/.env staging checks. Login throttling is 8 failed attempts per tenant/email dimension or 30 per source IP over 15 minutes, with no raw email/IP in the throttle table. Automatic notification retries stop after three.
+
+The 2026-08-11 dependency audit is zero after non-major updates. Outstanding security dependencies are operational: approved HTTPS/reverse proxy, secret manager, WAF/network controls as appropriate, monitoring/alert response, provider webhook specifications, production backup/restore, legal/privacy confirmations and independent penetration/security review before real customer use.

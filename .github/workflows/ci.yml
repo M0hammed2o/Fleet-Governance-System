@@ -1,0 +1,69 @@
+name: release-verification
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gatefleet
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: gate_fleet_governance_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gatefleet -d gate_fleet_governance_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: "true"
+      APP_ENV: test
+      APP_BASE_URL: http://localhost:3000
+      DATABASE_URL: postgresql://gatefleet:ci-postgres-password@localhost:5432/gate_fleet_governance_test
+      DIRECT_DATABASE_URL: postgresql://gatefleet:ci-postgres-password@localhost:5432/gate_fleet_governance_test
+      SESSION_SECRET: ci-session-key-material-32-characters-minimum
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_PATH: ./.data/ci-media
+      MEDIA_URL_SIGNING_SECRET: ci-media-signing-key-material-32-characters
+      BIOMETRIC_TEMPLATE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PAYMENT_PROVIDER: mock
+      BILLING_EMAIL_PROVIDER: mock
+      TELEMATICS_PROVIDER: mock
+      JOB_SCHEDULER_TOKEN: ci-scheduler-token-material-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: git diff --exit-code -- package-lock.json package.json
+      - run: npm run security:scan
+      - run: npx prisma format --check
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npx prisma migrate status
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run seed
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - name: Confirm readiness checker remains fail-closed without production providers
+        run: |
+          set +e
+          npm run production:check
+          readiness_exit=$?
+          set -e
+          test "$readiness_exit" -eq 1
+      - run: git diff --exit-code

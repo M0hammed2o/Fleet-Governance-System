@@ -391,3 +391,8 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately â€
 - Status: open | in-progress | fixed | wont-fix
 - Fix verification: <test name/link once fixed>
 ```
+# Phase 13A findings (2026-08-11)
+
+- Dependency audit initially reported 12 findings (7 high, 5 moderate), including the Next.js 16.2.10 proxy bypass and vulnerable transitive tooling. Next.js/eslint config were updated to 16.3.0 and the Prisma toolchain to 7.9.1 using non-major fixes; `npm audit --audit-level=low` now reports zero vulnerabilities.
+- BUG-010 remains: `pg` emits a deprecation warning when concurrent repository tests call `client.query()` while the adapter is already executing. It is reproduced in focused/full tests, is upstream adapter behavior, and has not affected assertions or data correctness. It is not suppressed.
+- Local timing and Docker smoke checks do not prove hosted capacity, availability, backup RPO/RTO or provider interoperability. These are explicit hosted validation gaps, not resolved defects.

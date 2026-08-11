@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 type ReadinessStatus = "READY" | "BLOCKED" | "NOT_CONFIGURED" | "MOCK_ONLY" | "MANUAL_CONFIRMATION_REQUIRED";
 
@@ -111,6 +112,13 @@ export default function PlatformReadinessPage() {
                 Environment: <strong>{data.readiness.environment}</strong> · Code foundations: {data.readiness.codeFoundationReady ? "complete" : "provider adapter blocked"} · Checked {new Date(data.readiness.generatedAt).toLocaleString()}
               </p>
             </section>
+
+            <nav aria-label="Platform operational administration" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Link href="/platform/tenants" className="rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-indigo-700 shadow-sm">Tenant status</Link>
+              <Link href="/platform/billing" className="rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-indigo-700 shadow-sm">Subscriptions and billing</Link>
+              <Link href="/platform/storage-dashboard" className="rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-indigo-700 shadow-sm">Storage and retention</Link>
+              <Link href="/platform/support-access" className="rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-indigo-700 shadow-sm">Support access</Link>
+            </nav>
 
             <section className="grid gap-4 lg:grid-cols-2">
               {data.readiness.items.map((entry) => (

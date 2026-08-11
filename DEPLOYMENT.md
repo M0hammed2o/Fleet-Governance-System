@@ -79,3 +79,8 @@ Not yet defined — depends on the hosting decision above.
 - Phase 13 still needs explicit production decisions: hosting/database/storage, scheduler, tracker vendor
   and field semantics, message providers, monitoring/alerting, retention requirements, pilot reporting
   volume, and approved operating hours/threshold owners. No production credentials are present.
+# Phase 13A deployment status (2026-08-11)
+
+Provider-neutral artifacts now exist: `Dockerfile`, `.dockerignore`, non-deploying `.github/workflows/ci.yml`, typed runtime validation, `production:check`, health/readiness/authorized diagnostics, guarded backup restore, scheduler manifest, release checklist and operations runbook. `next.config.ts` emits a standalone build. No production environment, account, credential, scheduler or deployment was created.
+
+Use `PRODUCTION_READINESS_AND_PROVIDER_INTEGRATIONS.md`, `OPERATIONS_RUNBOOK.md` and `RELEASE_CHECKLIST.md` as the current instructions; the older “not implemented” backup/monitoring paragraphs above describe the historical baseline. Production remains blocked until an approved durable provider set, legal/pilot confirmations, monitored backup/restore and a zero-exit production readiness report exist. There are 27 migrations; the Phase 13 migration adds privacy-preserving authentication-attempt throttling and bounded notification retry fields/indexes. Rollback is application rollback plus forward corrective migration—never edit applied SQL or drop audit/customer history.

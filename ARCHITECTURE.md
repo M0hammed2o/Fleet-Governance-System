@@ -827,3 +827,6 @@ analytics contains aggregates only, never case titles, allegations, identities, 
 Tracking is provider-neutral and truthfully classified as mock, manual, incomplete, mixed, or unavailable.
 There is no production tracker connection and no route-deviation calculation in this phase. See
 `GOVERNANCE_ANALYTICS_AND_RISK_INDICATORS.md` for definitions and limits.
+# Phase 13A production boundary
+
+The server-only runtime configuration is the single deployment policy boundary. `APP_ENV=production` rejects local/mock providers and test/local databases. Public liveness is process-only, readiness checks essential dependencies without identifiers, and detailed diagnostics require platform `CONFIGURE`. Provider implementations sit behind storage, tracker, transactional-email and payment capability contracts; no repository may silently select a development provider in production. Scheduler invocations use rotated timing-safe tokens plus the database JobRun overlap constraint. Structured diagnostic logs are redacted and remain separate from immutable tenant audit history. The standalone container is stateless; PostgreSQL and private object storage are durable dependencies.

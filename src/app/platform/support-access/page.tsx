@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface CustomerHealthSummary {
   tenant: { id: string; name: string; slug: string; status: string; subscriptionStatus: string };
@@ -29,6 +30,7 @@ function formatBytes(bytes: number): string {
 }
 
 export default function PlatformSupportAccessPage() {
+  const router = useRouter();
   const [customers, setCustomers] = useState<CustomerHealthSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function PlatformSupportAccessPage() {
         setError(data.error ?? "Failed to start support-access session");
         return;
       }
-      window.location.href = `/platform/support-access/${customerTenantId}?sessionId=${data.accessSession.id}`;
+      router.push(`/platform/support-access/${customerTenantId}?sessionId=${data.accessSession.id}`);
     } finally {
       setStarting(null);
     }

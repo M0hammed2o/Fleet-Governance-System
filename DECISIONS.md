@@ -897,3 +897,13 @@ not evidence of misconduct. Do not calculate route deviation in Phase 12.
 **Consequences:** Reports remain honest and useful without overstating integration maturity. Production
 provider validation, route semantics, and credentials are Phase 13 dependencies requiring a separate
 business/vendor decision.
+# Phase 13A decisions (2026-08-11)
+
+- D-052: `APP_ENV`, not `next build`/`NODE_ENV`, selects deployment policy so local production builds remain possible while real production fails closed.
+- D-053: production requires durable object storage; filesystem storage and every mock/dev-console integration are forbidden.
+- D-054: session, media-signing and scheduler keys rotate through current/previous configuration; stored session tokens and login dimensions use keyed HMAC digests.
+- D-055: notification delivery is at most three automatic attempts with persisted backoff eligibility; schedulers never retry indefinitely.
+- D-056: backup/restore automation is deliberately restricted to loopback test-named databases and a fixed disposable restore suffix. Hosted restore is a separately approved operator procedure.
+- D-057: no tracker/email/payment vendor or hosted platform is selected. PayFast/R2/provider names are adapter boundaries, not commercial approval.
+- D-058: production diagnostics are read-only and platform-authorized. Provider accounts, schedules, deployment and migrations can never be created from the readiness page.
+- D-059: patch/minor security updates moved Next.js to 16.3.0 and the Prisma toolchain to 7.9.1 after `npm audit`; no automatic major upgrade was performed.

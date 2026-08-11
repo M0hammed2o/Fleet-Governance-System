@@ -1,7 +1,7 @@
 import { config as loadEnv } from "dotenv";
 import { buildProductionReadinessReport } from "../src/lib/operations/readiness-core";
 
-loadEnv({ path: ".env" });
+loadEnv({ path: ".env", quiet: true });
 
 const report = buildProductionReadinessReport(process.env, { database: "NOT_CHECKED" });
 const json = process.argv.includes("--json");

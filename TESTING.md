@@ -712,3 +712,6 @@ Full requirement-by-requirement detail in BILLING_AND_SUBSCRIPTIONS.md.
 - Final baseline: **68 files / 765 Vitest tests**, **14 Playwright tests**, **103/103** generated static
   pages, clean TypeScript/ESLint/build, Prisma validation/status, and all **26 migrations** replayed from
   empty in each gate.
+# Phase 13A verification additions
+
+New coverage exercises configuration/environment separation, readiness classifications and redaction, health/diagnostic authorization, CSRF policy, rotating scheduler/media/session keys, local database guards and actual dump/restore, storage contract/health, tracker capability/freshness/timeout/retry/revocation/isolation, transactional-email no-op/idempotency, payment lifecycle/disabled PayFast/open redirects, login throttling, bounded notification retries, job error redaction, and the platform readiness browser view/permission denial. `npm run performance:pilot` is a bounded, read-only local regression probe; its timings are not capacity claims. Exact final totals and two-pass results are recorded in WORKLOG after the final gate.

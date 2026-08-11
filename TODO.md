@@ -469,3 +469,11 @@ requirement detail in PRODUCT_REQUIREMENTS.md.
       (role/override/delegation), audit logging on login/logout — 2026-07-19
 - [x] Seed script: platform tenant + demo tenant with 8 roles and one fictional user each — 2026-07-19
 - [x] Manual end-to-end verification of login/logout/session-expiry/audit-logging via curl — 2026-07-19
+# Phase 13A external blockers
+
+- [ ] Select/approve hosting, managed PostgreSQL, durable private object storage, scheduler and monitoring providers; create infrastructure only with explicit authority.
+- [ ] Select transactional email and payment providers; obtain official PayFast documentation if PayFast remains intended.
+- [ ] For every real tracker provider obtain official docs, sandbox, customer authorization, field semantics, SLA and credentials; pass the common contract suite.
+- [ ] Confirm Information Officer, PAIA manual, privacy/lawful-basis notices, DPAs, breach contacts and final retention/backup/offboarding periods.
+- [ ] Configure production secrets, alerts, backups and restore evidence; make `production:check` exit zero.
+- [ ] Approve pilot owner/support/UAT/training/rollback package and real-data transition. Optional Phase 14A remains next after Phase 13A verification.

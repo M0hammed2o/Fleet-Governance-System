@@ -2349,3 +2349,12 @@ data, and retention/privacy terms; confirm tenant operating hours, department mo
 report volumes and legal/POPIA retention requirements; and resolve the still-open payment/email vendor
 choices. Only after those inputs are approved should production accounts, credentials, integrations, or
 deployments be created.
+# 2026-08-11 — Phase 13A provider-neutral production readiness
+
+- Confirmed the clean Phase 12 baseline and reran Prisma status, TypeScript, lint and all 765 tests before edits.
+- Added fail-closed typed configuration, production checker, safe health/diagnostics/readiness UI, key rotation, storage/provider selection enforcement, security headers and same-origin mutation policy (`146b738`).
+- Added object-storage capabilities/health/timeouts, strict local DB target guards and a real dump/restore drill. The drill exposed fixture cleanup disabling FK cascades; cleanup now bypasses only the append-only audit trigger and restores normal cascades. Restore verified all migrations (`4ecaf30`).
+- Added tracker, transactional-email and payment lifecycle contracts with synthetic/no-op adapters, bounded tracker calls, tenant/provider boundaries and same-origin return URLs (`3ba1a8f`).
+- Added migration 27 for HMAC-only authentication-attempt throttling and bounded notification retries, structured job logs, redacted provider/notification logs and bounded scheduled-job scans; empty replay and restore both passed (`bee65a6`).
+- Added non-deploying CI, standalone non-root container, readiness browser coverage, local performance probe and production/provider/operations/release documentation. Security audit moved Next.js to 16.3.0 and Prisma to 7.9.1 without a major update and reached zero reported vulnerabilities.
+- No deployment, production migration, provider account, real credential/customer data, payment or external message was used.
