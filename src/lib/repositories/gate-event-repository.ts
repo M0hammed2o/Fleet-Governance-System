@@ -16,6 +16,7 @@ import type { FacialVerificationProvider } from "@/lib/facial-verification/provi
 import { MockFacialVerificationProvider } from "@/lib/facial-verification/mock-provider";
 import { getActiveTemplateDescriptorForDriver } from "@/lib/repositories/facial-enrolment-repository";
 import { evaluateMatch, DEFAULT_MATCH_THRESHOLD, DEFAULT_REVIEW_THRESHOLD } from "@/lib/facial-verification/descriptor-math";
+import { logger } from "@/lib/observability/logger";
 import type {
   GateEventDirection,
   InspectionOutcome,
@@ -807,7 +808,7 @@ export async function completeGateEvent(tenantId: string, gateEventId: string, a
     try {
       await buildReconciliation({ tenantId, movementAuthorisationId: gateEvent.movementAuthorisationId, actorUserId });
     } catch (err) {
-      if (!(err instanceof ReconciliationNotReadyError)) console.error("Reconciliation auto-build failed:", err);
+      if (!(err instanceof ReconciliationNotReadyError)) logger.error("reconciliation.auto_build_failed", { error: err });
     }
   }
 

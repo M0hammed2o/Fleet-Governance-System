@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { logger, redactForLogging } from "@/lib/observability/logger";
 
 export class JobAlreadyRunningError extends Error {
   constructor(jobName: string) {
@@ -30,6 +31,7 @@ function isUniqueConstraintViolation(err: unknown): boolean {
  * tick to pick back up.
  */
 export async function runJob<T>(jobName: string, fn: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
   let run: { id: string };
   try {
     run = await prisma.jobRun.create({ data: { jobName, status: "RUNNING" } });
@@ -39,17 +41,21 @@ export async function runJob<T>(jobName: string, fn: () => Promise<T>): Promise<
   }
 
   try {
+    logger.info("job.started", { jobName, jobRunId: run.id });
     const result = await fn();
     await prisma.jobRun.update({
       where: { id: run.id },
       data: { status: "SUCCEEDED", finishedAt: new Date(), resultSummary: (result ?? null) as Prisma.InputJsonValue },
     });
+    logger.info("job.succeeded", { jobName, jobRunId: run.id, durationMs: Date.now() - startedAt });
     return result;
   } catch (err) {
+    const safeError = redactForLogging(err instanceof Error ? err.message : "unknown error") as string;
     await prisma.jobRun.update({
       where: { id: run.id },
-      data: { status: "FAILED", finishedAt: new Date(), errorMessage: err instanceof Error ? err.message : "unknown error" },
+      data: { status: "FAILED", finishedAt: new Date(), errorMessage: safeError },
     });
+    logger.error("job.failed", { jobName, jobRunId: run.id, durationMs: Date.now() - startedAt, error: err });
     throw err;
   }
 }

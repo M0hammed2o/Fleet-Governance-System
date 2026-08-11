@@ -507,7 +507,7 @@ export async function completeDeletionRequest(tenantId: string, deletionRequestI
 
 /** Finds every APPROVED request whose recovery window has elapsed and completes it — the batch entry point for a future scheduler. */
 export async function completeDueDeletionRequests(now: Date = new Date()) {
-  const due = await prisma.deletionRequest.findMany({ where: { status: "APPROVED", recoveryExpiresAt: { lte: now } } });
+  const due = await prisma.deletionRequest.findMany({ where: { status: "APPROVED", recoveryExpiresAt: { lte: now } }, orderBy: [{ recoveryExpiresAt: "asc" }, { id: "asc" }], take: 100 });
   const certificates = [];
   for (const request of due) {
     certificates.push(await completeDeletionRequest(request.tenantId, request.id, now));

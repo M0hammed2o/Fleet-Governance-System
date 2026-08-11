@@ -9,6 +9,7 @@ import { getDefaultPaymentProvider, InvalidWebhookSignatureError, MockPaymentPro
 import type { InvoiceStatus } from "@/generated/prisma/client";
 import { restoreTenantSubscription } from "@/lib/repositories/subscription-repository";
 import { sendInvoiceEmailForPayment } from "@/lib/repositories/billing-email-repository";
+import { logger } from "@/lib/observability/logger";
 
 /**
  * Phase 10 (P10G) — payment processing and idempotency. A payment is only
@@ -273,7 +274,7 @@ export async function processPaymentProviderEvent(rawBody: string, headers: Reco
 
   await restoreSubscriptionIfNoOutstandingInvoices(invoice.tenantId);
   await sendInvoiceEmailForPayment(invoice.tenantId, invoice.id, payment.id, "PAYMENT_SUCCESS").catch((err) => {
-    console.error("sendInvoiceEmailForPayment failed after a successful payment", err);
+    logger.error("email.invoice_delivery_failed", { trigger: "payment-success", error: err });
   });
 
   return { outcome: "ACCEPTED", paymentId: payment.id };
@@ -355,7 +356,7 @@ export async function recordManualPayment(session: AuthenticatedSession, invoice
 
   await restoreSubscriptionIfNoOutstandingInvoices(invoice.tenantId);
   await sendInvoiceEmailForPayment(invoice.tenantId, invoice.id, payment.id, "MANUAL_APPROVAL").catch((err) => {
-    console.error("sendInvoiceEmailForPayment failed after a manual payment approval", err);
+    logger.error("email.invoice_delivery_failed", { trigger: "manual-approval", error: err });
   });
 
   return payment;

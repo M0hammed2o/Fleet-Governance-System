@@ -56,6 +56,7 @@ async function computeDashboardRows(tenantFilter?: string): Promise<StorageDashb
   const tenants = await prisma.tenant.findMany({
     where: { slug: { not: PLATFORM_TENANT_SLUG }, ...(tenantFilter ? { id: tenantFilter } : {}) },
     orderBy: { createdAt: "asc" },
+    take: 1_000,
   });
   const tenantIds = tenants.map((t) => t.id);
   const now = new Date();

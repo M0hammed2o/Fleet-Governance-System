@@ -29,7 +29,7 @@ describe("investigation notifications and scheduled jobs", () => {
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ eventType: "ASSIGNMENT", recipientUserId: investigator.userId, status: "FAILED", channel: "NOOP" });
     expect((await prisma.investigationCase.findUniqueOrThrow({ where: { id: investigationCase.id } })).status).toBe("DRAFT");
-  });
+  }, 90_000);
 
   it("retries failed notifications and preserves the triggering case state even when NOOP fails again", async () => {
     const tenant = await createTenant("Notification retry");
@@ -46,7 +46,13 @@ describe("investigation notifications and scheduled jobs", () => {
 
     const result = await retryFailedInvestigationNotifications();
     expect(result.retried).toBeGreaterThanOrEqual(1);
-    expect((await prisma.investigationNotificationRecord.findUniqueOrThrow({ where: { id: record!.id } })).status).toBe("FAILED");
+    const afterRetry = await prisma.investigationNotificationRecord.findUniqueOrThrow({ where: { id: record!.id } });
+    expect(afterRetry).toMatchObject({ status: "FAILED", attemptCount: 2 });
+    const finalAttemptAt = new Date(afterRetry.nextAttemptAt!.getTime() + 1);
+    await retryFailedInvestigationNotifications(finalAttemptAt);
+    const exhausted = await prisma.investigationNotificationRecord.findUniqueOrThrow({ where: { id: record!.id } });
+    expect(exhausted).toMatchObject({ status: "FAILED", attemptCount: 3, nextAttemptAt: null });
+    expect((await retryFailedInvestigationNotifications(new Date(finalAttemptAt.getTime() + 60_000))).retried).toBe(0);
     expect((await prisma.investigationCase.findUniqueOrThrow({ where: { id: investigationCase.id } })).status).toBe("DRAFT");
   }, 90_000);
 

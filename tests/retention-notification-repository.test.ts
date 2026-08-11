@@ -157,6 +157,7 @@ describe("8E-003: deliverPendingRetentionNotifications", () => {
     const afterFail = await prisma.retentionNotificationRecord.findFirstOrThrow({ where: { mediaAssetId: asset.id } });
     expect(afterFail.status).toBe("FAILED");
     expect(afterFail.failureReason).toBe("smtp unavailable");
+    expect(afterFail.attemptCount).toBe(1);
 
     // A retry (e.g. next scheduled run) picks up the FAILED record and can succeed.
     const retryProvider = new RecordingProvider({ delivered: true });
@@ -166,6 +167,7 @@ describe("8E-003: deliverPendingRetentionNotifications", () => {
 
     const afterRetry = await prisma.retentionNotificationRecord.findFirstOrThrow({ where: { mediaAssetId: asset.id } });
     expect(afterRetry.status).toBe("SENT");
+    expect(afterRetry.attemptCount).toBe(2);
 
     // A third run finds nothing left to deliver — SENT is a terminal state.
     const thirdProvider = new RecordingProvider({ delivered: true });

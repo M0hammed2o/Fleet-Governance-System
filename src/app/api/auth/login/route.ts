@@ -6,6 +6,8 @@ import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { isEligibleToAuthenticate } from "@/lib/auth/login-eligibility";
 import { recordAudit } from "@/lib/audit/record-audit";
 import { prisma } from "@/lib/db/prisma";
+import { checkLoginRateLimit, normaliseClientIp, recordAuthenticationAttempt } from "@/lib/auth/login-rate-limit";
+import { logger } from "@/lib/observability/logger";
 
 const GENERIC_ERROR = "Invalid company, email, or password.";
 // Valid-shaped bcrypt hash with no known plaintext, compared against when no
@@ -21,14 +23,21 @@ export async function POST(request: Request) {
   }
 
   const { tenantSlug, email, password } = parsed.data;
+  const ip = normaliseClientIp(request.headers.get("x-forwarded-for"));
+  const rateLimit = await checkLoginRateLimit({ tenantSlug, email, ip });
   const user = await findUserForLogin(tenantSlug, email);
 
   const passwordValid = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
+  if (rateLimit.limited) {
+    logger.warn("security.login_rate_limited", { identifierHash: rateLimit.identifierHash, ipHash: rateLimit.ipHash });
+    return NextResponse.json({ error: "Too many sign-in attempts. Try again later." }, { status: 429 });
+  }
   if (!user || !isEligibleToAuthenticate(user) || !passwordValid) {
+    await recordAuthenticationAttempt({ tenantSlug, email, ip, succeeded: false });
+    logger.warn("security.login_failed", { identifierHash: rateLimit.identifierHash, ipHash: rateLimit.ipHash });
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 });
   }
 
-  const ip = request.headers.get("x-forwarded-for") ?? null;
   const userAgent = request.headers.get("user-agent");
 
   const token = await createSession({
@@ -38,6 +47,7 @@ export async function POST(request: Request) {
     userAgent,
   });
   await setSessionCookie(token);
+  await recordAuthenticationAttempt({ tenantSlug, email, ip, succeeded: true });
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 

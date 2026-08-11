@@ -10,6 +10,14 @@ import {
 import type { MediaCategory, RetentionNotificationChannel } from "@/generated/prisma/client";
 
 const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
+const NOTIFICATION_BATCH_SIZE = 500;
+const MAX_DELIVERY_ATTEMPTS = 3;
+
+function nextRetryAt(now: Date, completedAttempts: number): Date | null {
+  if (completedAttempts >= MAX_DELIVERY_ATTEMPTS) return null;
+  if (completedAttempts === 1) return now;
+  return new Date(now.getTime() + 5 * 60 * 1000 * 2 ** (completedAttempts - 2));
+}
 
 // Presented in every retention-expiry notice — none of these reveal the
 // evidence's content, only what the customer-admin may do about the
@@ -50,6 +58,8 @@ export async function generateDueRetentionNotifications(now: Date = new Date(), 
       scheduledDeletionAt: { not: null, gte: now, lte: ninetyDaysFromNow },
     },
     select: { id: true, tenantId: true, scheduledDeletionAt: true },
+    orderBy: [{ scheduledDeletionAt: "asc" }, { id: "asc" }],
+    take: NOTIFICATION_BATCH_SIZE,
   });
 
   let createdCount = 0;
@@ -97,6 +107,7 @@ interface PendingRecordWithAsset {
   tenantId: string;
   milestone: number;
   scheduledDeletionAt: Date;
+  attemptCount: number;
   mediaAsset: { category: MediaCategory; fileSizeBytes: number };
 }
 
@@ -119,8 +130,15 @@ export async function deliverPendingRetentionNotifications(
   tenantId?: string,
 ): Promise<DeliverRetentionNotificationsResult> {
   const pending = (await prisma.retentionNotificationRecord.findMany({
-    where: { ...(tenantId ? { tenantId } : {}), status: { in: ["PENDING", "FAILED"] } },
+    where: {
+      ...(tenantId ? { tenantId } : {}),
+      status: { in: ["PENDING", "FAILED"] },
+      attemptCount: { lt: MAX_DELIVERY_ATTEMPTS },
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+    },
     include: { mediaAsset: { select: { category: true, fileSizeBytes: true } } },
+    orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }],
+    take: NOTIFICATION_BATCH_SIZE,
   })) as PendingRecordWithAsset[];
 
   const groups = new Map<string, PendingRecordWithAsset[]>();
@@ -160,11 +178,12 @@ export async function deliverPendingRetentionNotifications(
     else batchesFailed++;
 
     const channel = provider.channel satisfies RetentionNotificationChannel;
+    const completedAttempts = Math.max(...records.map((record) => record.attemptCount)) + 1;
     await prisma.retentionNotificationRecord.updateMany({
       where: { id: { in: records.map((r) => r.id) } },
       data: result.delivered
-        ? { status: "SENT", channel, attemptedAt: now, deliveredAt: now, failureReason: null }
-        : { status: "FAILED", channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
+        ? { status: "SENT", channel, attemptedAt: now, deliveredAt: now, failureReason: null, attemptCount: { increment: 1 }, nextAttemptAt: null }
+        : { status: "FAILED", channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed", attemptCount: { increment: 1 }, nextAttemptAt: nextRetryAt(now, completedAttempts) },
     });
     recordsUpdated += records.length;
   }

@@ -1,4 +1,5 @@
 import "server-only";
+import { logger } from "@/lib/observability/logger";
 
 /** Same provider-neutral shape as retention/notification-provider.ts and billing/billing-email-provider.ts. */
 
@@ -24,7 +25,7 @@ export interface InvestigationNotificationProvider {
 export class DevConsoleInvestigationNotificationProvider implements InvestigationNotificationProvider {
   readonly channel = "DEV_CONSOLE" as const;
   async send(input: InvestigationNotificationInput): Promise<InvestigationNotificationDeliveryResult> {
-    console.log(`[InvestigationNotification] ${input.eventType} -> ${input.toEmail}: ${input.message}`);
+    logger.info("email.synthetic_delivery", { template: "investigation-notification", eventType: input.eventType, recipientDomain: input.toEmail.split("@")[1] ?? "invalid" });
     return { delivered: true };
   }
 }

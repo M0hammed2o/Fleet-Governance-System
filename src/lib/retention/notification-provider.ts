@@ -1,5 +1,6 @@
 import type { MediaCategory } from "@/generated/prisma/client";
 import type { RetentionNotificationMilestone } from "./deletion-rules";
+import { logger } from "@/lib/observability/logger";
 
 /**
  * One outbound retention-expiry message — grouped by (tenant, category,
@@ -63,7 +64,7 @@ export class DevConsoleRetentionNotificationProvider implements RetentionNotific
   readonly channel = "DEV_CONSOLE" as const;
 
   async send(batch: RetentionNotificationBatch): Promise<RetentionNotificationDeliveryResult> {
-    console.log(formatBatchMessage(batch));
+    logger.info("retention.synthetic_notification", { summary: formatBatchMessage(batch) });
     return { delivered: true };
   }
 }

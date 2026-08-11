@@ -1,4 +1,5 @@
 import "server-only";
+import { logger } from "@/lib/observability/logger";
 
 /**
  * Same provider-neutral pattern as billing/billing-email-provider.ts and
@@ -45,7 +46,7 @@ export class MockAuditorInvitationProvider implements AuditorInvitationProvider 
 
   async send(input: AuditorInvitationInput): Promise<AuditorInvitationResult> {
     this.sent.push(input);
-    console.log(`[MockAuditorInvitationProvider] would notify ${input.toEmail} of access to ${input.caseNumbers.join(", ")}, expires ${input.expiresAt.toISOString()}`);
+    logger.info("email.synthetic_delivery", { template: "external-auditor-invitation", recipientDomain: input.toEmail.split("@")[1] ?? "invalid", expiresAt: input.expiresAt });
     return { provider: this.name, delivered: true };
   }
 

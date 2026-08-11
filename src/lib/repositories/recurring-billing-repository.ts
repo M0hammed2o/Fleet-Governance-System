@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db/prisma";
 import { generateBillableVehicleSnapshot } from "@/lib/repositories/billable-vehicle-repository";
 import { generateInvoiceForBillingPeriod, markOverdueInvoices } from "@/lib/repositories/invoice-repository";
 import { evaluateAutomatedSuspensionsForAllPastDueTenants } from "@/lib/repositories/subscription-repository";
+import { redactForLogging } from "@/lib/observability/logger";
+
+const JOB_TENANT_LIMIT = 1_000;
 
 /**
  * Phase 10 (P10L) — the idempotent recurring billing cycle: identifies
@@ -38,7 +41,7 @@ export interface RecurringBillingCycleResult {
 }
 
 export async function runRecurringBillingCycle(reference: Date = new Date()): Promise<RecurringBillingCycleResult> {
-  const tenants = await prisma.tenant.findMany({ where: { status: "ACTIVE", slug: { not: "platform" } } });
+  const tenants = await prisma.tenant.findMany({ where: { status: "ACTIVE", slug: { not: "platform" } }, orderBy: { id: "asc" }, take: JOB_TENANT_LIMIT });
 
   let invoicesGenerated = 0;
   let invoicesAlreadyExisted = 0;
@@ -53,7 +56,7 @@ export async function runRecurringBillingCycle(reference: Date = new Date()): Pr
       else invoicesGenerated++;
       void invoice;
     } catch (err) {
-      errors.push({ tenantId: tenant.id, message: err instanceof Error ? err.message : "unknown error" });
+      errors.push({ tenantId: tenant.id, message: redactForLogging(err instanceof Error ? err.message : "unknown error") as string });
     }
   }
 

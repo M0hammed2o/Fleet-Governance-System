@@ -12,6 +12,7 @@ import { getTenantBillingProfileUnchecked } from "@/lib/repositories/tenant-bill
 import { activateTenantSubscription, markTenantPastDue } from "@/lib/repositories/subscription-repository";
 import { uploadMediaAsset, mintSignedUrlForMediaAsset } from "@/lib/repositories/media-asset-repository";
 import type { Prisma } from "@/generated/prisma/client";
+import { logger } from "@/lib/observability/logger";
 
 /**
  * Phase 10 (P10E) — invoice generation from an already-snapshotted
@@ -179,7 +180,7 @@ export async function generateInvoiceForBillingPeriod(billingPeriodId: string, a
   // financial record is the primary concern; subscription-state
   // reconciliation can be retried independently.
   await activateTenantSubscription(billingPeriod.tenantId, actorUserId).catch((err) => {
-    console.error("activateTenantSubscription failed after invoice generation", err);
+    logger.error("billing.subscription_activation_failed", { error: err });
   });
 
   await attachInvoicePdf(invoice.id, { isVatTaxInvoice, billingPeriodLabel: formatBillingPeriodLabel(billingPeriod.periodStart) }).catch(async (err) => {
@@ -420,7 +421,7 @@ export async function getInvoiceWithDetailsUnchecked(invoiceId: string) {
  * run — safe to call on every recurring-job tick.
  */
 export async function markOverdueInvoices(now: Date = new Date()): Promise<number> {
-  const dueInvoices = await prisma.invoice.findMany({ where: { status: "ISSUED", dueDate: { lt: now } } });
+  const dueInvoices = await prisma.invoice.findMany({ where: { status: "ISSUED", dueDate: { lt: now } }, orderBy: [{ dueDate: "asc" }, { id: "asc" }], take: 500 });
   for (const invoice of dueInvoices) {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "OVERDUE" } });
     await recordAudit({ tenantId: invoice.tenantId, userId: null, action: "invoice.markedOverdue", entityType: "Invoice", entityId: invoice.id });

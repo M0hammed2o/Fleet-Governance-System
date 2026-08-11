@@ -12,6 +12,7 @@ import type {
 
 const QUERY_ROW_LIMIT = 10_000;
 const SUPPORTING_RECORD_LIMIT = 50;
+const JOB_TENANT_LIMIT = 1_000;
 
 type SupportingRecord = {
   type: string;
@@ -458,7 +459,7 @@ export async function calculateAnalyticsForTenant(tenantId: string, now = new Da
 }
 
 export async function calculateAnalyticsForAllTenants(now = new Date()) {
-  const tenants = await prisma.tenant.findMany({ where: { status: "ACTIVE", slug: { not: "platform" } }, select: { id: true }, orderBy: { id: "asc" } });
+  const tenants = await prisma.tenant.findMany({ where: { status: "ACTIVE", slug: { not: "platform" } }, select: { id: true }, orderBy: { id: "asc" }, take: JOB_TENANT_LIMIT });
   const results: Array<{ tenantId: string; ok: boolean; result?: unknown; error?: string }> = [];
   for (const tenant of tenants) {
     try {

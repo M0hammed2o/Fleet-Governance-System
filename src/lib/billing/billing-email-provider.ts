@@ -6,6 +6,7 @@
  * real provider (e.g. an existing transactional-email vendor) can be added
  * later as a third implementation without touching invoice/payment logic.
  */
+import { logger } from "@/lib/observability/logger";
 
 export interface BillingEmailInput {
   to: string;
@@ -51,7 +52,7 @@ export class MockBillingEmailProvider implements BillingEmailProvider {
 
   async send(input: BillingEmailInput): Promise<BillingEmailSendResult> {
     this.sent.push(input);
-    console.log(`[MockBillingEmailProvider] would send "${input.subject}" to ${input.to} (invoice ${input.invoiceNumber}, PDF ${input.pdfBytes.byteLength} bytes)`);
+    logger.info("email.synthetic_delivery", { template: "billing-invoice", recipientDomain: input.to.split("@")[1] ?? "invalid", attachmentBytes: input.pdfBytes.byteLength });
     return { provider: this.name, delivered: true };
   }
 

@@ -47,6 +47,7 @@ export const PRESIGNED_UPLOAD_EXPIRY_SECONDS = 900; // 15 minutes
 // used the presigned URL or the upload never completed — eligible for
 // cleanupFailedUploads() (Phase 8B "failed-upload cleanup").
 export const FAILED_UPLOAD_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000;
+const FAILED_UPLOAD_CLEANUP_BATCH_SIZE = 200;
 
 // --- Typed errors ------------------------------------------------------------
 // Every precondition/business-rule violation below is a typed class, not a
@@ -578,6 +579,8 @@ export async function cleanupFailedUploads(
       uploadStatus: { in: ["PENDING", "FAILED"] },
       createdAt: { lt: cutoff },
     },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: FAILED_UPLOAD_CLEANUP_BATCH_SIZE,
   });
 
   for (const asset of stale) {

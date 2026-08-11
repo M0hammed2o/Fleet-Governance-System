@@ -410,7 +410,7 @@ model UserPermissionOverride {
 
 model Session {
   id        String @id @default(cuid())
-  // SHA-256 hex digest of the opaque bearer token stored in the client's cookie.
+  // HMAC-SHA-256 digest of the opaque bearer token stored in the client's cookie.
   // The raw token is never persisted, so a DB leak alone does not yield valid
   // sessions. See lib/auth/session.ts.
   tokenHash String @unique
@@ -428,6 +428,21 @@ model Session {
   @@index([tenantId])
   @@index([userId])
   @@map("sessions")
+}
+
+// Privacy-preserving authentication throttle. Only keyed HMAC digests are
+// stored: never a raw email, tenant slug, IP address, password, or token.
+model AuthenticationAttempt {
+  id             String   @id @default(cuid())
+  identifierHash String
+  ipHash         String
+  succeeded      Boolean  @default(false)
+  attemptedAt    DateTime @default(now())
+
+  @@index([identifierHash, succeeded, attemptedAt])
+  @@index([ipHash, succeeded, attemptedAt])
+  @@index([attemptedAt])
+  @@map("authentication_attempts")
 }
 
 // ---------------------------------------------------------------------------
@@ -2307,12 +2322,14 @@ model RetentionNotificationRecord {
   attemptedAt   DateTime?
   deliveredAt   DateTime?
   failureReason String?
+  attemptCount  Int                           @default(0)
+  nextAttemptAt DateTime?
 
   createdAt DateTime @default(now())
 
   @@unique([mediaAssetId, milestone, scheduledDeletionAt])
   @@index([tenantId])
-  @@index([status])
+  @@index([status, nextAttemptAt])
   @@map("retention_notification_records")
 }
 
@@ -3441,11 +3458,13 @@ model InvestigationNotificationRecord {
   attemptedAt   DateTime?
   deliveredAt   DateTime?
   failureReason String?
+  attemptCount  Int                             @default(0)
+  nextAttemptAt DateTime?
 
   createdAt DateTime @default(now())
 
   @@index([tenantId, caseId])
-  @@index([tenantId, status])
+  @@index([tenantId, status, nextAttemptAt])
   @@map("investigation_notification_records")
 }
 

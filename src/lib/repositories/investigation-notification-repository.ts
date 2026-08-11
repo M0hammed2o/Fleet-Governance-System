@@ -3,6 +3,15 @@ import { prisma } from "@/lib/db/prisma";
 import { getDefaultInvestigationNotificationProvider } from "@/lib/investigations/investigation-notification-provider";
 import type { InvestigationNotificationEventType } from "@/generated/prisma/client";
 
+const NOTIFICATION_BATCH_SIZE = 200;
+const MAX_DELIVERY_ATTEMPTS = 3;
+
+function nextRetryAt(now: Date, completedAttempts: number): Date | null {
+  if (completedAttempts >= MAX_DELIVERY_ATTEMPTS) return null;
+  if (completedAttempts === 1) return now;
+  return new Date(now.getTime() + 5 * 60 * 1000 * 2 ** (completedAttempts - 2));
+}
+
 /**
  * P11N — notification records are created and (best-effort) delivered in
  * one step by queueInvestigationNotification(); failures are persisted as
@@ -62,8 +71,8 @@ export async function queueInvestigationNotification(input: QueueNotificationInp
     return await prisma.investigationNotificationRecord.update({
       where: { id: record.id },
       data: result.delivered
-        ? { status: "SENT", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, deliveredAt: now, failureReason: null }
-        : { status: "FAILED", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
+        ? { status: "SENT", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, deliveredAt: now, failureReason: null, attemptCount: 1, nextAttemptAt: null }
+        : { status: "FAILED", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed", attemptCount: 1, nextAttemptAt: nextRetryAt(now, 1) },
     });
   } catch (error) {
     if (isConcurrentDeletion(error)) return null;
@@ -72,22 +81,24 @@ export async function queueInvestigationNotification(input: QueueNotificationInp
 }
 
 /** Re-attempts every FAILED notification — safe to run repeatedly, never changes case status. */
-export async function retryFailedInvestigationNotifications() {
+export async function retryFailedInvestigationNotifications(now: Date = new Date()) {
   const failed = await prisma.investigationNotificationRecord.findMany({
-    where: { status: "FAILED" },
+    where: { status: "FAILED", attemptCount: { lt: MAX_DELIVERY_ATTEMPTS }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
     include: { case: true, recipient: true },
+    orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }],
+    take: NOTIFICATION_BATCH_SIZE,
   });
 
   let retried = 0;
   for (const record of failed) {
-    const now = new Date();
     const result = await attemptDelivery(record.recipient.email, record.recipient.name, record.case.caseNumber, record.case.title, record.eventType, `Retry: ${record.eventType}`);
+    const completedAttempts = record.attemptCount + 1;
     try {
       await prisma.investigationNotificationRecord.update({
         where: { id: record.id },
         data: result.delivered
-          ? { status: "SENT", attemptedAt: now, deliveredAt: now, failureReason: null }
-          : { status: "FAILED", attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
+          ? { status: "SENT", attemptedAt: now, deliveredAt: now, failureReason: null, attemptCount: completedAttempts, nextAttemptAt: null }
+          : { status: "FAILED", attemptedAt: now, failureReason: result.failureReason ?? "delivery failed", attemptCount: completedAttempts, nextAttemptAt: nextRetryAt(now, completedAttempts) },
       });
       retried++;
     } catch (error) {
@@ -106,6 +117,8 @@ export async function notifyOverdueInvestigationTasks() {
   const overdue = await prisma.investigationTask.findMany({
     where: { status: { in: ["OPEN", "IN_PROGRESS"] }, dueDate: { lt: new Date() } },
     include: { case: true },
+    orderBy: [{ dueDate: "asc" }, { id: "asc" }],
+    take: NOTIFICATION_BATCH_SIZE,
   });
   let notified = 0;
   for (const task of overdue) {
@@ -127,6 +140,8 @@ export async function notifyExpiringExternalAccess(now: Date = new Date()) {
   const expiringGrants = await prisma.externalAuditorAccessGrant.findMany({
     where: { revokedAt: null, expiresAt: { gt: now, lte: soon } },
     include: { cases: true },
+    orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+    take: NOTIFICATION_BATCH_SIZE,
   });
   let notified = 0;
   for (const grant of expiringGrants) {

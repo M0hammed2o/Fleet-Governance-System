@@ -284,6 +284,8 @@ async function requireActiveSupportAccessSession(actorUserId: string, customerTe
 export async function expireDueSupportAccessSessions(now: Date = new Date(), customerTenantId?: string): Promise<{ expiredCount: number }> {
   const due = await prisma.supportAccessSession.findMany({
     where: { ...(customerTenantId ? { customerTenantId } : {}), endedAt: null, expiresAt: { lte: now } },
+    orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+    take: 200,
   });
 
   for (const session of due) {
