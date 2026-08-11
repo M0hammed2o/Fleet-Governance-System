@@ -4,7 +4,14 @@ import { defineConfig, devices } from "@playwright/test";
 // current list and what each one covers.
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  timeout: 180_000,
+  expect: { timeout: 15_000 },
+  // These are stateful integration workflows against one seeded database
+  // and one Next dev server. Serial execution prevents cross-spec resource
+  // starvation and data interference while preserving parallelism inside
+  // the application itself.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",

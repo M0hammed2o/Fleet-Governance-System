@@ -378,7 +378,10 @@ describe("GPS-exception deduplication (Phase 8A) — episode tracking, escalatio
       name: "Weekday only policy",
       driverId: driver.id,
       vehicleIds: [vehicle.id],
-      effectiveFrom: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      // Keep the policy active for the fixed 2026-08-01 Saturday event
+      // below; a relative "now - 1 day" start made this test fail once the
+      // real clock advanced beyond that event date.
+      effectiveFrom: new Date("2026-07-01T00:00:00Z"),
       allowWeekend: false,
     });
     await approveVehicleUsePolicy(tenant.id, policy.id, user.id);
