@@ -1,11 +1,14 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/authorize";
 
 export default async function DashboardPage() {
   const session = await getSession();
   if (!session) {
     redirect("/login");
   }
+  const canViewGovernanceAnalytics = await hasPermission(session, "governanceAnalytics", "VIEW");
 
   return (
     <main className="min-h-screen bg-slate-50 p-8">
@@ -23,6 +26,7 @@ export default async function DashboardPage() {
           Foundation-phase placeholder. Role-appropriate dashboards land in Phase 3+ once gate events,
           exceptions, and documents exist to summarise.
         </p>
+        {canViewGovernanceAnalytics && <Link href="/analytics" className="mt-6 block rounded-lg border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950 hover:border-cyan-400"><strong className="block">Governance analytics</strong><span className="mt-1 block text-cyan-800">Open the tenant-scoped executive dashboard and explainable risk indicators.</span></Link>}
       </div>
     </main>
   );
