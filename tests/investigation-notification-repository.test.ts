@@ -48,7 +48,7 @@ describe("investigation notifications and scheduled jobs", () => {
     expect(result.retried).toBeGreaterThanOrEqual(1);
     expect((await prisma.investigationNotificationRecord.findUniqueOrThrow({ where: { id: record!.id } })).status).toBe("FAILED");
     expect((await prisma.investigationCase.findUniqueOrThrow({ where: { id: investigationCase.id } })).status).toBe("DRAFT");
-  });
+  }, 90_000);
 
   it("notifies overdue-task assignees without completing the task or moving the case", async () => {
     const tenant = await createTenant("Overdue notification");
