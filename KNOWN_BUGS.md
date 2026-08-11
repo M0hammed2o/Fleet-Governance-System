@@ -332,6 +332,27 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
   intermittent-only concern logged for a future session to root-cause, not silently hidden.
 - Fix verification: n/a (not yet fixed) — tracked in TODO.md.
 
+## BUG-011 — Investigation report footer created a blank trailing page
+
+- Severity: medium
+- Reproduction steps: generate a compact Phase 11 report and render every PDF page.
+- Expected result: one content page with `Page 1 of 1`.
+- Actual result before fix: PDFKit wrote the footer inside its bottom auto-flow margin, appended a blank
+  second page, and left stale page-count text on it.
+- Status: fixed — 2026-08-11. Footer moved above the auto-flow boundary.
+- Fix verification: report tests assert compact reports are exactly one page and long reports stay
+  multi-page; the generated PDF was rendered and visually inspected.
+
+## BUG-012 — Fixed-date telematics escalation test drifted past its relative policy start
+
+- Severity: low (test-only)
+- Reproduction steps: run the full suite after 2026-08-02.
+- Expected result: the fixed Saturday 2026-08-01 event is covered by its test policy.
+- Actual result before fix: policy start was `now - 1 day`; once the clock passed the event, no active
+  policy existed and the test correctly produced no exception.
+- Status: fixed — 2026-08-11. That fixture now starts on 2026-07-01.
+- Fix verification: focused telematics test and the full 735-test suite pass.
+
 ## Template for new entries
 ```
 ### BUG-NNN — <short title>

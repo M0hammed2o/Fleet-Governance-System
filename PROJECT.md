@@ -63,3 +63,15 @@ On 2026-07-19 the git repo actually rooted at the user's Windows home directory 
 found to be empty of commits but tracking the entire profile. This project uses its own dedicated git
 repo initialised at the project root (`Enterprise Governance Platform/.git`) instead; the home-directory
 repo was left untouched. Not this project's concern unless it recurs.
+
+## Current status addendum — 2026-08-11
+
+**Phases 1–11 are complete.** Phase 11 adds tenant-scoped investigation and internal-review case
+management, immutable operational-record referrals, evidence holds, append-only notes and chronology,
+versioned findings with independent approval, stored PDF reports, scheduled notification entry points,
+and a dedicated case-scoped external-auditor portal. The canonical operating guide is
+`INVESTIGATIONS_AND_EXTERNAL_AUDIT.md`; Session 21 in `WORKLOG.md` records verification evidence.
+
+The Phase 11 gate is 64 Vitest files / 735 tests, a clean Next 16 production build, and 11 Playwright
+tests, including the complete investigation lifecycle and referral/source-immutability workflows.
+Phase 12 analytics was deliberately not started.

@@ -853,3 +853,19 @@ closed upstream.
 - **Full investigation-case management** — explicitly out of scope for this run; External Reviewer /
   Internal Investigator profiles exist for evidence access, but no dedicated case-management module
   (case creation, findings, disposition tracking) is planned in Phases 5-7.
+
+## D-039 — 2026-08-11 — Race-safe active referral identity and a distinct external-audit boundary
+
+**Context:** Phase 11 required duplicate-safe referrals under concurrency and external access narrower than
+tenant roles or platform support. A read-then-create lookup races; reusing a broad role leaks unrelated data.
+
+**Decision:** An open referral stores `activeReferralKey = tenantId:recordType:recordId`, protected by a
+database unique index. A unique-race loser returns the winner; closure clears the key. External audit uses
+the dedicated minimal role and grant/case/log tables. Every portal call revalidates the grant and flags.
+
+**Consequences:** Concurrent referrals produce one active case/source link; a closed referral does not
+prevent a later new case. External users cannot enumerate tenant cases, use internal mutation routes, or
+retain access after expiry/revocation. The additive migration replays cleanly from empty.
+
+**Supersedes:** The note above described Phases 5–7 only. Phase 11 case management is complete; Phase 12
+remains out of scope.

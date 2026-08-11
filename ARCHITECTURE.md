@@ -783,3 +783,25 @@ dev: Next.js dev server + Dockerised Postgres. Staging/production topology to be
 - No secrets in the repo; `.env.example` documents required variables with placeholder values.
 - Large media uploads must not block the main request thread — uploads go direct-to-storage via
   presigned URLs where the provider supports it, with server-side verification after upload completes.
+
+## Investigation and external-audit architecture (Phase 11)
+
+The investigation domain is tenant-owned and separate from operational source workflows. An
+`InvestigationRelatedRecord` stores a pointer plus an immutable display snapshot; referral never resolves
+or edits its source. `InvestigationCase.activeReferralKey` is a nullable unique key for an open referral
+source. It makes concurrent duplicates converge on one case; closure clears it so later new information
+can legitimately create a fresh case.
+
+Case state and outcome are separate. Findings are versioned rows, approvals are separate rows, notes are
+append-only with explicit supersession, and evidence links are never deleted—mistakes are marked entered
+in error. Evidence and reports reuse `MediaAsset`, storage providers, checksums, holds, and signed URLs.
+
+Confidentiality is enforced in repositories. Users without `investigationConfidentialAccess:VIEW`
+receive neutral case metadata and no child narrative; restricted notes/evidence are filtered server-side.
+Nested child lookups include tenant, parent case, and child ID. Cross-tenant references are rejected.
+
+External auditors use the minimal `External Auditor (Case-Scoped)` role plus a live grant. Every request
+rechecks tenant, exact case, start/expiry, revocation, and download flags; views/downloads are logged. This
+is independent of platform support access. Invitation/notification adapters default to honest no-op.
+
+See `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md` for state transitions, roles, routes, jobs, and operations.

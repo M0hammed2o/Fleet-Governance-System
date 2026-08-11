@@ -669,3 +669,20 @@ Full requirement-by-requirement detail in BILLING_AND_SUBSCRIPTIONS.md.
    automatically (`playwright.config.ts`'s `screenshot: "only-on-failure"`).
 4. `npm run job -- --list` / `npm run job -- <name>` (Phase 8E-004) — runs one background job against a
    running dev server; requires `JOB_SCHEDULER_TOKEN` to be set (the endpoint fails closed without it).
+
+## Phase 11 verification — investigations and external audit
+
+- Repository/security coverage: case, referral, evidence/hold, finding, report, notification,
+  external-auditor access, and dedicated confidentiality tests.
+- Proved boundaries include tenant and parent/child isolation, cross-tenant entity rejection,
+  confidential case/note/evidence filtering, no biometric leakage, concurrent numbering/referrals,
+  append-only history, hold-aware retention, separation of duties, and external grant gates.
+- Report tests render real PDFs for three outcomes, extract text, filter restricted content, exercise long
+  pagination, and guard against blank trailing pages.
+- `e2e/investigation-workflow.spec.ts` covers the full multi-role manual lifecycle and a gate-officer
+  referral with duplicate reuse/source immutability in real Chromium.
+- Playwright intentionally uses one worker: these stateful integration workflows share one seeded database
+  and one Next dev server. Whole-test timeout is 180 seconds; locator assertions remain 15 seconds.
+- Final baseline: **64 files / 735 Vitest tests**, **11 Playwright tests**, clean TypeScript/ESLint/build,
+  Prisma validation/status, and all 24 migrations replayed from empty.
+- Known non-failing output: BUG-010's pg adapter deprecation and Next dev socket-listener warnings.

@@ -44,3 +44,18 @@ Not yet implemented. Structured logging conventions to be added alongside the au
 
 ## Rollback process
 Not yet defined — depends on the hosting decision above.
+
+## Phase 11 deployment notes
+
+- Apply all 24 committed migrations with `npx prisma migrate deploy`; the newest adds the nullable unique
+  active-referral key. Never edit an applied migration.
+- Investigation notification and auditor-invitation providers default to no-op. A real delivery provider
+  is a future explicit integration decision; no production message is sent today.
+- Job entry points exist for overdue tasks, expiring external access, and failed-notification retry. They
+  require `JOB_SCHEDULER_TOKEN`; no production scheduler is configured.
+- Reports/evidence use the existing storage provider and signed raw-media route. Configure persistent
+  object storage and HTTPS before any non-local deployment.
+- Before deployment run Prisma format/validate/generate/status, clean migration replay, TypeScript, lint,
+  all 735 tests, production build, and all 11 serial Playwright tests. Seed only local fictional data.
+- BUG-010 remains a visible upstream adapter warning; do not suppress it or upgrade database packages
+  solely to chase it. Re-run the documented trace after a planned Prisma/adapter upgrade.

@@ -203,3 +203,19 @@ flow that pauses for a second factor when `mfaEnabled` is true. Not scheduled fo
 
 None of the above are legal conclusions from this document — they are flagged items for professional
 review, per the hard rule against providing legal conclusions.
+
+## Phase 11 investigation controls
+
+- Confidential case identity/narrative and restricted notes/evidence are filtered in repositories; search
+  does not reveal confidential titles.
+- Referral snapshots and reports never read or copy biometric template/descriptor bytes.
+- Evidence is signed-URL-only and hold-protected. Closing never releases a hold; high/critical release can
+  require a second distinct authorised user.
+- Findings separate allegation from conclusion and enforce creator/submitter versus approver separation.
+  No automated guilt score, employee risk score, or Phase 12 analytics was added.
+- External audit requires exact role, case, live time window, revocation check, explicit download flags,
+  read-only routes, and access logs. It is not support access.
+- Notifications/invitations default to no-op; no real external message is sent.
+
+See `SECURITY.md` and `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md`. Retention periods and lawful-basis/notice
+wording still require Information Officer/legal review before production.

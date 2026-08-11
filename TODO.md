@@ -6,8 +6,9 @@ Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Manageme
 basic liveness with a cloud fallback interface) is also **complete** — see WORKLOG.md Session 18.
 Session 19 closed the two remaining Phase 9 browser follow-ups (P9F-001/002 below) and completed Phase 10
 in full (Subscriptions, Billing and Invoicing, P10A-P10P below) — see WORKLOG.md Session 19 and
-BILLING_AND_SUBSCRIPTIONS.md. Session 20 closed the P11-000 PostgreSQL-warning investigation and begins
-Phase 11 (Investigation, Internal Review and External Audit Case Management, P11A-P11T below).
+BILLING_AND_SUBSCRIPTIONS.md. Session 20 closed the P11-000 PostgreSQL-warning investigation. Session 21
+completed Phase 11 (Investigation, Internal Review and External Audit Case Management, P11A-P11T below).
+Phase 12 has deliberately not started; await explicit product direction.
 
 ## P11-000 — PostgreSQL overlapping-query warning investigation — Session 20
 - [x] **P11-000** — Investigated pg's "client.query() when the client is already executing a query"
@@ -21,50 +22,50 @@ Phase 11 (Investigation, Internal Review and External Audit Case Management, P11
       WORKLOG.md Session 20
 
 ## Phase 11 (P11) — Investigation, Internal Review and External Audit Case Management — Session 20+
-- [ ] **P11A** — Tenant-scoped investigation data model (Case, subjects, related-record links, notes, tasks,
+- [x] **P11A** — Tenant-scoped investigation data model (Case, subjects, related-record links, notes, tasks,
       findings, approvals, evidence links, holds, external-access grants, chronology), separate status/
       outcome fields, tenant-safe case-number uniqueness | Priority: high | Deps: none
-- [ ] **P11B** — Case creation/referral from an exception/facial-verification failure/inspection failure/
+- [x] **P11B** — Case creation/referral from an exception/facial-verification failure/inspection failure/
       reconciliation discrepancy/GPS exception/manual concern; immutable referral snapshot; duplicate-
       referral protection; never silently alters the source record | Priority: high | Deps: P11A
-- [ ] **P11C** — Concurrency-safe case numbering (`INV-<year>-<sequence>`), atomic allocation, historical
+- [x] **P11C** — Concurrency-safe case numbering (`INV-<year>-<sequence>`), atomic allocation, historical
       numbers never change | Priority: high | Deps: P11A
-- [ ] **P11D** — Case workflow state machine (DRAFT/OPEN/TRIAGE/UNDER_INVESTIGATION/AWAITING_INFORMATION/
+- [x] **P11D** — Case workflow state machine (DRAFT/OPEN/TRIAGE/UNDER_INVESTIGATION/AWAITING_INFORMATION/
       AWAITING_APPROVAL/CLOSED/REOPENED), server-side-validated transitions, closure requires outcome +
       finding summary + audit | Priority: high | Deps: P11A, P11C
-- [ ] **P11E** — Subjects and fairness controls (reporting person/investigator/witness/subject clearly
+- [x] **P11E** — Subjects and fairness controls (reporting person/investigator/witness/subject clearly
       distinguished, allegation stored separately from findings, subject response capture, no automated
       guilt scoring) | Priority: high | Deps: P11A
-- [ ] **P11F** — Evidence linking (reuses MediaAsset/object-storage/signed-URL/checksum architecture),
+- [x] **P11F** — Evidence linking (reuses MediaAsset/object-storage/signed-URL/checksum architecture),
       append-only evidence links, entered-in-error correction, no biometric template exposure | Priority:
       high | Deps: P11A
-- [ ] **P11G** — Investigation-hold integration with retention/deletion eligibility; dual approval for
+- [x] **P11G** — Investigation-hold integration with retention/deletion eligibility; dual approval for
       high-severity holds; retention jobs respect holds | Priority: high | Deps: P11F
-- [ ] **P11H** — Chronology, notes (with amendment history), tasks (assignee/due date/status) | Priority:
+- [x] **P11H** — Chronology, notes (with amendment history), tasks (assignee/due date/status) | Priority:
       high | Deps: P11A
-- [ ] **P11I** — Findings/recommendations/corrective actions; approval workflow with separation of duties;
+- [x] **P11I** — Findings/recommendations/corrective actions; approval workflow with separation of duties;
       immutable approved-version snapshot | Priority: high | Deps: P11D, P11E
-- [ ] **P11J** — Investigation report PDF (reuses the Phase 10 pdfkit + MediaAsset pattern), immutable
+- [x] **P11J** — Investigation report PDF (reuses the Phase 10 pdfkit + MediaAsset pattern), immutable
       snapshot, versioned after amendment, confidentiality marking | Priority: high | Deps: P11I
-- [ ] **P11K** — Internal investigation dashboard (counts, filters, search, create/open/refer) | Priority:
+- [x] **P11K** — Internal investigation dashboard (counts, filters, search, create/open/refer) | Priority:
       high | Deps: P11B-P11J
-- [ ] **P11L** — Restricted external-auditor access (case-scoped, time-limited, revocable, own boundary —
+- [x] **P11L** — Restricted external-auditor access (case-scoped, time-limited, revocable, own boundary —
       not reusing platform support-access) | Priority: high | Deps: P11A, P11F, P11J
-- [ ] **P11M** — New investigation permissions per the existing least-privilege catalogue pattern |
+- [x] **P11M** — New investigation permissions per the existing least-privilege catalogue pattern |
       Priority: high | Deps: P11A
-- [ ] **P11N** — Notifications via the existing provider-adapter pattern (assignment/escalation/approval/
+- [x] **P11N** — Notifications via the existing provider-adapter pattern (assignment/escalation/approval/
       external-access events), no real external message sent | Priority: medium | Deps: P11D, P11L
-- [ ] **P11O** — Security/integrity proof (tenant isolation, confidential-case restriction, external
+- [x] **P11O** — Security/integrity proof (tenant isolation, confidential-case restriction, external
       scoping/expiry/revocation, signed downloads, no biometric exposure, immutable approvals, append-only
       chronology) | Priority: high | Deps: P11A-P11N
-- [ ] **P11P** — Structure categories/outcomes/control-weaknesses for a future Phase 12 analytics boundary,
+- [x] **P11P** — Structure categories/outcomes/control-weaknesses for a future Phase 12 analytics boundary,
       without building Phase 12 itself | Priority: low | Deps: P11A
-- [ ] **P11Q** — Repositories/API routes/UI for every workflow above | Priority: high | Deps: P11A-P11N
-- [ ] **P11R** — Comprehensive unit/integration tests | Priority: high | Deps: P11A-P11Q
-- [ ] **P11S** — Playwright end-to-end workflow (exception -> referral -> case -> assignment -> evidence ->
+- [x] **P11Q** — Repositories/API routes/UI for every workflow above | Priority: high | Deps: P11A-P11N
+- [x] **P11R** — Comprehensive unit/integration tests | Priority: high | Deps: P11A-P11Q
+- [x] **P11S** — Playwright end-to-end workflow (exception -> referral -> case -> assignment -> evidence ->
       hold -> findings -> approval -> closure -> report -> external-auditor access -> expiry/revocation),
       deterministic dedicated fixtures, run repeatedly | Priority: high | Deps: P11Q
-- [ ] **P11T** — Documentation: update existing docs + new `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md` |
+- [x] **P11T** — Documentation: update existing docs + new `INVESTIGATIONS_AND_EXTERNAL_AUDIT.md` |
       Priority: high | Deps: P11A-P11S
 
 ## Phase 9 follow-ups (P9F) — Session 19

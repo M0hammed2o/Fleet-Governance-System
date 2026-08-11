@@ -2241,3 +2241,33 @@ application code; it is documented, not suppressed, per BUG-010.
 Tracking the two upstream GitHub issues is the only open follow-up. Phase 11 (Investigation, Internal
 Review and External Audit Case Management) begins next — see TODO.md P11A-P11T.
 
+## Session 21 — Phase 11 completion: Investigation Management and External Auditor gate
+
+**Scope completed.** Preserved the four existing Phase 11 commits, finished repository, security, report,
+job, UI, API, and browser coverage, and did not begin Phase 12.
+
+**Hardening completed.** Added tenant validation for referenced identities; parent-case scoping for nested
+child mutations/downloads; confidential case redaction and child/note/evidence/report filtering; restricted
+external manifests; future-only grant expiry; per-case expiry notifications; best-effort notification race
+handling; determined-outcome enforcement; task metadata cleanup; settings GET permission; and report
+checks. Added a unique `activeReferralKey` migration so eight simultaneous referrals converge on one case.
+
+**UI/workflows.** Completed subject/response, confidential notes, due-date tasks, evidence upload/download,
+findings/reports, holds, and external grant/revoke interactions. Added real Chromium coverage for manual
+intake through revoked external access plus referral duplication/source immutability. Playwright runs these
+stateful workflows serially with a 180-second whole-test and 15-second locator budget; no sleeps.
+
+**Visual inspection.** Reviewed the closed-case page and rendered the generated report. This found
+BUG-011: a PDFKit footer inside the bottom auto-flow margin created a blank trailing page. Moved it above
+the boundary and added compact/long pagination regressions. The full suite also found BUG-012, an old fixed
+2026-08-01 telematics event paired with a relative policy start; made that fixture deterministic.
+
+**Verification.** Prisma format/validate/generate/status passed; all 24 migrations replayed from empty;
+TypeScript/ESLint passed; **64 files / 735 tests** passed; Next 16.2.10 build passed; **11 Playwright tests**
+passed in 4.3 minutes. The pg warning trace remains `pg Client.query → @prisma/adapter-pg
+PgTransaction.performIO → Prisma interpreter`, confirming BUG-010.
+
+**External effects.** No production database, deployment, paid service, external account, payment, email,
+or invitation was used. Notification and invitation adapters remained no-op.
+
+**Remaining work.** None for Phase 11. Phase 12 is intentionally not started; await explicit direction.
