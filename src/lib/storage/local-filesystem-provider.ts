@@ -2,7 +2,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { ObjectStorageProvider, StoredFile, ReadFileResult, PresignedUpload, ConfirmUploadResult } from "@/lib/storage/provider";
+import type { ObjectStorageProvider, StoredFile, ReadFileResult, PresignedUpload, ConfirmUploadResult, StorageProviderCapabilities, StorageHealthResult } from "@/lib/storage/provider";
 import { signResourceAccess } from "@/lib/storage/signed-url";
 import type { MediaCategory } from "@/generated/prisma/client";
 
@@ -32,6 +32,18 @@ import type { MediaCategory } from "@/generated/prisma/client";
  * S3/R2 presigned URL has, just self-hosted.
  */
 export class LocalFilesystemStorageProvider implements ObjectStorageProvider {
+  readonly providerId = "local";
+  readonly capabilities: StorageProviderCapabilities = {
+    privateObjects: true,
+    tenantPrefixedKeys: true,
+    signedReads: true,
+    presignedUploads: true,
+    integrityMetadata: true,
+    deleteObjects: true,
+    archiveTier: false,
+    legalHoldApi: false,
+    credentialRotation: true,
+  };
   private readonly baseDir: string;
   private readonly signedReadBasePath = "/api/media/raw";
   private readonly signedUploadBasePath = "/api/media/raw-upload";
@@ -41,6 +53,16 @@ export class LocalFilesystemStorageProvider implements ObjectStorageProvider {
     // env-configured directory, not a dynamic require/bundling concern — see
     // the Turbopack NFT warning this silences.
     this.baseDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), baseDir);
+  }
+
+  async healthCheck(): Promise<StorageHealthResult> {
+    try {
+      await fs.mkdir(this.baseDir, { recursive: true });
+      await fs.access(this.baseDir);
+      return { status: "healthy", detail: "local private storage is writable" };
+    } catch {
+      return { status: "degraded", detail: "local private storage is unavailable" };
+    }
   }
 
   private resolvePath(storageKey: string): string {

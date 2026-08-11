@@ -57,14 +57,11 @@ export async function createTenant(namePrefix = "Test Tenant") {
  * every DELETE against that table, including ones a cascading
  * `Tenant.delete()` would otherwise trigger — by design, so the guarantee
  * holds even against a direct DB connection. `SET LOCAL
- * session_replication_role = replica` is the standard Postgres mechanism
- * for an administrative bulk operation to bypass ordinary row triggers; it
- * is scoped to *this one transaction only* (never a session-wide or
- * global change, and it auto-reverts at transaction end whether commit or
- * rollback) and never runs anywhere near an actual assertion of the
- * trigger's behaviour — this is disposing of synthetic fixture data after
- * a test file's assertions have already finished, not weakening the
- * guarantee itself or anything under test.
+ * session_replication_role = replica` is used only while deleting that
+ * tenant's append-only audit rows. The transaction switches back to
+ * `origin` before deleting the Tenant so PostgreSQL's foreign-key cascade
+ * triggers remain active. The setting is transaction-local and this code
+ * only disposes of synthetic fixture data after assertions have finished.
  */
 /**
  * For the rare test that creates a tenant through a real repository
@@ -77,6 +74,8 @@ export async function deleteTenantForCleanup(tenantId: string): Promise<void> {
   await prisma
     .$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+      await tx.auditLog.deleteMany({ where: { tenantId } });
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin");
       await tx.tenant.delete({ where: { id: tenantId } });
     })
     .catch(() => {});
@@ -88,6 +87,8 @@ export async function cleanupCreatedTenants(): Promise<void> {
     await prisma
       .$transaction(async (tx) => {
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+        await tx.auditLog.deleteMany({ where: { tenantId: id } });
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin");
         await tx.tenant.delete({ where: { id } });
       })
       .catch(() => {});

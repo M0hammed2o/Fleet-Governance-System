@@ -1,8 +1,9 @@
 import "server-only";
 import crypto from "node:crypto";
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, HeadBucketCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { ObjectStorageProvider, StoredFile, ReadFileResult, PresignedUpload, ConfirmUploadResult } from "@/lib/storage/provider";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import type { ObjectStorageProvider, StoredFile, ReadFileResult, PresignedUpload, ConfirmUploadResult, StorageProviderCapabilities, StorageHealthResult } from "@/lib/storage/provider";
 import type { MediaCategory } from "@/generated/prisma/client";
 
 /**
@@ -69,6 +70,18 @@ async function streamToBuffer(body: unknown): Promise<Buffer> {
 }
 
 export class R2CompatibleStorageProvider implements ObjectStorageProvider {
+  readonly providerId = "r2-compatible";
+  readonly capabilities: StorageProviderCapabilities = {
+    privateObjects: true,
+    tenantPrefixedKeys: true,
+    signedReads: true,
+    presignedUploads: true,
+    integrityMetadata: true,
+    deleteObjects: true,
+    archiveTier: false,
+    legalHoldApi: false,
+    credentialRotation: true,
+  };
   private readonly config: R2Config | null;
   private readonly client: S3Client | null;
 
@@ -79,8 +92,22 @@ export class R2CompatibleStorageProvider implements ObjectStorageProvider {
           region: "auto",
           endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
           credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+          maxAttempts: 3,
+          requestHandler: new NodeHttpHandler({ connectionTimeout: 5_000, requestTimeout: 15_000 }),
         })
       : null;
+  }
+
+  async healthCheck(): Promise<StorageHealthResult> {
+    if (!this.client || !this.config) {
+      return { status: "not_configured", detail: "durable object storage is not configured" };
+    }
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.config.bucketName }));
+      return { status: "healthy", detail: "durable object storage is reachable" };
+    } catch {
+      return { status: "degraded", detail: "durable object storage is unavailable" };
+    }
   }
 
   get isConfigured(): boolean {

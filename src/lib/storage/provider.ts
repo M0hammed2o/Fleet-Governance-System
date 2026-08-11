@@ -54,7 +54,30 @@ export interface ConfirmUploadResult {
   fileSizeBytes: number | null;
 }
 
+export interface StorageProviderCapabilities {
+  privateObjects: true;
+  tenantPrefixedKeys: true;
+  signedReads: true;
+  presignedUploads: boolean;
+  integrityMetadata: true;
+  deleteObjects: true;
+  archiveTier: boolean;
+  legalHoldApi: boolean;
+  credentialRotation: boolean;
+}
+
+export interface StorageHealthResult {
+  status: "healthy" | "degraded" | "not_configured";
+  /** Safe operator-facing classification only; never include endpoints, bucket names, paths, or credentials. */
+  detail: string;
+}
+
 export interface ObjectStorageProvider {
+  readonly providerId: string;
+  readonly capabilities: StorageProviderCapabilities;
+
+  /** Read-only dependency probe. Implementations must not create or expose customer objects. */
+  healthCheck(): Promise<StorageHealthResult>;
   /**
    * Persists `data` under a new, tenant-and-category-namespaced storage key
    * and returns that key plus the server-computed SHA-256 checksum and size
