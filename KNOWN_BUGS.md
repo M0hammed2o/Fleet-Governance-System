@@ -396,3 +396,12 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately �
 - Dependency audit initially reported 12 findings (7 high, 5 moderate), including the Next.js 16.2.10 proxy bypass and vulnerable transitive tooling. Next.js/eslint config were updated to 16.3.0 and the Prisma toolchain to 7.9.1 using non-major fixes; `npm audit --audit-level=low` now reports zero vulnerabilities.
 - BUG-010 remains: `pg` emits a deprecation warning when concurrent repository tests call `client.query()` while the adapter is already executing. It is reproduced in focused/full tests, is upstream adapter behavior, and has not affected assertions or data correctness. It is not suppressed.
 - Local timing and Docker smoke checks do not prove hosted capacity, availability, backup RPO/RTO or provider interoperability. These are explicit hosted validation gaps, not resolved defects.
+
+## BUG-015 — Repeated local analytics browser runs could hide their fixture behind the bounded result window
+
+- Severity: low (test infrastructure only)
+- Reproduction steps: retain more than 100 synthetic HIGH-severity indicators in the local development database, then rerun the Phase 12 analytics browser workflow.
+- Expected result: the workflow opens the indicator it created during the current run.
+- Actual result before fix: the production dashboard correctly returned its bounded 100-row window, so the title locator could wait until the workflow timeout even though the fixture existed.
+- Status: fixed — 2026-08-11. The workflow still verifies dashboard loading/filter reset, then navigates to the newly inserted fixture using the ID returned by its deterministic setup helper.
+- Fix verification: the analytics workflow and the investigation workflow that followed the prior timeout passed together (2/2) in 3.4 minutes.

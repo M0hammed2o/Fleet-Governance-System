@@ -68,7 +68,7 @@ test.describe.serial("Phase 12 governance analytics", () => {
   test("executive analytics supports filters, explainable review, dismissal, CSV and PDF", async ({ browser }, testInfo) => {
     const suffix = crypto.randomUUID().slice(0, 8);
     const indicatorTitle = `E2E repeated vehicle pattern ${suffix}`;
-    await seedTenantIndicator(indicatorTitle);
+    const seededIndicator = await seedTenantIndicator(indicatorTitle);
     const { context, page } = await loginNewContext(browser, TENANT, MANAGER_EMAIL);
 
     await page.goto("/analytics/rules");
@@ -112,7 +112,10 @@ test.describe.serial("Phase 12 governance analytics", () => {
     const resetResponse = page.waitForResponse((response) => response.url().endsWith("/api/analytics/dashboard") && response.request().method() === "GET");
     await page.getByRole("button", { name: "Reset" }).click();
     expect((await resetResponse).ok()).toBe(true);
-    await page.getByRole("link", { name: indicatorTitle }).click();
+    // The dashboard is deliberately capped at 100 indicators. Navigate to
+    // the fixture by its deterministic API identity so repeated local runs
+    // cannot hide it behind older synthetic HIGH-severity rows.
+    await page.goto(`/analytics/indicators/${seededIndicator.id}`);
     await expect(page.getByRole("heading", { name: "Why this triggered" })).toBeVisible();
     await expect(page.getByText(/not an accusation, finding, or automated decision/i)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Supporting records" })).toBeVisible();
