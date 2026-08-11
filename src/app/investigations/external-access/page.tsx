@@ -89,24 +89,28 @@ export default function ExternalAccessManagementPage() {
         <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">New grant</h2>
           <input
+            aria-label="External auditor user id"
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="External auditor user id"
             value={form.externalAuditorUserId}
             onChange={(e) => setForm((f) => ({ ...f, externalAuditorUserId: e.target.value }))}
           />
           <input
+            aria-label="Granted case ids"
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="Case ids (comma-separated)"
             value={form.caseIds}
             onChange={(e) => setForm((f) => ({ ...f, caseIds: e.target.value }))}
           />
           <input
+            aria-label="External access reason"
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="Reason"
             value={form.reason}
             onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
           />
           <input
+            aria-label="External access expiry"
             type="datetime-local"
             className="rounded border border-slate-300 px-2 py-1 text-sm"
             value={form.expiresAt}

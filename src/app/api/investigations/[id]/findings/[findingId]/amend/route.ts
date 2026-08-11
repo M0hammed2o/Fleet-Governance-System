@@ -7,12 +7,12 @@ import { findingFieldsSchema } from "@/lib/validation/investigations";
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; findingId: string }> }) {
   try {
     const session = await requireApiSession();
-    const { findingId } = await params;
+    const { id, findingId } = await params;
     const body = await request.json().catch(() => null);
     const parsed = findingFieldsSchema.safeParse(body);
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message ?? "Invalid input");
 
-    const finding = await createAmendedFindingVersion(session, findingId, parsed.data);
+    const finding = await createAmendedFindingVersion(session, id, findingId, parsed.data);
     return NextResponse.json({ finding }, { status: 201 });
   } catch (err) {
     return investigationErrorResponse(err);

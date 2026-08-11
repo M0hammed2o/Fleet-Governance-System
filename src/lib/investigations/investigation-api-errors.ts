@@ -28,6 +28,7 @@ const BAD_REQUEST_ERROR_NAMES = new Set([
   "AuditorUserNotEligibleError",
   "GrantCaseNotInTenantError",
   "GrantAlreadyRevokedError",
+  "GrantExpiryInvalidError",
   "FindingNotApprovedForReportError",
   // Thrown by uploadMediaAsset() (media-asset-repository.ts), reached via
   // uploadEvidenceToCase() — the evidence-upload route reuses the same

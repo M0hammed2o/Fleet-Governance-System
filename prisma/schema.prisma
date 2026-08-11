@@ -2985,6 +2985,11 @@ model InvestigationCase {
   // e.g. "INV-2026-000001" — see allocateNextInvestigationCaseNumber().
   caseNumber String
 
+  // Present only while a referral-sourced case is open. The tenant/type/id
+  // composite value is globally unique and makes referral de-duplication
+  // race-safe; closure clears it so a later referral may create a new case.
+  activeReferralKey String? @unique
+
   title       String
   // The allegation/description as originally reported — kept separate from
   // verified findings (InvestigationFinding) so nothing in this record

@@ -43,34 +43,34 @@ export async function createCaseFromReferral(session: AuthenticatedSession, inpu
   // rights (P11K/P11M).
   await requirePermission(session, "investigationReferral", "CREATE");
 
-  const existingReferral = await prisma.investigationRelatedRecord.findFirst({
-    where: {
-      tenantId: session.tenantId,
-      recordType: input.relatedRecordType,
-      recordId: input.relatedRecordId,
-      isReferralSource: true,
-      case: { status: { not: "CLOSED" } },
-    },
-    include: { case: true },
-  });
-  if (existingReferral) {
-    return { investigationCase: existingReferral.case, wasExistingCase: true };
-  }
+  const activeReferralKey = `${session.tenantId}:${input.relatedRecordType}:${input.relatedRecordId}`;
+  const existingCase = await prisma.investigationCase.findUnique({ where: { activeReferralKey } });
+  if (existingCase) return { investigationCase: existingCase, wasExistingCase: true };
 
-  const investigationCase = await createInvestigationCaseInternal(session, {
-    title: input.title,
-    description: input.description,
-    source: input.source,
-    category: input.category,
-    priority: input.priority,
-    confidentiality: input.confidentiality,
-    // The referring user is the reporting person unless a different one was
-    // explicitly supplied (e.g. a manual concern raised on someone else's
-    // behalf).
-    reportingPersonUserId: input.reportingPersonUserId ?? session.userId,
-    reportingPersonName: input.reportingPersonName,
-    caseOwnerUserId: input.caseOwnerUserId,
-  });
+  let investigationCase: InvestigationCase;
+  try {
+    investigationCase = await createInvestigationCaseInternal(session, {
+      title: input.title,
+      description: input.description,
+      source: input.source,
+      category: input.category,
+      priority: input.priority,
+      confidentiality: input.confidentiality,
+      activeReferralKey,
+      // The referring user is the reporting person unless a different one was
+      // explicitly supplied (e.g. a manual concern raised on someone else's
+      // behalf).
+      reportingPersonUserId: input.reportingPersonUserId ?? session.userId,
+      reportingPersonName: input.reportingPersonName,
+      caseOwnerUserId: input.caseOwnerUserId,
+    });
+  } catch (error) {
+    const uniqueRace = typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "P2002";
+    if (!uniqueRace) throw error;
+    const winner = await prisma.investigationCase.findUnique({ where: { activeReferralKey } });
+    if (!winner) throw error;
+    return { investigationCase: winner, wasExistingCase: true };
+  }
 
   await linkRelatedRecordInternal(session, investigationCase.id, {
     recordType: input.relatedRecordType,

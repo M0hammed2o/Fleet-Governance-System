@@ -1,9 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { tenantWhere } from "@/lib/db/tenant-scope";
-import { requirePermission } from "@/lib/auth/authorize";
+import { ForbiddenError, requirePermission } from "@/lib/auth/authorize";
 import { recordInvestigationEvent } from "@/lib/investigations/investigation-audit";
-import { InvestigationCaseNotFoundError, getOrCreateTenantInvestigationSettings, markCaseAwaitingApproval, returnCaseToInvestigation } from "@/lib/repositories/investigation-case-repository";
+import { InvestigationCaseNotFoundError, canViewInvestigationCaseNarrative, getOrCreateTenantInvestigationSettings, markCaseAwaitingApproval, returnCaseToInvestigation } from "@/lib/repositories/investigation-case-repository";
 import { queueInvestigationNotification } from "@/lib/repositories/investigation-notification-repository";
 import type { AuthenticatedSession } from "@/lib/auth/session";
 import type { InvestigationOutcome } from "@/generated/prisma/client";
@@ -67,6 +67,12 @@ export interface FindingFields {
   followUpDate?: Date | null;
 }
 
+async function requireCaseNarrativeAccess(session: AuthenticatedSession, caseId: string) {
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) {
+    throw new ForbiddenError("investigationConfidentialAccess", "VIEW");
+  }
+}
+
 async function nextVersion(tenantId: string, caseId: string): Promise<number> {
   const last = await prisma.investigationFinding.findFirst({ where: tenantWhere(tenantId, { caseId }), orderBy: { version: "desc" } });
   return (last?.version ?? 0) + 1;
@@ -74,6 +80,7 @@ async function nextVersion(tenantId: string, caseId: string): Promise<number> {
 
 export async function createInvestigationFinding(session: AuthenticatedSession, caseId: string, fields: FindingFields) {
   await requirePermission(session, "investigationFinding", "CREATE");
+  await requireCaseNarrativeAccess(session, caseId);
   const activeCase = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!activeCase) throw new InvestigationCaseNotFoundError();
 
@@ -95,9 +102,10 @@ export async function createInvestigationFinding(session: AuthenticatedSession, 
   return created;
 }
 
-export async function updateDraftFinding(session: AuthenticatedSession, findingId: string, fields: Partial<FindingFields>) {
+export async function updateDraftFinding(session: AuthenticatedSession, caseId: string, findingId: string, fields: Partial<FindingFields>) {
   await requirePermission(session, "investigationFinding", "CREATE");
-  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!finding) throw new FindingNotFoundError();
   if (finding.status !== "DRAFT") throw new FindingNotEditableError();
 
@@ -105,9 +113,10 @@ export async function updateDraftFinding(session: AuthenticatedSession, findingI
 }
 
 /** Only valid from RETURNED_FOR_AMENDMENT/REJECTED/APPROVED — always a NEW row, the prior version is never edited (P11I hard requirement). */
-export async function createAmendedFindingVersion(session: AuthenticatedSession, findingId: string, fields: FindingFields) {
+export async function createAmendedFindingVersion(session: AuthenticatedSession, caseId: string, findingId: string, fields: FindingFields) {
   await requirePermission(session, "investigationFinding", "EDIT");
-  const original = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const original = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!original) throw new FindingNotFoundError();
   if (!["RETURNED_FOR_AMENDMENT", "REJECTED", "APPROVED"].includes(original.status)) throw new FindingNotAmendableError();
 
@@ -130,11 +139,13 @@ export async function createAmendedFindingVersion(session: AuthenticatedSession,
   return created;
 }
 
-export async function submitFindingForApproval(session: AuthenticatedSession, findingId: string) {
+export async function submitFindingForApproval(session: AuthenticatedSession, caseId: string, findingId: string) {
   await requirePermission(session, "investigationFinding", "CREATE");
-  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!finding) throw new FindingNotFoundError();
   if (finding.status !== "DRAFT") throw new FindingNotSubmittableError();
+  if (finding.outcome === "NOT_DETERMINED") throw new FindingNotSubmittableError();
 
   const [updated] = await prisma.$transaction([
     prisma.investigationFinding.update({ where: { id: findingId }, data: { status: "SUBMITTED", submittedByUserId: session.userId, submittedAt: new Date() } }),
@@ -174,9 +185,10 @@ async function assertSeparationOfDuties(session: AuthenticatedSession, finding: 
   }
 }
 
-export async function approveInvestigationFinding(session: AuthenticatedSession, findingId: string, reason?: string) {
+export async function approveInvestigationFinding(session: AuthenticatedSession, caseId: string, findingId: string, reason?: string) {
   await requirePermission(session, "investigationFinding", "APPROVE");
-  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!finding) throw new FindingNotFoundError();
   if (finding.status !== "SUBMITTED") throw new FindingNotPendingApprovalError();
   await assertSeparationOfDuties(session, finding);
@@ -200,9 +212,10 @@ export async function approveInvestigationFinding(session: AuthenticatedSession,
   return updated;
 }
 
-export async function returnFindingForAmendment(session: AuthenticatedSession, findingId: string, reason: string) {
+export async function returnFindingForAmendment(session: AuthenticatedSession, caseId: string, findingId: string, reason: string) {
   await requirePermission(session, "investigationFinding", "REJECT");
-  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!finding) throw new FindingNotFoundError();
   if (finding.status !== "SUBMITTED") throw new FindingNotPendingApprovalError();
 
@@ -234,9 +247,10 @@ export async function returnFindingForAmendment(session: AuthenticatedSession, f
   return updated;
 }
 
-export async function rejectInvestigationFinding(session: AuthenticatedSession, findingId: string, reason: string) {
+export async function rejectInvestigationFinding(session: AuthenticatedSession, caseId: string, findingId: string, reason: string) {
   await requirePermission(session, "investigationFinding", "REJECT");
-  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const finding = await prisma.investigationFinding.findFirst({ where: tenantWhere(session.tenantId, { id: findingId, caseId }) });
   if (!finding) throw new FindingNotFoundError();
   if (finding.status !== "SUBMITTED") throw new FindingNotPendingApprovalError();
 
@@ -270,6 +284,7 @@ export async function rejectInvestigationFinding(session: AuthenticatedSession, 
 
 export async function listInvestigationFindings(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
   return prisma.investigationFinding.findMany({
     where: tenantWhere(session.tenantId, { caseId }),
     include: { createdBy: { select: { id: true, name: true } }, submittedBy: { select: { id: true, name: true } }, approvals: { include: { actor: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } } },

@@ -22,6 +22,10 @@ export interface QueueNotificationInput {
   message: string;
 }
 
+function isConcurrentDeletion(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && ["P2003", "P2025"].includes((error as { code?: string }).code ?? "");
+}
+
 async function attemptDelivery(recipientEmail: string, recipientName: string, caseNumber: string, caseTitle: string, eventType: string, message: string) {
   const provider = getDefaultInvestigationNotificationProvider();
   try {
@@ -34,24 +38,37 @@ async function attemptDelivery(recipientEmail: string, recipientName: string, ca
 
 export async function queueInvestigationNotification(input: QueueNotificationInput) {
   const [investigationCase, recipient] = await Promise.all([
-    prisma.investigationCase.findUnique({ where: { id: input.caseId } }),
-    prisma.user.findUnique({ where: { id: input.recipientUserId } }),
+    prisma.investigationCase.findFirst({ where: { id: input.caseId, tenantId: input.tenantId } }),
+    prisma.user.findFirst({ where: { id: input.recipientUserId, tenantId: input.tenantId } }),
   ]);
   if (!investigationCase || !recipient) return null;
 
-  const record = await prisma.investigationNotificationRecord.create({
-    data: { tenantId: input.tenantId, caseId: input.caseId, eventType: input.eventType, recipientUserId: input.recipientUserId, status: "PENDING" },
-  });
+  let record;
+  try {
+    record = await prisma.investigationNotificationRecord.create({
+      data: { tenantId: input.tenantId, caseId: input.caseId, eventType: input.eventType, recipientUserId: input.recipientUserId, status: "PENDING" },
+    });
+  } catch (error) {
+    // A scheduled scan can race tenant/case lifecycle cleanup. Notification
+    // delivery is best-effort and must not fail the job or business action.
+    if (isConcurrentDeletion(error)) return null;
+    throw error;
+  }
 
   const now = new Date();
   const result = await attemptDelivery(recipient.email, recipient.name, investigationCase.caseNumber, investigationCase.title, input.eventType, input.message);
 
-  return prisma.investigationNotificationRecord.update({
-    where: { id: record.id },
-    data: result.delivered
-      ? { status: "SENT", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, deliveredAt: now, failureReason: null }
-      : { status: "FAILED", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
-  });
+  try {
+    return await prisma.investigationNotificationRecord.update({
+      where: { id: record.id },
+      data: result.delivered
+        ? { status: "SENT", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, deliveredAt: now, failureReason: null }
+        : { status: "FAILED", channel: getDefaultInvestigationNotificationProvider().channel, attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
+    });
+  } catch (error) {
+    if (isConcurrentDeletion(error)) return null;
+    throw error;
+  }
 }
 
 /** Re-attempts every FAILED notification — safe to run repeatedly, never changes case status. */
@@ -65,13 +82,17 @@ export async function retryFailedInvestigationNotifications() {
   for (const record of failed) {
     const now = new Date();
     const result = await attemptDelivery(record.recipient.email, record.recipient.name, record.case.caseNumber, record.case.title, record.eventType, `Retry: ${record.eventType}`);
-    await prisma.investigationNotificationRecord.update({
-      where: { id: record.id },
-      data: result.delivered
-        ? { status: "SENT", attemptedAt: now, deliveredAt: now, failureReason: null }
-        : { status: "FAILED", attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
-    });
-    retried++;
+    try {
+      await prisma.investigationNotificationRecord.update({
+        where: { id: record.id },
+        data: result.delivered
+          ? { status: "SENT", attemptedAt: now, deliveredAt: now, failureReason: null }
+          : { status: "FAILED", attemptedAt: now, failureReason: result.failureReason ?? "delivery failed" },
+      });
+      retried++;
+    } catch (error) {
+      if (!isConcurrentDeletion(error)) throw error;
+    }
   }
   return { retried };
 }
@@ -88,14 +109,14 @@ export async function notifyOverdueInvestigationTasks() {
   });
   let notified = 0;
   for (const task of overdue) {
-    await queueInvestigationNotification({
+    const record = await queueInvestigationNotification({
       tenantId: task.tenantId,
       caseId: task.caseId,
       eventType: "OVERDUE_TASK",
       recipientUserId: task.assignedToUserId,
       message: `Task overdue on case ${task.case.caseNumber}: ${task.description}`,
     });
-    notified++;
+    if (record) notified++;
   }
   return { notified };
 }
@@ -109,19 +130,19 @@ export async function notifyExpiringExternalAccess(now: Date = new Date()) {
   });
   let notified = 0;
   for (const grant of expiringGrants) {
-    const alreadyNotified = await prisma.investigationNotificationRecord.findFirst({
-      where: { tenantId: grant.tenantId, eventType: "EXTERNAL_ACCESS_EXPIRING", recipientUserId: grant.externalAuditorUserId, caseId: { in: grant.cases.map((c) => c.caseId) } },
-    });
-    if (alreadyNotified) continue;
     for (const gc of grant.cases) {
-      await queueInvestigationNotification({
+      const alreadyNotified = await prisma.investigationNotificationRecord.findFirst({
+        where: { tenantId: grant.tenantId, eventType: "EXTERNAL_ACCESS_EXPIRING", recipientUserId: grant.externalAuditorUserId, caseId: gc.caseId },
+      });
+      if (alreadyNotified) continue;
+      const record = await queueInvestigationNotification({
         tenantId: grant.tenantId,
         caseId: gc.caseId,
         eventType: "EXTERNAL_ACCESS_EXPIRING",
         recipientUserId: grant.externalAuditorUserId,
         message: `Your access to this case expires ${grant.expiresAt.toISOString()}.`,
       });
-      notified++;
+      if (record) notified++;
     }
   }
   return { notified };

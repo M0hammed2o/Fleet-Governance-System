@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { tenantWhere } from "@/lib/db/tenant-scope";
-import { requirePermission, hasPermission } from "@/lib/auth/authorize";
+import { ForbiddenError, requirePermission, hasPermission } from "@/lib/auth/authorize";
 import { recordInvestigationEvent } from "@/lib/investigations/investigation-audit";
 import { queueInvestigationNotification } from "@/lib/repositories/investigation-notification-repository";
 import type { AuthenticatedSession } from "@/lib/auth/session";
@@ -87,6 +87,17 @@ export class TaskNotFoundError extends Error {
     this.name = "TaskNotFoundError";
   }
 }
+export class InvestigationEntityNotFoundError extends Error {
+  constructor() {
+    super("The referenced investigation entity was not found in this tenant.");
+    this.name = "InvestigationEntityNotFoundError";
+  }
+}
+
+async function assertUserInTenant(tenantId: string, userId: string): Promise<void> {
+  const user = await prisma.user.findFirst({ where: tenantWhere(tenantId, { id: userId }) });
+  if (!user) throw new InvestigationEntityNotFoundError();
+}
 
 /** Idempotent — creates the tenant's settings row on first use, same pattern as getPlatformBillingSettings(). */
 export async function getOrCreateTenantInvestigationSettings(tenantId: string) {
@@ -151,6 +162,48 @@ const CASE_DETAIL_INCLUDE = {
   reopenedBy: { select: { id: true, name: true, email: true } },
 } as const;
 
+function redactConfidentialCase<T extends InvestigationCase & Record<string, unknown>>(record: T): T {
+  if (record.confidentiality === "STANDARD") return record;
+  return {
+    ...record,
+    title: "[Confidential case]",
+    description: "[Confidential — access restricted]",
+    source: "MANUAL_CONCERN",
+    category: null,
+    priority: "MEDIUM",
+    outcome: "NOT_DETERMINED",
+    reportingPersonUserId: null,
+    reportingPersonName: null,
+    reportingPerson: null,
+    assignedInvestigatorUserId: null,
+    assignedInvestigator: null,
+    caseOwnerUserId: null,
+    caseOwner: null,
+    createdByUserId: null,
+    createdBy: null,
+    closedByUserId: null,
+    closedBy: null,
+    reopenedByUserId: null,
+    reopenedBy: null,
+    reopenReason: null,
+  } as unknown as T;
+}
+
+export async function canViewInvestigationCaseNarrative(session: AuthenticatedSession, caseId: string): Promise<boolean> {
+  const investigationCase = await prisma.investigationCase.findFirst({
+    where: tenantWhere(session.tenantId, { id: caseId }),
+    select: { confidentiality: true },
+  });
+  if (!investigationCase) throw new InvestigationCaseNotFoundError();
+  return investigationCase.confidentiality === "STANDARD" || hasPermission(session, "investigationConfidentialAccess", "VIEW");
+}
+
+async function requireCaseNarrativeAccess(session: AuthenticatedSession, caseId: string) {
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) {
+    throw new ForbiddenError("investigationConfidentialAccess", "VIEW");
+  }
+}
+
 export interface CreateInvestigationCaseInput {
   title: string;
   description: string;
@@ -161,6 +214,8 @@ export interface CreateInvestigationCaseInput {
   reportingPersonUserId?: string | null;
   reportingPersonName?: string | null;
   caseOwnerUserId?: string | null;
+  /** Internal referral idempotency key; API request schemas never expose it. */
+  activeReferralKey?: string | null;
 }
 
 /**
@@ -171,11 +226,16 @@ export interface CreateInvestigationCaseInput {
  * raise a referral without the broader case-management grant, P11K/P11M).
  */
 export async function createInvestigationCaseInternal(session: AuthenticatedSession, input: CreateInvestigationCaseInput): Promise<InvestigationCase> {
+  const caseOwnerUserId = input.caseOwnerUserId ?? session.userId;
+  await assertUserInTenant(session.tenantId, caseOwnerUserId);
+  if (input.reportingPersonUserId) await assertUserInTenant(session.tenantId, input.reportingPersonUserId);
+
   const caseNumber = await allocateNextInvestigationCaseNumber(session.tenantId);
   const created = await prisma.investigationCase.create({
     data: {
       tenantId: session.tenantId,
       caseNumber,
+      activeReferralKey: input.activeReferralKey ?? null,
       title: input.title,
       description: input.description,
       source: input.source,
@@ -184,7 +244,7 @@ export async function createInvestigationCaseInternal(session: AuthenticatedSess
       confidentiality: input.confidentiality ?? "STANDARD",
       reportingPersonUserId: input.reportingPersonUserId ?? null,
       reportingPersonName: input.reportingPersonName ?? null,
-      caseOwnerUserId: input.caseOwnerUserId ?? session.userId,
+      caseOwnerUserId,
       createdByUserId: session.userId,
       evidenceHoldActive: true,
     },
@@ -205,6 +265,9 @@ export async function createInvestigationCaseInternal(session: AuthenticatedSess
 
 export async function createInvestigationCase(session: AuthenticatedSession, input: CreateInvestigationCaseInput): Promise<InvestigationCase> {
   await requirePermission(session, "investigationCase", "CREATE");
+  if (input.confidentiality && input.confidentiality !== "STANDARD") {
+    await requirePermission(session, "investigationConfidentialAccess", "VIEW");
+  }
   return createInvestigationCaseInternal(session, input);
 }
 
@@ -221,7 +284,7 @@ export async function getInvestigationCaseInTenant(session: AuthenticatedSession
     // Neutral-wording partial view: existence/status visible, sensitive
     // narrative content withheld (P11E "must not expose confidential info
     // to ordinary Dispatch/Security users").
-    return { ...record, description: "[Confidential — access restricted]", reportingPersonName: null };
+    return redactConfidentialCase(record);
   }
   return record;
 }
@@ -234,17 +297,27 @@ export interface ListInvestigationCasesFilter {
 
 export async function listInvestigationCasesInTenant(session: AuthenticatedSession, filter: ListInvestigationCasesFilter = {}) {
   await requirePermission(session, "investigationCase", "VIEW");
-  return prisma.investigationCase.findMany({
+  const canSeeConfidential = await hasPermission(session, "investigationConfidentialAccess", "VIEW");
+  const records = await prisma.investigationCase.findMany({
     where: tenantWhere(session.tenantId, {
       status: filter.status,
       assignedInvestigatorUserId: filter.assignedInvestigatorUserId,
       ...(filter.search
-        ? { OR: [{ title: { contains: filter.search, mode: "insensitive" as const } }, { caseNumber: { contains: filter.search, mode: "insensitive" as const } }] }
+        ? {
+            OR: [
+              ...(canSeeConfidential
+                ? [{ title: { contains: filter.search, mode: "insensitive" as const } }]
+                : [{ confidentiality: "STANDARD" as const, title: { contains: filter.search, mode: "insensitive" as const } }]),
+              { caseNumber: { contains: filter.search, mode: "insensitive" as const } },
+            ],
+          }
         : {}),
     }),
     orderBy: { createdAt: "desc" },
     include: CASE_DETAIL_INCLUDE,
   });
+  if (canSeeConfidential) return records;
+  return records.map(redactConfidentialCase);
 }
 
 // DRAFT and OPEN are folded together as "not yet triaged" for transition
@@ -268,6 +341,7 @@ async function transitionCaseStatus(
   description: string,
   extraData: Record<string, unknown> = {},
 ): Promise<InvestigationCase> {
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
   if (!VALID_TRANSITIONS[existing.status]?.includes(to)) {
@@ -314,6 +388,7 @@ export async function triageInvestigationCase(
 /** Raises a case's priority (typically to HIGH/CRITICAL) without a status transition, and notifies the case owner (P11D "escalate", P11N). */
 export async function escalateInvestigationCase(session: AuthenticatedSession, caseId: string, priority: ExceptionSeverity, reason: string): Promise<InvestigationCase> {
   await requirePermission(session, "investigationCase", "EDIT");
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
 
@@ -340,8 +415,10 @@ export async function escalateInvestigationCase(session: AuthenticatedSession, c
 
 export async function assignInvestigator(session: AuthenticatedSession, caseId: string, investigatorUserId: string): Promise<InvestigationCase> {
   await requirePermission(session, "investigationCase", "EDIT");
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
+  await assertUserInTenant(session.tenantId, investigatorUserId);
 
   const updated = await prisma.investigationCase.update({
     where: { id: caseId },
@@ -416,6 +493,7 @@ export interface CloseInvestigationCaseInput {
  */
 export async function closeInvestigationCase(session: AuthenticatedSession, caseId: string, input: CloseInvestigationCaseInput): Promise<InvestigationCase> {
   await requirePermission(session, "investigationCaseClosure", "APPROVE");
+  await requireCaseNarrativeAccess(session, caseId);
 
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
@@ -446,6 +524,7 @@ export async function closeInvestigationCase(session: AuthenticatedSession, case
       outcome: finding!.outcome,
       closedAt: new Date(),
       closedByUserId: session.userId,
+      activeReferralKey: null,
     },
     include: CASE_DETAIL_INCLUDE,
   });
@@ -475,6 +554,7 @@ export async function closeInvestigationCase(session: AuthenticatedSession, case
 
 export async function reopenInvestigationCase(session: AuthenticatedSession, caseId: string, reopenReason: string): Promise<InvestigationCase> {
   await requirePermission(session, "investigationCaseClosure", "REJECT");
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
   if (existing.status !== "CLOSED") throw new InvalidCaseTransitionError(existing.status, "REOPENED");
@@ -551,11 +631,13 @@ export async function linkRelatedRecordInternal(session: AuthenticatedSession, c
 
 export async function linkRelatedRecord(session: AuthenticatedSession, caseId: string, input: LinkRelatedRecordInput) {
   await requirePermission(session, "investigationCase", "EDIT");
+  await requireCaseNarrativeAccess(session, caseId);
   return linkRelatedRecordInternal(session, caseId, input);
 }
 
 export async function listRelatedRecords(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
   return prisma.investigationRelatedRecord.findMany({ where: tenantWhere(session.tenantId, { caseId }), orderBy: { linkedAt: "asc" } });
 }
 
@@ -574,8 +656,16 @@ export interface AddSubjectInput {
 
 export async function addInvestigationSubject(session: AuthenticatedSession, caseId: string, input: AddSubjectInput) {
   await requirePermission(session, "investigationSubject", "EDIT");
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
+
+  const referencedEntities = await Promise.all([
+    input.userId ? prisma.user.findFirst({ where: tenantWhere(session.tenantId, { id: input.userId }), select: { id: true } }) : true,
+    input.driverId ? prisma.driver.findFirst({ where: tenantWhere(session.tenantId, { id: input.driverId }), select: { id: true } }) : true,
+    input.vehicleId ? prisma.vehicle.findFirst({ where: tenantWhere(session.tenantId, { id: input.vehicleId }), select: { id: true } }) : true,
+  ]);
+  if (referencedEntities.some((entity) => !entity)) throw new InvestigationEntityNotFoundError();
 
   const created = await prisma.investigationSubject.create({
     data: {
@@ -605,9 +695,10 @@ export async function addInvestigationSubject(session: AuthenticatedSession, cas
   return created;
 }
 
-export async function recordSubjectResponse(session: AuthenticatedSession, subjectId: string, explanationResponse: string) {
+export async function recordSubjectResponse(session: AuthenticatedSession, caseId: string, subjectId: string, explanationResponse: string) {
   await requirePermission(session, "investigationSubject", "EDIT");
-  const subject = await prisma.investigationSubject.findFirst({ where: tenantWhere(session.tenantId, { id: subjectId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const subject = await prisma.investigationSubject.findFirst({ where: tenantWhere(session.tenantId, { id: subjectId, caseId }) });
   if (!subject) throw new SubjectNotFoundError();
 
   const updated = await prisma.investigationSubject.update({
@@ -630,6 +721,7 @@ export async function recordSubjectResponse(session: AuthenticatedSession, subje
 
 export async function listInvestigationSubjects(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
   return prisma.investigationSubject.findMany({
     where: tenantWhere(session.tenantId, { caseId }),
     include: { user: { select: { id: true, name: true } }, driver: { select: { id: true, name: true } }, vehicle: { select: { id: true, registrationNumber: true } } },
@@ -647,6 +739,10 @@ export interface AddNoteInput {
 
 export async function addInvestigationNote(session: AuthenticatedSession, caseId: string, input: AddNoteInput) {
   await requirePermission(session, "investigationNote", "CREATE");
+  await requireCaseNarrativeAccess(session, caseId);
+  if ((input.confidentiality ?? "STANDARD") !== "STANDARD") {
+    await requirePermission(session, "investigationConfidentialAccess", "VIEW");
+  }
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
 
@@ -675,9 +771,10 @@ export async function addInvestigationNote(session: AuthenticatedSession, caseId
 }
 
 /** Never edits the original — always a new row referencing supersedesNoteId (P11H hard requirement). */
-export async function amendInvestigationNote(session: AuthenticatedSession, noteId: string, content: string) {
+export async function amendInvestigationNote(session: AuthenticatedSession, caseId: string, noteId: string, content: string) {
   await requirePermission(session, "investigationNote", "CREATE");
-  const original = await prisma.investigationNote.findFirst({ where: tenantWhere(session.tenantId, { id: noteId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const original = await prisma.investigationNote.findFirst({ where: tenantWhere(session.tenantId, { id: noteId, caseId }) });
   if (!original) throw new NoteNotFoundError();
 
   const existingAmendment = await prisma.investigationNote.findUnique({ where: { supersedesNoteId: noteId } });
@@ -711,7 +808,8 @@ export async function amendInvestigationNote(session: AuthenticatedSession, note
 
 export async function listInvestigationNotes(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
-  const canSeeRestricted = await hasPermission(session, "investigationNote", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
+  const canSeeRestricted = await hasPermission(session, "investigationConfidentialAccess", "VIEW");
   const notes = await prisma.investigationNote.findMany({
     where: tenantWhere(session.tenantId, { caseId }),
     include: { author: { select: { id: true, name: true } } },
@@ -731,8 +829,10 @@ export interface CreateTaskInput {
 
 export async function createInvestigationTask(session: AuthenticatedSession, caseId: string, input: CreateTaskInput) {
   await requirePermission(session, "investigationTask", "CREATE");
+  await requireCaseNarrativeAccess(session, caseId);
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
+  await assertUserInTenant(session.tenantId, input.assignedToUserId);
 
   const created = await prisma.investigationTask.create({
     data: {
@@ -763,9 +863,10 @@ export interface UpdateTaskInput {
   completionNote?: string | null;
 }
 
-export async function updateInvestigationTask(session: AuthenticatedSession, taskId: string, input: UpdateTaskInput) {
+export async function updateInvestigationTask(session: AuthenticatedSession, caseId: string, taskId: string, input: UpdateTaskInput) {
   await requirePermission(session, "investigationTask", "EDIT");
-  const task = await prisma.investigationTask.findFirst({ where: tenantWhere(session.tenantId, { id: taskId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const task = await prisma.investigationTask.findFirst({ where: tenantWhere(session.tenantId, { id: taskId, caseId }) });
   if (!task) throw new TaskNotFoundError();
 
   const isCompleting = input.status === "DONE";
@@ -774,8 +875,8 @@ export async function updateInvestigationTask(session: AuthenticatedSession, tas
     data: {
       status: input.status,
       completionNote: input.completionNote,
-      completedByUserId: isCompleting ? session.userId : task.completedByUserId,
-      completedAt: isCompleting ? new Date() : task.completedAt,
+      completedByUserId: isCompleting ? session.userId : input.status ? null : task.completedByUserId,
+      completedAt: isCompleting ? new Date() : input.status ? null : task.completedAt,
     },
   });
 
@@ -794,6 +895,7 @@ export async function updateInvestigationTask(session: AuthenticatedSession, tas
 
 export async function listInvestigationTasks(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
   return prisma.investigationTask.findMany({
     where: tenantWhere(session.tenantId, { caseId }),
     include: { assignedTo: { select: { id: true, name: true } } },
@@ -810,6 +912,7 @@ export async function listOverdueInvestigationTasks(tenantId: string, now: Date 
 
 export async function listChronology(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationCase", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
   return prisma.investigationChronologyEvent.findMany({
     where: tenantWhere(session.tenantId, { caseId }),
     include: { actor: { select: { id: true, name: true } } },
@@ -842,13 +945,18 @@ export async function getInvestigationDashboardCounts(session: AuthenticatedSess
   const byPriority: Partial<Record<ExceptionSeverity, number>> = {};
   for (const g of priorityGroups) byPriority[g.priority] = g._count;
 
+  const canSeeConfidential = await hasPermission(session, "investigationConfidentialAccess", "VIEW");
+  const visibleRecentlyUpdated = canSeeConfidential
+    ? recentlyUpdated
+    : recentlyUpdated.map(redactConfidentialCase);
+
   return {
     byStatus,
     byPriority,
     overdueTaskCount,
     awaitingApprovalCount: byStatus.AWAITING_APPROVAL ?? 0,
     activeHoldCount,
-    recentlyUpdated,
+    recentlyUpdated: visibleRecentlyUpdated,
   };
 }
 

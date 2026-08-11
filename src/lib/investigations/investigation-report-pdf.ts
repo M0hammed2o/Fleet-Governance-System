@@ -75,7 +75,7 @@ function fmtDate(d: Date): string {
 }
 
 export async function renderInvestigationReportPdf(input: InvestigationReportPdfInput): Promise<Buffer> {
-  const doc = new PDFDocument({ margin: 50, size: "A4", bufferPages: true });
+  const doc = new PDFDocument({ margin: 50, size: "A4", bufferPages: true, compress: false });
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -182,7 +182,10 @@ export async function renderInvestigationReportPdf(input: InvestigationReportPdf
   const pageCount = doc.bufferedPageRange().count;
   for (let i = 0; i < pageCount; i++) {
     doc.switchToPage(i);
-    doc.fontSize(8).fillColor("#888").text(`Page ${i + 1} of ${pageCount} — ${input.caseNumber} v${input.findingVersion}`, 50, doc.page.height - 40, {
+    // Keep the footer above PDFKit's bottom auto-flow boundary. Writing at
+    // height - 40 (inside the bottom margin) silently created a trailing
+    // blank page after pageCount had already been calculated.
+    doc.fontSize(8).fillColor("#888").text(`Page ${i + 1} of ${pageCount} — ${input.caseNumber} v${input.findingVersion}`, 50, doc.page.height - 65, {
       align: "center",
       width: doc.page.width - 100,
     });

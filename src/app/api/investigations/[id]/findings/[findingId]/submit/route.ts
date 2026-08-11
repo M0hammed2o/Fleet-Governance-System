@@ -6,8 +6,8 @@ import { submitFindingForApproval } from "@/lib/repositories/investigation-findi
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; findingId: string }> }) {
   try {
     const session = await requireApiSession();
-    const { findingId } = await params;
-    const finding = await submitFindingForApproval(session, findingId);
+    const { id, findingId } = await params;
+    const finding = await submitFindingForApproval(session, id, findingId);
     return NextResponse.json({ finding });
   } catch (err) {
     return investigationErrorResponse(err);

@@ -46,6 +46,12 @@ export class DownloadNotPermittedByGrantError extends Error {
     this.name = "DownloadNotPermittedByGrantError";
   }
 }
+export class GrantExpiryInvalidError extends Error {
+  constructor() {
+    super("External-auditor access must expire at a future date.");
+    this.name = "GrantExpiryInvalidError";
+  }
+}
 
 export interface CreateGrantInput {
   externalAuditorUserId: string;
@@ -69,6 +75,9 @@ export interface CreateGrantInput {
  */
 export async function grantExternalAuditorAccess(session: AuthenticatedSession, input: CreateGrantInput) {
   await requirePermission(session, "externalAuditorAccess", "CREATE");
+  if (input.expiresAt.getTime() <= Date.now()) throw new GrantExpiryInvalidError();
+
+  const uniqueCaseIds = [...new Set(input.caseIds)];
 
   const auditorUser = await prisma.user.findFirst({
     where: tenantWhere(session.tenantId, { id: input.externalAuditorUserId }),
@@ -76,8 +85,8 @@ export async function grantExternalAuditorAccess(session: AuthenticatedSession, 
   });
   if (!auditorUser || auditorUser.role.name !== EXTERNAL_AUDITOR_ROLE_NAME) throw new AuditorUserNotEligibleError();
 
-  const cases = await prisma.investigationCase.findMany({ where: tenantWhere(session.tenantId, { id: { in: input.caseIds } }) });
-  if (cases.length !== input.caseIds.length) throw new GrantCaseNotInTenantError();
+  const cases = await prisma.investigationCase.findMany({ where: tenantWhere(session.tenantId, { id: { in: uniqueCaseIds } }) });
+  if (cases.length !== uniqueCaseIds.length) throw new GrantCaseNotInTenantError();
 
   const grant = await prisma.externalAuditorAccessGrant.create({
     data: {
@@ -212,7 +221,15 @@ export async function listPermittedCasesForAuditor(session: AuthenticatedSession
   const now = new Date();
   const grants = await prisma.externalAuditorAccessGrant.findMany({
     where: { tenantId: session.tenantId, externalAuditorUserId: session.userId, revokedAt: null, startAt: { lte: now }, expiresAt: { gt: now } },
-    include: { cases: { include: { case: true } } },
+    include: {
+      cases: {
+        include: {
+          case: {
+            select: { id: true, caseNumber: true, title: true, status: true, outcome: true, confidentiality: true },
+          },
+        },
+      },
+    },
   });
   const seen = new Map<string, (typeof grants)[number]["cases"][number]["case"]>();
   for (const grant of grants) for (const gc of grant.cases) seen.set(gc.case.id, gc.case);
@@ -227,12 +244,25 @@ export async function getCaseForAuditor(session: AuthenticatedSession, caseId: s
 
   const investigationCase = await prisma.investigationCase.findFirst({
     where: tenantWhere(session.tenantId, { id: caseId }),
-    include: { assignedInvestigator: { select: { name: true } } },
+    select: {
+      id: true,
+      caseNumber: true,
+      title: true,
+      description: true,
+      status: true,
+      outcome: true,
+      confidentiality: true,
+      createdAt: true,
+      closedAt: true,
+      assignedInvestigator: { select: { name: true } },
+    },
   });
   if (!investigationCase) throw new AuditorAccessDeniedError();
 
   await logAuditorAccess(session, grant.id, caseId, "VIEW_CASE");
-  return investigationCase;
+  return investigationCase.confidentiality === "STANDARD"
+    ? investigationCase
+    : { ...investigationCase, description: "[Confidential — access restricted]" };
 }
 
 export async function getReportForAuditor(session: AuthenticatedSession, caseId: string, mediaAssetId: string) {
@@ -254,7 +284,9 @@ export async function getEvidenceForAuditor(session: AuthenticatedSession, caseI
   if (!grant) throw new AuditorAccessDeniedError();
   if (!grant.canDownloadEvidence) throw new DownloadNotPermittedByGrantError("evidence");
 
-  const link = await prisma.investigationEvidenceLink.findFirst({ where: tenantWhere(session.tenantId, { id: evidenceLinkId, caseId }) });
+  const link = await prisma.investigationEvidenceLink.findFirst({
+    where: tenantWhere(session.tenantId, { id: evidenceLinkId, caseId, confidentiality: "STANDARD" as const }),
+  });
   if (!link) throw new AuditorAccessDeniedError();
 
   await logAuditorAccess(session, grant.id, caseId, "DOWNLOAD_EVIDENCE");
@@ -268,7 +300,7 @@ export async function listEvidenceManifestForAuditor(session: AuthenticatedSessi
   if (!grant) throw new AuditorAccessDeniedError();
 
   return prisma.investigationEvidenceLink.findMany({
-    where: tenantWhere(session.tenantId, { caseId }),
+    where: tenantWhere(session.tenantId, { caseId, confidentiality: "STANDARD" as const }),
     select: { id: true, evidenceNumber: true, description: true, addedAt: true, enteredInError: true, confidentiality: true },
     orderBy: { evidenceNumber: "asc" },
   });

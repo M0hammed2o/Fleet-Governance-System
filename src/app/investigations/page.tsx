@@ -144,18 +144,21 @@ export default function InvestigationsDashboardPage() {
           <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Create a case manually</h2>
             <input
+              aria-label="Case title"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Title"
               value={createForm.title}
               onChange={(e) => setCreateForm((f) => ({ ...f, title: e.target.value }))}
             />
             <textarea
+              aria-label="Case description"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Description / allegation as reported"
               value={createForm.description}
               onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
             />
             <select
+              aria-label="Case source"
               className="rounded border border-slate-300 px-2 py-1 text-sm"
               value={createForm.source}
               onChange={(e) => setCreateForm((f) => ({ ...f, source: e.target.value }))}
@@ -167,6 +170,7 @@ export default function InvestigationsDashboardPage() {
               ))}
             </select>
             <input
+              aria-label="Case owner user id"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Case owner user id (optional — defaults to you)"
               value={createForm.caseOwnerUserId}
@@ -187,6 +191,7 @@ export default function InvestigationsDashboardPage() {
             <h2 className="text-sm font-semibold text-slate-900">Refer an operational record to investigation</h2>
             <p className="text-xs text-slate-500">Opening a case never alters the original record — it stays under its own operational workflow.</p>
             <select
+              aria-label="Referral source type"
               className="rounded border border-slate-300 px-2 py-1 text-sm"
               value={referForm.sourceType}
               onChange={(e) => setReferForm((f) => ({ ...f, sourceType: e.target.value }))}
@@ -198,18 +203,21 @@ export default function InvestigationsDashboardPage() {
               ))}
             </select>
             <input
+              aria-label="Referral source record id"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Source record id"
               value={referForm.sourceRecordId}
               onChange={(e) => setReferForm((f) => ({ ...f, sourceRecordId: e.target.value }))}
             />
             <input
+              aria-label="Referral case title"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Case title"
               value={referForm.title}
               onChange={(e) => setReferForm((f) => ({ ...f, title: e.target.value }))}
             />
             <input
+              aria-label="Referral case owner user id"
               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Case owner user id"
               value={referForm.caseOwnerUserId}

@@ -1,11 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { tenantWhere } from "@/lib/db/tenant-scope";
-import { requirePermission } from "@/lib/auth/authorize";
+import { ForbiddenError, hasPermission, requirePermission } from "@/lib/auth/authorize";
 import { recordInvestigationEvent } from "@/lib/investigations/investigation-audit";
 import { renderInvestigationReportPdf } from "@/lib/investigations/investigation-report-pdf";
 import { uploadMediaAsset, mintSignedUrlForMediaAsset } from "@/lib/repositories/media-asset-repository";
-import { InvestigationCaseNotFoundError } from "@/lib/repositories/investigation-case-repository";
+import { InvestigationCaseNotFoundError, canViewInvestigationCaseNarrative } from "@/lib/repositories/investigation-case-repository";
 import type { AuthenticatedSession } from "@/lib/auth/session";
 
 export class FindingNotApprovedForReportError extends Error {
@@ -47,6 +47,9 @@ async function gatherReportData(session: AuthenticatedSession, caseId: string, f
   if (!finding || finding.status !== "APPROVED") throw new FindingNotApprovedForReportError();
 
   const generatedByUser = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true } });
+  const canSeeConfidential = await hasPermission(session, "investigationConfidentialAccess", "VIEW");
+  const caseNarrativeRestricted = investigationCase.confidentiality !== "STANDARD" && !canSeeConfidential;
+  const visibleEvidence = evidence.filter((item) => canSeeConfidential || item.confidentiality === "STANDARD");
 
   return {
     caseNumber: investigationCase.caseNumber,
@@ -63,24 +66,24 @@ async function gatherReportData(session: AuthenticatedSession, caseId: string, f
     caseOwnerName: investigationCase.caseOwner?.name ?? "-",
     companyName: tenant?.name ?? "-",
     companyAddressLines: [] as string[],
-    subjects: subjects.map((s) => ({
+    subjects: caseNarrativeRestricted ? [] : subjects.map((s) => ({
       role: s.role,
       // Never a real name for a driver/user beyond what this tenant's own
       // staff already have access to elsewhere — neutral role label + best
       // available identifier, no biometric data (P11F/J).
       label: s.user?.name ?? s.driver?.name ?? s.vehicle?.registrationNumber ?? s.contractorName ?? s.department ?? s.site ?? "Unnamed party",
     })),
-    relatedRecords: relatedRecords.map((r) => ({ recordType: r.recordType, summary: JSON.stringify(r.snapshotSummary) })),
-    allegation: investigationCase.description,
-    chronology: chronology.map((c) => ({ occurredAt: c.occurredAt, description: c.description })),
-    evidenceManifest: evidence.map((e) => ({ evidenceNumber: e.evidenceNumber, description: e.description, addedAt: e.addedAt, enteredInError: e.enteredInError })),
+    relatedRecords: caseNarrativeRestricted ? [] : relatedRecords.map((r) => ({ recordType: r.recordType, summary: JSON.stringify(r.snapshotSummary) })),
+    allegation: caseNarrativeRestricted ? "[Confidential — access restricted]" : investigationCase.description,
+    chronology: caseNarrativeRestricted ? [] : chronology.map((c) => ({ occurredAt: c.occurredAt, description: c.description })),
+    evidenceManifest: visibleEvidence.map((e) => ({ evidenceNumber: e.evidenceNumber, description: e.description, addedAt: e.addedAt, enteredInError: e.enteredInError })),
     findingVersion: finding.version,
-    executiveSummary: finding.executiveSummary,
-    detailedFindings: finding.detailedFindings,
-    contradictoryEvidence: finding.contradictoryEvidence,
-    subjectResponseSummary: finding.subjectResponseSummary,
-    recommendations: finding.recommendations,
-    correctiveActions: finding.correctiveActions,
+    executiveSummary: caseNarrativeRestricted ? "[Confidential — access restricted]" : finding.executiveSummary,
+    detailedFindings: caseNarrativeRestricted ? "[Confidential — access restricted]" : finding.detailedFindings,
+    contradictoryEvidence: caseNarrativeRestricted ? null : finding.contradictoryEvidence,
+    subjectResponseSummary: caseNarrativeRestricted ? null : finding.subjectResponseSummary,
+    recommendations: caseNarrativeRestricted ? null : finding.recommendations,
+    correctiveActions: caseNarrativeRestricted ? null : finding.correctiveActions,
     approvalInfo: approval ? { approvedByName: approval.actor?.name ?? "-", approvedAt: approval.createdAt } : null,
     retentionHoldStatus: investigationCase.evidenceHoldActive ? "Evidence hold ACTIVE" : "No active evidence hold",
     generatedAt: new Date(),
@@ -95,6 +98,7 @@ export interface GenerateReportOptions {
 
 /** Generates and stores a new, immutable report PDF version for an APPROVED finding — a new finding version always means a new report generation (P11J). */
 export async function generateInvestigationReport(session: AuthenticatedSession, caseId: string, findingId: string, options: GenerateReportOptions = {}) {
+  await requirePermission(session, "investigationCase", "VIEW");
   await requirePermission(session, "investigationReport", "CREATE");
 
   const data = await gatherReportData(session, caseId, findingId, options.externalAuditorWatermark);
@@ -130,6 +134,7 @@ export async function listInvestigationReports(session: AuthenticatedSession, ca
   await requirePermission(session, "investigationCase", "VIEW");
   const existing = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!existing) throw new InvestigationCaseNotFoundError();
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
 
   return prisma.mediaAsset.findMany({
     where: { tenantId: session.tenantId, ownerType: "INVESTIGATION_REPORT", ownerId: caseId },
@@ -139,7 +144,11 @@ export async function listInvestigationReports(session: AuthenticatedSession, ca
 }
 
 export async function getInvestigationReportDownloadUrl(session: AuthenticatedSession, caseId: string, mediaAssetId: string) {
+  await requirePermission(session, "investigationCase", "VIEW");
   await requirePermission(session, "investigationReport", "EXPORT");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) {
+    throw new ForbiddenError("investigationConfidentialAccess", "VIEW");
+  }
   const asset = await prisma.mediaAsset.findFirst({ where: { id: mediaAssetId, tenantId: session.tenantId, ownerType: "INVESTIGATION_REPORT", ownerId: caseId } });
   if (!asset) throw new ReportNotFoundError();
 

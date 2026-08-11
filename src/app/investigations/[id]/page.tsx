@@ -24,6 +24,7 @@ interface Subject {
   role: string;
   notes: string | null;
   explanationResponse: string | null;
+  contractorName: string | null;
   user: { id: string; name: string } | null;
   driver: { id: string; name: string } | null;
   vehicle: { id: string; registrationNumber: string } | null;
@@ -115,9 +116,12 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
   const [loading, setLoading] = useState(true);
 
   const [noteText, setNoteText] = useState("");
-  const [taskForm, setTaskForm] = useState({ description: "", assignedToUserId: "" });
+  const [noteConfidentiality, setNoteConfidentiality] = useState("STANDARD");
+  const [subjectForm, setSubjectForm] = useState({ role: "SUBJECT", contractorName: "" });
+  const [taskForm, setTaskForm] = useState({ description: "", assignedToUserId: "", dueDate: "" });
   const [findingForm, setFindingForm] = useState({ executiveSummary: "", detailedFindings: "", outcome: "NOT_DETERMINED" });
   const [evidenceForm, setEvidenceForm] = useState({ mediaAssetId: "", description: "" });
+  const [evidenceUpload, setEvidenceUpload] = useState<{ file: File | null; description: string }>({ file: null, description: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -285,12 +289,53 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
         </div>
 
         <Section title="Subjects">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <select
+              aria-label="Subject role"
+              className="rounded border border-slate-300 px-2 py-1 text-xs"
+              value={subjectForm.role}
+              onChange={(e) => setSubjectForm((form) => ({ ...form, role: e.target.value }))}
+            >
+              <option value="SUBJECT">Subject</option>
+              <option value="WITNESS">Witness</option>
+              <option value="OTHER_INVOLVED_PARTY">Other involved party</option>
+            </select>
+            <input
+              aria-label="Subject or party name"
+              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+              placeholder="Subject or party name"
+              value={subjectForm.contractorName}
+              onChange={(e) => setSubjectForm((form) => ({ ...form, contractorName: e.target.value }))}
+            />
+            <button
+              className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
+              disabled={!subjectForm.contractorName}
+              onClick={() =>
+                run(async () => {
+                  await postJson(`/api/investigations/${id}/subjects`, subjectForm);
+                  setSubjectForm({ role: "SUBJECT", contractorName: "" });
+                }, "Case party added.")
+              }
+            >
+              Add case party
+            </button>
+          </div>
           <ul className="space-y-1 text-sm">
             {subjects.length === 0 && <p className="text-slate-400">No subjects linked.</p>}
             {subjects.map((s) => (
               <li key={s.id} className="rounded border border-slate-100 p-2">
-                <span className="font-semibold">{s.role}</span>: {s.user?.name ?? s.driver?.name ?? s.vehicle?.registrationNumber ?? "Unnamed party"}
+                <span className="font-semibold">{s.role}</span>: {s.user?.name ?? s.driver?.name ?? s.vehicle?.registrationNumber ?? s.contractorName ?? "Unnamed party"}
                 {s.explanationResponse && <p className="mt-1 text-xs text-slate-600">Response: {s.explanationResponse}</p>}
+                <button
+                  className="mt-1 text-xs text-blue-700 hover:underline"
+                  onClick={() => {
+                    const explanationResponse = window.prompt("Record this party's explanation or response");
+                    if (!explanationResponse) return;
+                    run(() => postJson(`/api/investigations/${id}/subjects/${s.id}/response`, { explanationResponse }), "Subject response recorded.");
+                  }}
+                >
+                  Record response
+                </button>
               </li>
             ))}
           </ul>
@@ -310,12 +355,14 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
         <Section title="Evidence">
           <div className="mb-3 flex gap-2">
             <input
+              aria-label="Existing media asset id"
               className="rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Existing media asset id"
               value={evidenceForm.mediaAssetId}
               onChange={(e) => setEvidenceForm((f) => ({ ...f, mediaAssetId: e.target.value }))}
             />
             <input
+              aria-label="Linked evidence description"
               className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Description"
               value={evidenceForm.description}
@@ -334,6 +381,40 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
               Link evidence
             </button>
           </div>
+          <div className="mb-3 flex flex-wrap gap-2 rounded border border-slate-100 p-2">
+            <input
+              aria-label="Evidence file"
+              type="file"
+              className="text-xs"
+              accept="image/jpeg,image/png,image/webp,application/pdf,video/mp4,video/webm"
+              onChange={(e) => setEvidenceUpload((form) => ({ ...form, file: e.target.files?.[0] ?? null }))}
+            />
+            <input
+              aria-label="Uploaded evidence description"
+              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+              placeholder="Uploaded evidence description"
+              value={evidenceUpload.description}
+              onChange={(e) => setEvidenceUpload((form) => ({ ...form, description: e.target.value }))}
+            />
+            <button
+              className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
+              disabled={!evidenceUpload.file || !evidenceUpload.description}
+              onClick={() =>
+                run(async () => {
+                  const form = new FormData();
+                  form.set("file", evidenceUpload.file!);
+                  form.set("description", evidenceUpload.description);
+                  form.set("idempotencyKey", crypto.randomUUID());
+                  const response = await fetch(`/api/investigations/${id}/evidence/upload`, { method: "POST", body: form });
+                  const body = await response.json().catch(() => ({}));
+                  if (!response.ok) throw new Error(body.error ?? "Evidence upload failed");
+                  setEvidenceUpload({ file: null, description: "" });
+                }, "Evidence uploaded and held.")
+              }
+            >
+              Upload evidence
+            </button>
+          </div>
           <ul className="space-y-1 text-sm">
             {evidence.length === 0 && <p className="text-slate-400">No evidence linked.</p>}
             {evidence.map((e) => (
@@ -342,8 +423,17 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
                   #{e.evidenceNumber} {e.mediaAsset.fileName} — {e.description}
                   {e.enteredInError && <span className="ml-1 rounded bg-red-100 px-1 text-red-800">entered in error</span>}
                 </span>
-                {!e.enteredInError && (
+                <div className="flex gap-2">
                   <button
+                    className="text-xs text-blue-700 hover:underline"
+                    onClick={async () => {
+                      const result = await getJson(`/api/investigations/${id}/evidence/${e.id}/download`);
+                      if (result?.url) window.open(result.url, "_blank");
+                    }}
+                  >
+                    Download
+                  </button>
+                  {!e.enteredInError && <button
                     className="text-xs text-red-700 hover:underline"
                     onClick={() => {
                       const reason = window.prompt("Reason for marking entered in error");
@@ -352,8 +442,8 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
                     }}
                   >
                     Mark entered in error
-                  </button>
-                )}
+                  </button>}
+                </div>
               </li>
             ))}
           </ul>
@@ -362,18 +452,30 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
         <Section title="Notes">
           <div className="mb-3 flex gap-2">
             <input
+              aria-label="Investigation note"
               className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Add a note"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
             />
+            <select
+              aria-label="Note confidentiality"
+              className="rounded border border-slate-300 px-2 py-1 text-xs"
+              value={noteConfidentiality}
+              onChange={(e) => setNoteConfidentiality(e.target.value)}
+            >
+              <option value="STANDARD">Standard</option>
+              <option value="RESTRICTED">Restricted</option>
+              <option value="HIGHLY_RESTRICTED">Highly restricted</option>
+            </select>
             <button
               className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
               disabled={!noteText}
               onClick={() =>
                 run(async () => {
-                  await postJson(`/api/investigations/${id}/notes`, { content: noteText });
+                  await postJson(`/api/investigations/${id}/notes`, { content: noteText, confidentiality: noteConfidentiality });
                   setNoteText("");
+                  setNoteConfidentiality("STANDARD");
                 }, "Note added.")
               }
             >
@@ -406,24 +508,33 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
         <Section title="Tasks">
           <div className="mb-3 flex gap-2">
             <input
+              aria-label="Task description"
               className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Task description"
               value={taskForm.description}
               onChange={(e) => setTaskForm((f) => ({ ...f, description: e.target.value }))}
             />
             <input
+              aria-label="Task assignee user id"
               className="rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Assignee user id"
               value={taskForm.assignedToUserId}
               onChange={(e) => setTaskForm((f) => ({ ...f, assignedToUserId: e.target.value }))}
+            />
+            <input
+              aria-label="Task due date"
+              type="datetime-local"
+              className="rounded border border-slate-300 px-2 py-1 text-xs"
+              value={taskForm.dueDate}
+              onChange={(e) => setTaskForm((form) => ({ ...form, dueDate: e.target.value }))}
             />
             <button
               className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
               disabled={!taskForm.description || !taskForm.assignedToUserId}
               onClick={() =>
                 run(async () => {
-                  await postJson(`/api/investigations/${id}/tasks`, taskForm);
-                  setTaskForm({ description: "", assignedToUserId: "" });
+                  await postJson(`/api/investigations/${id}/tasks`, { ...taskForm, dueDate: taskForm.dueDate || undefined });
+                  setTaskForm({ description: "", assignedToUserId: "", dueDate: "" });
                 }, "Task created.")
               }
             >
@@ -436,6 +547,11 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
               <li key={t.id} className="flex items-center justify-between rounded border border-slate-100 p-2">
                 <span>
                   {t.description} — {t.assignedTo.name} ({t.status})
+                  {t.dueDate && (
+                    <span className={t.status !== "DONE" && new Date(t.dueDate) < new Date() ? "ml-1 text-red-700" : "ml-1 text-slate-500"}>
+                      due {new Date(t.dueDate).toLocaleString()}
+                    </span>
+                  )}
                 </span>
                 {t.status !== "DONE" && t.status !== "CANCELLED" && (
                   <button
@@ -453,18 +569,21 @@ export default function InvestigationCaseDetailPage({ params }: { params: Promis
         <Section title="Findings and approval">
           <div className="mb-3 space-y-2">
             <input
+              aria-label="Finding executive summary"
               className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Executive summary"
               value={findingForm.executiveSummary}
               onChange={(e) => setFindingForm((f) => ({ ...f, executiveSummary: e.target.value }))}
             />
             <textarea
+              aria-label="Finding details"
               className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
               placeholder="Detailed findings"
               value={findingForm.detailedFindings}
               onChange={(e) => setFindingForm((f) => ({ ...f, detailedFindings: e.target.value }))}
             />
             <select
+              aria-label="Finding outcome"
               className="rounded border border-slate-300 px-2 py-1 text-xs"
               value={findingForm.outcome}
               onChange={(e) => setFindingForm((f) => ({ ...f, outcome: e.target.value }))}

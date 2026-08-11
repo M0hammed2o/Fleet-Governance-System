@@ -7,8 +7,8 @@ import { getEvidenceDownloadUrl } from "@/lib/repositories/investigation-evidenc
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; evidenceId: string }> }) {
   try {
     const session = await requireApiSession();
-    const { evidenceId } = await params;
-    const result = await getEvidenceDownloadUrl(session, evidenceId);
+    const { id, evidenceId } = await params;
+    const result = await getEvidenceDownloadUrl(session, id, evidenceId);
     return NextResponse.json(result);
   } catch (err) {
     return investigationErrorResponse(err);

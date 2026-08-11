@@ -1,11 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { tenantWhere } from "@/lib/db/tenant-scope";
-import { requirePermission } from "@/lib/auth/authorize";
+import { ForbiddenError, hasPermission, requirePermission } from "@/lib/auth/authorize";
 import { recordInvestigationEvent } from "@/lib/investigations/investigation-audit";
 import { uploadMediaAsset, mintSignedUrlForMediaAsset } from "@/lib/repositories/media-asset-repository";
 import { setInvestigationHold } from "@/lib/repositories/retention-repository";
-import { InvestigationCaseNotFoundError } from "@/lib/repositories/investigation-case-repository";
+import { InvestigationCaseNotFoundError, canViewInvestigationCaseNarrative } from "@/lib/repositories/investigation-case-repository";
 import type { AuthenticatedSession } from "@/lib/auth/session";
 import type { InvestigationConfidentiality } from "@/generated/prisma/client";
 
@@ -38,6 +38,12 @@ function isUniqueConstraintViolation(err: unknown, target: string): boolean {
   );
 }
 
+async function requireCaseNarrativeAccess(session: AuthenticatedSession, caseId: string) {
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) {
+    throw new ForbiddenError("investigationConfidentialAccess", "VIEW");
+  }
+}
+
 async function nextEvidenceNumber(tenantId: string, caseId: string): Promise<number> {
   const last = await prisma.investigationEvidenceLink.findFirst({
     where: tenantWhere(tenantId, { caseId }),
@@ -65,6 +71,7 @@ export interface LinkEvidenceInput {
 /** Links an already-existing MediaAsset (e.g. a gate-inspection photo) as case evidence — never duplicates the underlying file (P11F). */
 export async function linkEvidenceFromMediaAsset(session: AuthenticatedSession, caseId: string, input: LinkEvidenceInput) {
   await requirePermission(session, "investigationEvidence", "CREATE");
+  await requireCaseNarrativeAccess(session, caseId);
   const activeCase = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!activeCase) throw new InvestigationCaseNotFoundError();
 
@@ -124,6 +131,7 @@ export interface UploadEvidenceInput {
 /** Uploads a new evidence file directly to the case (as opposed to linking an already-owned record's file) — reuses uploadMediaAsset() exactly (P11F). */
 export async function uploadEvidenceToCase(session: AuthenticatedSession, caseId: string, input: UploadEvidenceInput) {
   await requirePermission(session, "investigationEvidence", "CREATE");
+  await requireCaseNarrativeAccess(session, caseId);
   const activeCase = await prisma.investigationCase.findFirst({ where: tenantWhere(session.tenantId, { id: caseId }) });
   if (!activeCase) throw new InvestigationCaseNotFoundError();
 
@@ -148,9 +156,10 @@ export async function uploadEvidenceToCase(session: AuthenticatedSession, caseId
 }
 
 /** Never deletes — an item added in error is marked, with a reason, and stays visible in the manifest (chain-of-custody, P11F). */
-export async function markEvidenceEnteredInError(session: AuthenticatedSession, evidenceLinkId: string, reason: string) {
+export async function markEvidenceEnteredInError(session: AuthenticatedSession, caseId: string, evidenceLinkId: string, reason: string) {
   await requirePermission(session, "investigationEvidence", "CREATE");
-  const link = await prisma.investigationEvidenceLink.findFirst({ where: tenantWhere(session.tenantId, { id: evidenceLinkId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const link = await prisma.investigationEvidenceLink.findFirst({ where: tenantWhere(session.tenantId, { id: evidenceLinkId, caseId }) });
   if (!link) throw new EvidenceLinkNotFoundError();
   if (link.enteredInError) throw new EvidenceAlreadyEnteredInErrorError();
 
@@ -175,17 +184,23 @@ export async function markEvidenceEnteredInError(session: AuthenticatedSession, 
 
 export async function listEvidenceForCase(session: AuthenticatedSession, caseId: string) {
   await requirePermission(session, "investigationEvidence", "VIEW");
+  if (!(await canViewInvestigationCaseNarrative(session, caseId))) return [];
+  const canViewRestrictedEvidence = await hasPermission(session, "investigationConfidentialAccess", "VIEW");
   return prisma.investigationEvidenceLink.findMany({
-    where: tenantWhere(session.tenantId, { caseId }),
+    where: tenantWhere(session.tenantId, { caseId, ...(canViewRestrictedEvidence ? {} : { confidentiality: "STANDARD" as const }) }),
     include: { addedBy: { select: { id: true, name: true } }, mediaAsset: { select: { id: true, fileName: true, contentType: true, fileSizeBytes: true, checksumSha256: true, category: true } } },
     orderBy: { evidenceNumber: "asc" },
   });
 }
 
 /** Mints a short-lived signed download URL, same mechanism as every other MediaAsset download (P11F) — never a public URL. */
-export async function getEvidenceDownloadUrl(session: AuthenticatedSession, evidenceLinkId: string) {
+export async function getEvidenceDownloadUrl(session: AuthenticatedSession, caseId: string, evidenceLinkId: string) {
   await requirePermission(session, "investigationEvidence", "EXPORT");
-  const link = await prisma.investigationEvidenceLink.findFirst({ where: tenantWhere(session.tenantId, { id: evidenceLinkId }) });
+  await requireCaseNarrativeAccess(session, caseId);
+  const link = await prisma.investigationEvidenceLink.findFirst({ where: tenantWhere(session.tenantId, { id: evidenceLinkId, caseId }) });
   if (!link) throw new EvidenceLinkNotFoundError();
+  if (link.confidentiality !== "STANDARD" && !(await hasPermission(session, "investigationConfidentialAccess", "VIEW"))) {
+    throw new ForbiddenError("investigationConfidentialAccess", "VIEW");
+  }
   return mintSignedUrlForMediaAsset(session.tenantId, session.userId, link.mediaAssetId);
 }
