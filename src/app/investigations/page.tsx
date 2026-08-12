@@ -123,11 +123,11 @@ export default function InvestigationsDashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-8">
+    <main className="min-h-screen bg-slate-50 p-4 sm:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-lg font-semibold text-slate-900">Investigations</h1>
-          <div className="space-x-2">
+          <div className="flex flex-wrap gap-2">
             <button className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50" onClick={() => setShowRefer((v) => !v)}>
               Refer a record
             </button>
@@ -242,8 +242,8 @@ export default function InvestigationsDashboardPage() {
           </div>
         )}
 
-        <div className="flex gap-3">
-          <select className="rounded border border-slate-300 px-2 py-1 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <div className="flex flex-wrap gap-3">
+          <select aria-label="Investigation status filter" className="max-w-full rounded border border-slate-300 px-2 py-1 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
             {["DRAFT", "OPEN", "TRIAGE", "UNDER_INVESTIGATION", "AWAITING_INFORMATION", "AWAITING_APPROVAL", "CLOSED", "REOPENED"].map((s) => (
               <option key={s} value={s}>
@@ -252,7 +252,7 @@ export default function InvestigationsDashboardPage() {
             ))}
           </select>
           <input
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            className="min-w-0 rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="Search title or case number"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -263,7 +263,8 @@ export default function InvestigationsDashboardPage() {
           {loading && <p className="text-sm text-slate-400">Loading…</p>}
           {!loading && cases.length === 0 && <p className="text-sm text-slate-400">No cases match this filter.</p>}
           {!loading && cases.length > 0 && (
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="pb-2">Case</th>
@@ -291,6 +292,7 @@ export default function InvestigationsDashboardPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

@@ -47,16 +47,20 @@ export default function GateLookupPage() {
   const [starting, setStarting] = useState(false);
 
   const loadGates = useCallback(async () => {
-    const res = await fetch("/api/admin/gates");
-    if (!res.ok) return;
-    const data = await res.json();
-    const opts: GateOption[] = data.gates.map((g: { id: string; name: string; direction: string }) => ({
-      id: g.id,
-      name: g.name,
-      direction: g.direction,
-    }));
-    setGates(opts);
-    setGateId((current) => current || opts[0]?.id || "");
+    try {
+      const res = await fetch("/api/admin/gates");
+      if (!res.ok) return;
+      const data = await res.json();
+      const opts: GateOption[] = data.gates.map((g: { id: string; name: string; direction: string }) => ({
+        id: g.id,
+        name: g.name,
+        direction: g.direction,
+      }));
+      setGates(opts);
+      setGateId((current) => current || opts[0]?.id || "");
+    } catch {
+      setError("Network unavailable. Gate configuration could not be refreshed.");
+    }
   }, []);
 
   useEffect(() => {
@@ -107,6 +111,7 @@ export default function GateLookupPage() {
 
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
+            aria-label="Movement search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Registration, fleet #, driver, reference…"
@@ -122,7 +127,7 @@ export default function GateLookupPage() {
           </button>
         </form>
 
-        {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
         {!selected && results.length > 0 && (
           <ul className="space-y-2">
@@ -202,6 +207,7 @@ export default function GateLookupPage() {
                 <h3 className="text-sm font-semibold text-slate-900">Start gate check-in</h3>
                 <div className="flex gap-2">
                   <select
+                    aria-label="Gate"
                     value={gateId}
                     onChange={(e) => setGateId(e.target.value)}
                     className="flex-1 rounded-lg border border-slate-300 px-3 py-3 text-base"
@@ -211,6 +217,7 @@ export default function GateLookupPage() {
                     ))}
                   </select>
                   <select
+                    aria-label="Direction"
                     value={direction}
                     onChange={(e) => setDirection(e.target.value as "ENTRY" | "EXIT")}
                     className="rounded-lg border border-slate-300 px-3 py-3 text-base"

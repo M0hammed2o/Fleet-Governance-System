@@ -56,7 +56,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: npm run seed
+      - run: npm run pilot:seed
+      - run: npm run pilot:verify
+      - run: npm run pilot:uat:validate
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - name: Confirm readiness checker remains fail-closed without production providers

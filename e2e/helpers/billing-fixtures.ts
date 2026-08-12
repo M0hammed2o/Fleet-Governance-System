@@ -20,6 +20,7 @@ export async function loginNewContext(
   tenantSlug: string,
   email: string,
   contextOptions?: Parameters<Browser["newContext"]>[0],
+  password = DEV_PASSWORD,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
@@ -27,7 +28,7 @@ export async function loginNewContext(
     await page.goto("/login");
     await page.getByLabel("Company").fill(tenantSlug);
     await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(DEV_PASSWORD);
+    await page.getByLabel("Password").fill(password);
     await expect(page.getByLabel("Company")).toHaveValue(tenantSlug);
     await expect(page.getByLabel("Email")).toHaveValue(email);
     await page.getByRole("button", { name: /sign in/i }).click();
@@ -42,6 +43,14 @@ export async function loginNewContext(
     }
   }
   throw new Error("Unable to complete the test login flow.");
+}
+
+export function loginPilotContext(
+  browser: Browser,
+  email: string,
+  contextOptions?: Parameters<Browser["newContext"]>[0],
+): Promise<{ context: BrowserContext; page: Page }> {
+  return loginNewContext(browser, "genbridge-synthetic-fleet-pilot", email, contextOptions, "SyntheticPilot!Local1");
 }
 
 /** Creates a brand-new, empty second tenant (no roles/users) via the real platform-tenant API — enough to prove an invoice/tenant-scoped resource never leaks across a tenant boundary, without needing a second fully-onboarded customer. */
