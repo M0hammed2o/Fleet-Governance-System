@@ -4,7 +4,7 @@ Date: 2026-08-12
 
 Scope: local engineering release candidate only
 
-Decision: PENDING FINAL DOUBLE GATE; NOT AUTHORISED FOR REAL PILOT OR DEPLOYMENT
+Decision: LOCAL ENGINEERING GATE PASSED; NOT AUTHORISED FOR REAL PILOT OR DEPLOYMENT
 
 ## Candidate contents
 
@@ -28,7 +28,13 @@ Scenarios represent normal dispatch/return, late return, condition denial/hold, 
 
 Engineering passes only when the clean candidate completes Prisma format/validate/generate/status, empty replay, isolated backup/restore, TypeScript, ESLint, Vitest, production build, Playwright, seed/reset/import/UAT verification, secret scan, dependency audit, performance probe and Git checks twice. Production readiness must remain accurately blocked, the disposable container must run non-root and healthy, and no Critical/High defect may remain.
 
-The final measured command totals and both pass records will be added after the stable committed gate. Local timings are regression evidence only, never a hosted capacity claim.
+## Final verification result
+
+The complete 21-step release-candidate gate passed twice at executable candidate commit `9811742`. Gate A ran 14:54:00-15:16:54Z (22.9 minutes): Vitest 275.0 seconds, build 154.9 seconds and Playwright 450.6 seconds. Gate B ran 15:17:09-15:34:16Z (17.1 minutes): Vitest 212.4 seconds, build 87.6 seconds and Playwright 353.0 seconds.
+
+Both passes confirmed package integrity; Prisma format/validate/generate/status; empty replay and isolated restore of all 27 migrations; TypeScript; ESLint; 76 Vitest files / 818 tests; the Next 16.3.0 build with 104/104 generated pages; 19/19 serial Chromium tests; pilot seed/reset/idempotency and invariant counts; all ten imports; all 27 UAT cases; secret/environment scan; zero dependency vulnerabilities; expected fail-closed production readiness; bounded exact-pilot performance; and a clean tree at both ends. The earlier attempted gate correctly failed when the complete investigation workflow exceeded its old 180-second total budget under full-gate load; its locator timeouts stayed bounded, its justified total became 240 seconds, it passed focused at 2.9 minutes, and both full final gates passed afterward.
+
+The separate container smoke built `genbridge-governance:phase14a-local`, ran as `nextjs`, returned `{"status":"ok"}` without a production-data connection, and removed its fixed smoke container. Local pilot queries covered 15 vehicles/drivers, 9 movements, 14 gate events, 4 exceptions, 5 reconciliations, 2 cases, 6 indicators, 30 documents and 3 media records. Warm bounded reads were generally tens to low hundreds of milliseconds; cold connection/setup was slower. These are local regression observations only, never a hosted capacity claim; browser rendering, report/export throughput and concurrency require target-environment testing.
 
 ## External blockers and manual confirmations
 
