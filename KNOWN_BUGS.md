@@ -409,3 +409,19 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately â€
 # Phase 14A pilot findings (2026-08-12)
 
 PILOT-DEF-001 (Medium) found the investigation table widening a 390px document by 50px; the table is now in a local horizontal container and page/filter/header layouts wrap. PILOT-DEF-002 (Medium) found an unhandled gate-list rejection when disconnection raced initial load; it now produces a user-facing alert and recovery reload. Both passed the pilot Chromium retest. No Critical or High pilot defect is open; details remain in `PILOT_DEFECT_REGISTER.md`. The current online-only boundary and lack of an installable PWA are known product limitations, not hidden defects.
+
+# Phase 15A findings
+
+No Phase 15A Critical or High defect is known. Findings fixed in this phase include mutable unaudited
+mapping, fallback-to-vehicle-ID, raw identifier exposure, missing event provenance, provider-event
+duplication, staging development-provider defaults, premature activation of future mappings, cross-vehicle
+correction lineage, synthetic population of a live-provider mapping, missing-value coercion, future/non-
+finite/negative telemetry acceptance, structured-log newline injection, and one unnamed existing expiry-
+date input exposed by the new responsive browser check. The focused browser run also exposed a cold dev-
+server output-pipe failure; the server was restarted with durable local ignored logs, the accessibility
+label was fixed, and the five-viewport test passed. The Playwright web-server cold-start budget is now 120
+seconds; assertion budgets were not broadened.
+
+BUG-010 remains Low/upstream: the existing Prisma PostgreSQL adapter test warning is not suppressed and has
+not affected assertions/data correctness. Provider interoperability, hosted capacity and real webhook/
+legal/commercial suitability remain explicit external evidence gaps, not claimed defects.

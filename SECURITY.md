@@ -52,3 +52,23 @@ The 2026-08-11 dependency audit is zero after non-major updates. Outstanding sec
 # Phase 14A synthetic-pilot controls
 
 Pilot mutation commands reject production environment flags, non-loopback databases and database names outside the two approved local dev/test targets. Reset requires the fixed tenant id/name/slug and deletes only tenant-prefixed files after resolved-path containment. All addresses use `pilot.example.test`; biometric templates are prohibited and verified at zero. Roles copy the canonical least-privilege sets without expansion. CSV is dry-run only and rejects formulas, biometric columns, duplicates and foreign tenants. Browser checks cover role denial, foreign identifiers, confidential case scope and immediate external-auditor boundary behavior. The candidate gate suppresses credential listings and persists no command output or secret value.
+
+# Phase 15A tracker/staging security review
+
+The simulator has no network client and refuses both `APP_ENV=production` and `NODE_ENV=production`.
+Webhooks validate the tenant/connection before raw-body HMAC, use timing-safe comparison and replay state;
+invalid/malformed payloads fail closed. Calls have abort timeouts, at most three retries/backoff and bounded
+pages. Normalization rejects malformed coordinates, future/invalid event and communication timestamps,
+unsupported units, negative speed/odometer and non-finite values; missing booleans remain unknown rather
+than being coerced to false. Duplicates are idempotent and late/out-of-order events retain limitations.
+Structured simulator correlation IDs are allow-listed to prevent newline/log injection.
+
+Mapping writes require `telematics:CONFIGURE`, tenant-scoped actor/vehicle lookup, composite tenant foreign
+keys, partial active uniqueness, effective windows, same-vehicle correction lineage, audit fingerprints
+and preserved history. Future mappings cannot ingest early, and the synthetic adapter cannot populate a
+live-provider mapping. Unmapped/ambiguous input is quarantined and ordinary responses omit raw asset IDs.
+UAT packs bind to the catalogue digest, constrain tester/approver chronology and sign-off, require evidence/
+defects and neutralize CSV formulas. Staging rejects local/dev targets, placeholders, local storage and
+external providers; production rejects synthetic tracking. External security evidence is still required
+for real provider auth/signatures, egress, secret manager, hosting access, incident response and independent
+assessment.

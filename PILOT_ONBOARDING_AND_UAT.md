@@ -33,7 +33,7 @@ npm run pilot:import:dry -- vehicles
 - `pilot:seed`, `pilot:verify`, UAT catalogue validation and release-candidate checks pass.
 - No unresolved Critical or High security/privacy/tenant-isolation defect.
 - Test devices/browsers, synthetic participants and evidence directory prepared.
-- Provider state confirmed mock/no-op/disabled; production readiness expected to remain blocked.
+- Provider state confirmed synthetic/mock/no-op/disabled; production readiness expected to remain blocked.
 - Pilot owner, tester roster and test dates: **MANUAL_CONFIRMATION_REQUIRED**.
 
 ## Exit criteria
@@ -150,3 +150,7 @@ Security/privacy owner/date: ____________________
 Technical release owner/date: ____________________
 
 Signatures approve only the documented pilot change; they do not waive security controls or authorise unrelated deployment/data processing.
+
+## Phase 15A execution mechanism
+
+The canonical catalogue remains unchanged. Human results belong in the separate digest-bound local pack described by `HUMAN_UAT_EXECUTION_GUIDE.md`; initialize it beneath ignored `.data`, record chronological tester/retest/approver events, export a formula-safe review CSV and retain accepted revisions. Automated rehearsal classifications never mark a case passed. No human execution or sign-off was fabricated in Phase 15A.

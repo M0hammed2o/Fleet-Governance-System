@@ -43,3 +43,7 @@ Before real data or a real pilot, the business must provide/approve the customer
 ## Explicit non-events
 
 No deployment, production migration, production database access, cloud resource, external account, paid service, legal-term acceptance, external message/invitation, payment, tracker connection, real credential, real customer/employee/driver data, real document or recoverable biometric material is part of Phase 14A. Local readiness is not production approval.
+
+## Phase 15A addendum — historical Phase 14 evidence unchanged
+
+Phase 15A does not reinterpret the Phase 14A gate or claim human acceptance. It adds a separate digest-bound execution mechanism for the same 27 cases, case-by-case automated/manual/provider/legal/business classifications, a tracker simulator/conformance gate, mapping/provenance controls and a non-deploying staging plan/checker. Human execution events and signatures remain zero until authorized representatives actually run them. Migrations 28–29 are Phase 15 changes and do not alter the recorded 27-migration Phase 14 evidence.

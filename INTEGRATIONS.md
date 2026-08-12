@@ -5,7 +5,7 @@
 | Facial verification — legacy provider interface | **Interface + mock built (2026-07-21)**, no cloud vendor selected | mock only |
 | Facial verification — on-device recognition/liveness | **Real, working, commercially-licensed pipeline built (2026-07-27, Phase 9)** — see below | real, on-device |
 | Facial verification — cloud liveness fallback | **Interface + honest no-op built (2026-07-27, Phase 9F)**, no paid vendor selected | no-op only |
-| Telematics (GPS) | Interface planned (Phase 6), no vendor selected. October pilot needs one production provider selected | mock only |
+| Telematics (GPS) | **Provider-neutral contract, 27-scenario synthetic simulator and reusable conformance suite built (Phase 15A)**; no vendor selected or connected | synthetic only |
 | Object storage | **Interface + local-filesystem dev implementation + R2-compatible configuration boundary built (2026-07-26, Phase 8B)**, no Cloudflare account created | dev mode only |
 | Retention-expiry notifications | **Interface + dev-console/no-op providers built (2026-07-27, Phase 8E-003)**, no email/SMS vendor selected | dev-console/no-op only |
 | Hardware/device (barrier, ANPR camera, ticket printer) | Not started, deferred item | — |
@@ -77,33 +77,26 @@ for future per-tenant billing, regardless of the provider's own outcome.
 been created — same "interface + mock, real vendor deferred, paid account requires the user's sign-off"
 status as every other unselected vendor here.
 
-## TelematicsProvider (planned interface, Phase 6 — see PRODUCT_REQUIREMENTS.md GPS-001..006)
-Same adapter pattern as `FacialVerificationProvider`/`StorageProvider`: one interface, a
-`MockTelematicsProvider` for dev, a `ManualGpsConfirmationProvider` fallback (mirrors the manual
-facial-verification fallback — request/resolve, audited, self-approval blocked), and real vendor adapters
-(Netstar/Cartrack/Tracker/MiX/other) built later behind the same interface without changing call sites.
-Provider-neutral by design — must not hardcode the application to one tracking company. No undocumented
-vendor endpoints will be invented or scraped; a real adapter is only built against that vendor's
-published, authorised API documentation and sandbox credentials.
-```ts
-interface TelematicsProvider {
-  testConnection(): Promise<{ ok: boolean; message?: string }>;
-  listVehicles(): Promise<Array<{ providerVehicleId: string; label?: string }>>;
-  getLatestReading(providerVehicleId: string): Promise<{
-    lastCommunicationAt: Date | null;
-    gpsActive: "ACTIVE" | "INACTIVE" | "UNKNOWN";
-    location?: { lat: number; lng: number };
-    ignitionOn?: boolean;
-    odometerKm?: number;
-    speedKmh?: number;
-  } | null>;
-  listGeofences?(): Promise<Array<{ providerGeofenceId: string; name: string }>>;
-}
-```
-For the October pilot scope, one production provider matched to the pilot customer's existing tracker is
-the target — still requires the user's vendor decision, budget approval, and credentials before that adapter
-can be built or tested against a real sandbox. **Blocked** until then; the interface/mock/manual-fallback
-are not blocked and will be built in Phase 6 regardless.
+## TrackerProviderAdapter (implemented contract, Phase 15A)
+
+The provider ID is an opaque string rather than a closed vendor enum. The adapter contract covers
+capability discovery, connection health, bounded/paginated asset and event reads, normalised latest
+position, webhook verification, polling checkpoints, credential rotation and revocation. Every request is
+tenant/connection scoped and carries an abort signal and correlation ID. Common retry policy is capped at
+three attempts and 30 seconds; errors use typed authentication, authorization, rate-limit, timeout,
+unavailable, invalid-response, revoked, and unsupported classifications.
+
+`SyntheticTrackerSimulator` implements the boundary without network access and exercises 27 deterministic
+healthy, ordering, quality, mapping, auth, rate-limit, webhook, outage, recovery, revocation and tenant-
+isolation scenarios. Its records are explicitly `SYNTHETIC`/`SIMULATOR` with limitations, artificial data,
+and a hard production refusal. `runTrackerConformanceSuite()` is reusable for a future adapter and tests
+capabilities, auth, isolation, pagination, normalization, provenance, freshness, mapping, bounded retry,
+webhook fail-closed behavior, polling idempotency, revocation, audit fixtures and safe logs.
+
+No provider endpoint, payload, rate limit, webhook format, SLA, credential, sandbox, contract, paid account,
+or customer tracker mapping has been assumed. A real adapter remains **blocked** until an approved vendor
+supplies authorised documentation and isolated sandbox credentials and passes the requirements and
+conformance gates in `TRACKER_PROVIDER_REQUIREMENTS_AND_ONBOARDING.md`.
 
 ## VehicleUsePolicy (planned model, Phase 6 — see PRODUCT_REQUIREMENTS.md POLICY-001/002)
 Not a provider integration itself, but depends on `TelematicsProvider` data (location, ignition, odometer)

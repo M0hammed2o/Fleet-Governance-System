@@ -917,3 +917,18 @@ business/vendor decision.
 - D-064: the machine-readable UAT catalogue is the completeness authority; every entry must retain all execution, evidence, defect, retest and approval fields even before a human run populates them.
 - D-065: the current application is online-only. Disconnection must fail honestly and reload authoritative state after recovery; Phase 14A does not add a service worker, offline mutation queue or installable-PWA claim.
 - D-066: `pilot:rc` is a local evidence orchestrator, never a deploy command. It requires a clean tree, asserts that production readiness remains blocked, stores only non-secret command metadata under ignored `.data`, and cannot substitute for business/legal acceptance.
+
+# Phase 15A decisions (2026-08-12)
+
+- D-067: the provider-neutral simulator is explicitly synthetic, uses artificial data, has no HTTP client and never impersonates a named vendor.
+- D-068: effective-dated `TrackerVehicleMapping` is justified because mutable vehicle fields cannot enforce duplicate assignments, authorization, correction chronology or event context.
+- D-069: only unambiguous legacy mappings are backfilled; duplicates stay unmapped for quarantine rather than guessed.
+- D-070: canonical UAT and human results remain separate; automated rehearsal never produces human PASS/sign-off. A local reviewed pack is proportionate before staging exists.
+- D-071: `APP_ENV=staging` has production-like secrets/TLS/database/storage constraints but permits only explicit disabled/synthetic providers until sandbox approval; production rejects mock/synthetic.
+- D-072: provider choice remains manual/evidence-based. The non-response package permits drafts and parallel evaluation, not sending, scraping, guessing, accounts or connections.
+- D-073: provider IDs in the core contract are opaque strings rather than a closed named-vendor enum.
+  Named candidates belong only in the decision register; an approved adapter must prove its documented
+  identity and conformance without changing application-domain types.
+- D-074: missing provider fields remain unknown and poisoned observations are quarantined. Future mappings
+  cannot ingest before their effective date, correction lineage stays on the same vehicle, and synthetic
+  adapters are forbidden from populating mappings labelled live.

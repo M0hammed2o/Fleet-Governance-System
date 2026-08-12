@@ -58,3 +58,5 @@ See `PROJECT.md` "Current project status" and `TODO.md` for what's actually buil
 short: Foundation, Master Data, Gate Operations, Evidence/Media, and role realignment (Phases 1-5A) are
 built and tested. Reconciliation, dispatch enhancements, telematics foundation, and the platform
 support-access view (Phases 5B-7) are in progress or planned.
+
+Phase 15A now provides provider-independent tracker simulation/conformance, effective-dated mapping/provenance, separate human UAT execution support and non-deploying staging preparation. See `PROJECT.md`, `TRACKER_PROVIDER_REQUIREMENTS_AND_ONBOARDING.md`, `HUMAN_UAT_EXECUTION_GUIDE.md` and `STAGING_ENVIRONMENT_PLAN.md`. No live provider or deployment is configured.

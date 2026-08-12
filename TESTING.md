@@ -723,3 +723,23 @@ Container verification built image `genbridge-governance:phase13-local`, confirm
 # Phase 14A pilot verification
 
 Focused commands are `npm run pilot:seed`, `npm run pilot:verify`, `npm run pilot:test-boundaries`, `npm run pilot:imports:validate`, `npm run pilot:uat:validate`, `npx vitest run tests/pilot-safety.test.ts tests/pilot-import-validator.test.ts tests/uat-catalogue.test.ts`, and `npx playwright test e2e/pilot-readiness.spec.ts`. The pilot browser spec validates exact tenant data, least privilege, cross-tenant IDs, external-auditor scope, keyboard/accessibility names, 24px targets, four phone/tablet orientations, mobile overflow and online-only failure/recovery. Existing serial workflows remain the end-to-end authority for dispatch/approval/gate/evidence/reconciliation, exception/referral, independently approved investigation, analytics lifecycle, external-auditor revocation, billing and readiness. `npm run pilot:rc` composes the complete local gate and expects production readiness to exit 1.
+
+# Phase 15A verification scope
+
+Focused Phase 15A coverage exercises all 27 simulator scenarios, production refusal, artificial identity/
+coordinates, poisoned numeric/timestamp quarantine, unknown-value preservation, unit conversion, mapping
+authorization/isolation/uniqueness/effective dates/correction history, idempotent event context, provenance
+labels, log/CSV injection, UAT pack chronology/roles/sign-off, and staging fail-closed validation. The
+reusable conformance command currently reports 25 checks spanning capabilities, auth/isolation, pagination,
+normalization/provenance/freshness, mapping, timeout/rate-limit/partial/malformed profiles, duplicates,
+ordering/late events, outage recovery, bounded retry/backoff, signature/replay, polling, revocation, audit
+and log redaction.
+
+The pilot browser workflow now verifies synthetic and unavailable tracker disclosures, mapping status,
+ordinary-role mapping denial, fingerprint-only mapping history, responsive behavior at mobile portrait/
+landscape, tablet portrait/landscape and desktop sizes, accessible names, loading and the existing error/
+offline paths. Automated rehearsal remains evidence for human testers, never a UAT PASS.
+
+Focused suites cover all 27 simulator scenarios, production refusal, capability/pagination, units/timestamps, duplicate/out-of-order/late/freshness, partial/malformed data, timeout/rate-limit/recovery, webhook signature/replay, revocation, cross-tenant mapping, mapping authorization/uniqueness/audit/correction history, provenance labels, UAT pack digest/roles/chronology/formula safety and staging fail-closed rules.
+
+Commands are `npm run tracker:conformance`, UAT execution init/validate/export under ignored storage, `npm run staging:check` (expected exit 1 without approvals) and `npm run staging:rc`. The final staging gate covers 29 migrations/clean replay/restore, TypeScript, ESLint, full Vitest/build/Playwright, pilot boundaries/import/UAT, secret scan, audit, expected blocked production/staging readiness, performance and non-root container health twice. Automated rehearsal remains distinct from human UAT.

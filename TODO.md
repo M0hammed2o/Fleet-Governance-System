@@ -487,3 +487,12 @@ requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] MANUAL_CONFIRMATION_REQUIRED: Information Officer, lawful bases/notices (especially location and any future biometrics), PAIA/DPA/cross-border position, retention/backup/offboarding periods, breach contacts and legal acceptance.
 - [ ] Select and approve hosting, durable database/storage, monitoring/scheduler, tracker, email and payment providers; supply contracts, sandbox evidence and credentials only under a separately authorised production phase.
 - [ ] Do not transition from synthetic to real data until `production:check` exits zero and the business, security/privacy and rollback gates are signed.
+
+# Phase 15A completion and blockers
+
+- [x] Deterministic provider-neutral tracker simulator, adapter conformance harness, mapping/provenance hardening and honest labels.
+- [x] Separate validated 27-case human UAT pack/classification/export guide.
+- [x] Fail-closed staging checker/release design, environment plan, configuration inventory and provider/business decision packages.
+- [ ] Obtain official provider docs, sandbox, authorization, privacy/security/commercial evidence and make one approved adapter conform.
+- [ ] Name owners and perform genuine human UAT; no result is currently accepted.
+- [ ] Approve/create staging only in a separately authorized phase; current `staging:check` must remain blocked.

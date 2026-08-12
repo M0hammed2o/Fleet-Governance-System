@@ -4,7 +4,7 @@ Phase 13A supplies production-safe foundations; it does not select a hosting com
 
 ## Configuration
 
-`APP_ENV` is independent from `NODE_ENV` and must be `development`, `test`, or `production`. Production validates a non-local HTTPS `APP_BASE_URL`, pooled `DATABASE_URL`, direct migration `DIRECT_DATABASE_URL`, TLS mode, bounded pool/timeouts, current signing secrets, storage/payment/email/tracker/monitoring selections, scheduler token, deployment/backup metadata, and manual POPIA/pilot confirmations. Current/previous session, media-signing, and scheduler keys permit controlled rotation. No private value uses `NEXT_PUBLIC_`; `.env.example` contains blank names only.
+`APP_ENV` is independent from `NODE_ENV` and must be `development`, `test`, `staging`, or `production`. Staging and production validate hosted HTTPS, managed database URLs, TLS, strong secrets, durable storage and provider selections; staging additionally requires a staging-named database and isolated synthetic/disabled providers. Current/previous session, media-signing, and scheduler keys permit controlled rotation. No private value uses `NEXT_PUBLIC_`; `.env.example` contains blank names only.
 
 Production refuses local evidence storage and all mock/dev-console provider selections. Test refuses production databases, durable/external storage, and external provider selections. The readiness statuses are `READY`, `BLOCKED`, `NOT_CONFIGURED`, `MOCK_ONLY`, and `MANUAL_CONFIRMATION_REQUIRED`; code readiness is reported separately from commercial or legal readiness.
 
@@ -48,3 +48,9 @@ The pilot requires approved synthetic-to-real data transition, support owner, in
 ## Phase 14A local evidence
 
 The local package can be exercised with `npm run pilot:rc`; its expected production-readiness exit is 1 because durable storage, real tracker/email/payment, scheduler/monitoring, deployment identity, legal confirmations and named approvals are absent. The synthetic tenant and UAT documents prove engineering behavior only. Do not change readiness classifications to make the candidate appear green: resolve every external blocker with approved facts and configuration, then rerun the production checker in the separately authorised target environment.
+
+## Phase 15A readiness addendum
+
+The tracker package now includes 27 deterministic synthetic scenarios, a reusable conformance harness, effective-dated tenant-constrained mappings, full normalized provenance and explicit UI labels. This makes later sandbox work safer but proves no named provider capability. Use `TRACKER_PROVIDER_REQUIREMENTS_AND_ONBOARDING.md` and `PROVIDER_SELECTION_AND_DECISION_REGISTER.md`; all named-provider fields remain unknown/not provided.
+
+Staging is a typed fourth environment and has its own non-deploying checker/plan. Synthetic/no-op provider choices are allowed only under explicit staging isolation; production rejects mock/synthetic. Human UAT uses a separate local execution pack and has zero accepted human results. Provider, staging, legal, business and operational approvals remain external blockers listed in `PHASE15_BUSINESS_LEGAL_AND_OPERATIONAL_DECISIONS.md`.

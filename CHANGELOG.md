@@ -1,5 +1,23 @@
 # CHANGELOG.md
 
+## 2026-08-12 (Phase 15A) - provider-independent staging preparation
+
+### Added
+
+- A no-network, production-refusing tracker simulator with 27 deterministic scenarios; a reusable
+  provider conformance suite; complete normalization/provenance; effective-dated, tenant-enforced tracker
+  mapping history; authorized mapping APIs; and clear synthetic/stale/manual/unavailable UI labels.
+- A digest-bound 27-case human UAT execution pack with role separation, evidence/defect requirements,
+  immutable final sign-off and formula-safe export. No human outcome is pre-populated.
+- Fail-closed staging configuration/readiness checks, a non-deploying 25-step release gate, provider
+  requirements/decision register, environment/secrets inventory, staging/rollback plan and 33-item
+  business/legal/operational decision register.
+
+### Safety
+
+- No deployment, production migration, cloud resource, provider connection/account, credential, real
+  customer/vehicle/person/biometric data, payment, invitation, email or other external message was used.
+
 ## 2026-07-28 (Phase 10) — subscriptions, billing and invoicing
 ### Added
 - Phase 10 (P10A..P10P, see BILLING_AND_SUBSCRIPTIONS.md) — a real, working billing and invoicing system:

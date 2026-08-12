@@ -204,6 +204,23 @@ that are intentionally global (e.g. `Permission` definitions), are the only tabl
 - `Exception.gateEventId` made nullable, `Exception.vehicleId` added — see the Phase 3 Exception entry
   above and DECISIONS.md D-020.
 
+## Phase 15A entities (provider-independent tracker preparation)
+
+- **TrackerVehicleMapping** is a tenant-scoped, effective-dated assignment between one vehicle and one
+  opaque provider asset. It records provider/source, effective window, mandatory reason, authorised
+  create/end actors and correction lineage. Partial database indexes allow only one active mapping per
+  tenant/vehicle and per tenant/provider/asset. Composite foreign keys prevent a vehicle or actor from a
+  different tenant being referenced. Ordinary read/audit responses omit the raw provider asset ID and use
+  a fingerprint instead.
+- **TelematicsEvent provenance extension** adds mapping/provider event identity, polling/webhook/manual/
+  simulator collection method, received and normalised times, freshness, accuracy, mapping and processing
+  states, correction state, confidence limitations, and an explicit synthetic flag. The tenant/provider/
+  event key is unique for idempotent ingestion. `SYNTHETIC`, `ESTIMATED`, and `UNAVAILABLE` source values
+  prevent generated, derived, or missing observations from being presented as live provider evidence.
+- Legacy vehicle GPS fields remain temporarily for compatibility, but only an unambiguous legacy asset is
+  backfilled into mapping history. Ambiguous records remain unmapped for quarantine and human review; new
+  mapping writes use the dedicated authorised repository/API rather than generic vehicle editing.
+
 ## Phase 8A entities (engineering hardening — implemented)
 - `Exception` gained `violationType` (nullable string — the `PolicyViolationType` an open telematics episode
   is tracking; null for every gate-event/reconciliation exception), `observationCount`
@@ -474,7 +491,16 @@ each is actually migrated, not in advance.
   `MediaAsset.capturedByUserId` made nullable, and the hand-authored partial unique index for
   `BillingEmailDelivery`. Verified against an empty database.
 
-All twenty-one migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
+- Migrations 22-27 implement Phase 11 investigation cases/notifications/referral idempotency, Phase 12
+  governance analytics/system-rule provenance, and Phase 13 production security/retry hardening. Their
+  detailed rationale remains in `WORKLOG.md` and the corresponding phase documentation.
+- `20260812160153_phase15a_tracker_mapping_provenance` (applied): adds effective-dated tracker mappings,
+  provider-neutral event provenance fields/enums and mapping/event indexes.
+- `20260812163000_phase15a_tracker_mapping_constraints` (applied): adds composite tenant foreign keys,
+  active-mapping and provider-event uniqueness, effective-window validation, and an unambiguous-only
+  legacy backfill. It intentionally leaves legacy-created actors null rather than inventing attribution.
+
+All twenty-nine migrations are applied to the dev DB (`gate_fleet_governance`) and the test DB
 (`gate_fleet_governance_test`), same local Postgres container, different databases, and verified to apply
 cleanly to a genuinely empty database from zero (`npm run verify:clean-migrations`, Phase 8A HARD-001).
 

@@ -94,3 +94,7 @@ The complete stable-source gate passed twice: 27 migrations current and replayed
 # Phase 14A local pilot package (2026-08-12)
 
 The repository now includes a guarded deterministic 15-vehicle synthetic tenant, dry-run import templates, a 27-case UAT catalogue, seven role guides, operational rehearsals, pilot-specific responsive/accessibility/isolation browser coverage, and a non-deploying release-candidate checker. All identities and records are fictional and use `example.test`; no biometric template or external provider is used. `PILOT_ACCEPTANCE_AND_READINESS_REPORT.md` is the current handoff. This local engineering package does not authorize a real pilot, deployment, migration, message, payment or provider connection.
+
+# Phase 15A provider-independent staging preparation (2026-08-12)
+
+Provider-neutral tracker simulation/conformance, effective-dated mapping/provenance, a separate validated 27-case human-UAT execution pack, staging validation/release design, redacted configuration inventory and provider/business decision packages are implemented locally. There are 29 migrations. No provider facts were invented and no external connection, message, account, resource, credential, real data or deployment was used. Production and staging readiness intentionally remain fail-closed pending the recorded external decisions.
