@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 
 interface RecordAuditInput {
   tenantId: string;
@@ -20,8 +21,8 @@ interface RecordAuditInput {
  * prisma.auditLog directly — that keeps the "append-only, every field
  * populated" contract in one place. See ARCHITECTURE.md "Audit architecture".
  */
-export async function recordAudit(input: RecordAuditInput): Promise<void> {
-  await prisma.auditLog.create({
+export async function recordAudit(input: RecordAuditInput, client: Prisma.TransactionClient = prisma): Promise<void> {
+  await client.auditLog.create({
     data: {
       tenantId: input.tenantId,
       userId: input.userId ?? null,

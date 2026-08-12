@@ -166,6 +166,20 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     } }));
   }
 
+  await prisma.trackerVehicleMapping.createMany({
+    data: vehicles.slice(0, 13).map((vehicle, offset) => ({
+      id: id("tracker-mapping", offset + 1),
+      tenantId: PILOT_TENANT_ID,
+      vehicleId: vehicle.id,
+      providerId: "synthetic",
+      providerAssetId: `SYN-TRACK-${offset + 1}`,
+      source: "SYNTHETIC",
+      effectiveFrom: FIXED_NOW,
+      reason: "Deterministic Phase 15A synthetic-pilot mapping; never a live provider assignment.",
+      createdByUserId: admin.id,
+    })),
+  });
+
   for (const driver of drivers) {
     await prisma.complianceDocument.create({ data: { id: id("document", `driver-${driver.id}`), tenantId: PILOT_TENANT_ID, ownerType: "DRIVER", driverId: driver.id, documentType: "DRIVER_LICENCE", documentNumber: `SYN-${driver.employeeNumber}`, issuer: "Synthetic Licensing Authority", expiryDate: new Date("2028-12-31T00:00:00.000Z"), verificationStatus: "VERIFIED", verifiedById: admin.id, verifiedAt: FIXED_NOW, notes: "Synthetic UAT document; no real attachment." } });
   }
@@ -240,8 +254,22 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     }
   }
   await prisma.telematicsEvent.createMany({ data: [
-    { id: id("telematics", "mock-current"), tenantId: PILOT_TENANT_ID, vehicleId: vehicles[0].id, source: "PROVIDER", latitude: -26.2041, longitude: 28.0473, speedKmh: 0, ignitionOn: false, odometerKm: 10180, recordedAt: FIXED_NOW, providerReference: "SYNTHETIC-MOCK-CURRENT" },
-    { id: id("telematics", "mock-mismatch"), tenantId: PILOT_TENANT_ID, vehicleId: vehicles[5].id, source: "PROVIDER", latitude: -26.2, longitude: 28.04, speedKmh: 0, ignitionOn: false, odometerKm: 10700, recordedAt: FIXED_NOW, providerReference: "SYNTHETIC-MOCK-MISMATCH" },
+    {
+      id: id("telematics", "mock-current"), tenantId: PILOT_TENANT_ID, vehicleId: vehicles[0].id,
+      source: "SYNTHETIC", latitude: -26.2041, longitude: 28.0473, speedKmh: 0, ignitionOn: false,
+      odometerKm: 10180, recordedAt: FIXED_NOW, providerReference: "SYNTHETIC-MOCK-CURRENT",
+      trackerMappingId: id("tracker-mapping", 1), providerId: "synthetic", providerEventId: "pilot-current",
+      collectionMethod: "SIMULATOR", receivedAt: FIXED_NOW, normalizedAt: FIXED_NOW, freshness: "FRESH",
+      mappingState: "MAPPED", confidenceLimitations: "Synthetic fixture; not observed from a real vehicle.", isSynthetic: true,
+    },
+    {
+      id: id("telematics", "mock-mismatch"), tenantId: PILOT_TENANT_ID, vehicleId: vehicles[5].id,
+      source: "SYNTHETIC", latitude: -26.2, longitude: 28.04, speedKmh: 0, ignitionOn: false,
+      odometerKm: 10700, recordedAt: FIXED_NOW, providerReference: "SYNTHETIC-MOCK-MISMATCH",
+      trackerMappingId: id("tracker-mapping", 6), providerId: "synthetic", providerEventId: "pilot-mismatch",
+      collectionMethod: "SIMULATOR", receivedAt: FIXED_NOW, normalizedAt: FIXED_NOW, freshness: "FRESH",
+      mappingState: "MAPPED", confidenceLimitations: "Synthetic fixture; not observed from a real vehicle.", isSynthetic: true,
+    },
   ] });
   await prisma.manualGpsConfirmation.create({ data: { id: id("gps", "unavailable"), tenantId: PILOT_TENANT_ID, vehicleId: vehicles[6].id, reason: "Synthetic tracker unavailable; manual confirmation required.", positionDescription: "Synthetic dispatch yard — unverified by provider", requestedByUserId: dispatch.id, requestedAt: FIXED_NOW, status: "PENDING" } });
 
@@ -289,20 +317,20 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
   const tenant = await prisma.tenant.findUnique({ where: { slug: PILOT_TENANT_SLUG }, select: { id: true, slug: true, name: true, status: true, subscriptionStatus: true } });
   if (!tenant) throw new Error("Synthetic pilot tenant is not seeded.");
   assertPilotTenantIdentity(tenant);
-  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, telematicsEvents, manualGpsConfirmations, biometrics, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
+  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, biometrics, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
     prisma.site.count({ where: { tenantId: tenant.id } }), prisma.gate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id } }),
     prisma.driver.count({ where: { tenantId: tenant.id } }), prisma.vehicle.count({ where: { tenantId: tenant.id } }), prisma.complianceDocument.count({ where: { tenantId: tenant.id } }),
     prisma.movementAuthorisation.count({ where: { tenantId: tenant.id } }), prisma.gateEvent.count({ where: { tenantId: tenant.id } }), prisma.reconciliation.count({ where: { tenantId: tenant.id } }), prisma.exception.count({ where: { tenantId: tenant.id } }),
-    prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }), prisma.telematicsEvent.count({ where: { tenantId: tenant.id } }), prisma.manualGpsConfirmation.count({ where: { tenantId: tenant.id } }),
+    prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }), prisma.trackerVehicleMapping.count({ where: { tenantId: tenant.id } }), prisma.telematicsEvent.count({ where: { tenantId: tenant.id } }), prisma.manualGpsConfirmation.count({ where: { tenantId: tenant.id } }),
     prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id, NOT: { email: { endsWith: `@${PILOT_EMAIL_DOMAIN}` } } } }),
     prisma.mediaAsset.count({ where: { tenantId: tenant.id, investigationHold: true } }), prisma.externalAuditorAccessGrant.count({ where: { tenantId: tenant.id, revokedAt: null } }),
   ]);
-  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, telematicsEvents, manualGpsConfirmations };
+  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations };
   for (const [key, expected] of Object.entries(PILOT_EXPECTED_COUNTS)) {
     if (counts[key as keyof typeof counts] !== expected) throw new Error(`Pilot verification failed: ${key} expected ${expected}.`);
   }
   if (biometrics !== 0 || deliverableEmails !== 0 || heldEvidence < 1 || externalGrants !== 1) throw new Error("Pilot privacy/access invariants failed.");
-  return { tenant: { ...tenant, synthetic: true }, counts, invariants: { biometricTemplates: biometrics, nonDeliverableAddressesOnly: true, heldEvidence, caseScopedExternalGrants: externalGrants, providers: "mock/no-op/disabled" } };
+  return { tenant: { ...tenant, synthetic: true }, counts, invariants: { biometricTemplates: biometrics, nonDeliverableAddressesOnly: true, heldEvidence, caseScopedExternalGrants: externalGrants, providers: "synthetic/mock/no-op/disabled" } };
 }
 
 export async function withPilotClient<T>(operation: (prisma: PrismaClient) => Promise<T>): Promise<T> {

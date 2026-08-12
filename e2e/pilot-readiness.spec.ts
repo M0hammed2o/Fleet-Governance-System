@@ -67,6 +67,14 @@ test("synthetic pilot records, permissions, and tenant boundaries are coherent",
   const { context: officerContext, page: officerPage } = await loginPilotContext(browser, OFFICER);
   const forbiddenCreate = await officerPage.request.post("/api/vehicles", { data: { registrationNumber: "SYN-FORBIDDEN" } });
   expect(forbiddenCreate.status()).toBe(403);
+  const forbiddenMapping = await officerPage.request.post("/api/vehicles/pilot-vehicle-14/tracker-mappings", { data: { providerId: "synthetic", providerAssetId: "SYNTHETIC-FORBIDDEN", source: "SYNTHETIC", effectiveFrom: "2030-01-01T00:00:00.000Z", reason: "Unauthorized mapping attempt must be rejected." } });
+  expect(forbiddenMapping.status()).toBe(403);
+  const mappingHistory = await adminPage.request.get("/api/vehicles/pilot-vehicle-1/tracker-mappings");
+  expect(mappingHistory.ok()).toBe(true);
+  const mappingBody = await mappingHistory.json();
+  expect(mappingBody.mappings).toHaveLength(1);
+  expect(mappingBody.mappings[0]).toMatchObject({ source: "SYNTHETIC", providerAssetFingerprint: expect.any(String) });
+  expect(JSON.stringify(mappingBody)).not.toContain("SYN-TRACK-1");
 
   const { context: acmeContext, page: acmePage } = await loginNewContext(browser, "acme-logistics", "company.administrator@example.test");
   const foreignList = await acmePage.request.get("/api/vehicles?pageSize=1");
@@ -115,6 +123,31 @@ test("critical pilot pages remain named and overflow-free at gate viewports", as
     await expectAccessibleViewport(managerPage);
   }
   await Promise.all([officerContext.close(), managerContext.close()]);
+});
+
+test("vehicle detail clearly distinguishes synthetic tracker mapping and provenance", async ({ browser }) => {
+  const { context, page } = await loginPilotContext(browser, ADMIN, { viewport: { width: 390, height: 844 } });
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 844, height: 390 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/admin/vehicles/pilot-vehicle-1");
+    await expect(page.getByRole("heading", { name: "SYN001GP" })).toBeVisible();
+    await expect(page.getByText("Synthetic — not live", { exact: true })).toBeVisible();
+    await expect(page.getByText("SYNTHETIC MAPPING — NOT LIVE", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("Generated test data; not observed from a real vehicle.");
+    await expectAccessibleViewport(page);
+  }
+
+  await page.goto("/admin/vehicles/pilot-vehicle-14");
+  await expect(page.getByText("Tracker data unavailable", { exact: true })).toBeVisible();
+  await expect(page.getByText("UNMAPPED", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Missing tracker data is not proof of misconduct.");
+  await context.close();
 });
 
 test("online-only gate boundary shows failure and recovers from authoritative state", async ({ browser }) => {

@@ -4,8 +4,8 @@ import { syncVehicleTelematics, VehicleNotFoundError } from "@/lib/repositories/
 import { TelematicsProviderUnavailableError } from "@/lib/telematics/provider";
 
 /**
- * Manually (re)triggers a telematics sync for one vehicle from the (mock)
- * provider (GPS-001/GPS-003). A provider failure is a typed 503, not a raw
+ * Manually (re)triggers a telematics sync for one vehicle through the
+ * configured provider boundary (GPS-001/GPS-003). A provider failure is a typed 503, not a raw
  * 500 (GPS-006).
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {

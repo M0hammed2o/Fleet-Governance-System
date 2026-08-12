@@ -23,12 +23,16 @@ interface Vehicle {
   tyres: { positionDefinitionId: string; brand: string | null; size: string | null }[];
 }
 
+interface TrackerDataSummary { kind: string; label: string; warning: string }
+
 const STATUS_OPTIONS = ["OPERATIONAL", "WORKSHOP_LOCKOUT", "SECURITY_LOCKOUT", "DECOMMISSIONED"] as const;
 
 export default function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
+  const [trackerDataSummary, setTrackerDataSummary] = useState<TrackerDataSummary>({ kind: "UNAVAILABLE", label: "Tracker data unavailable", warning: "Missing tracker data is not proof of misconduct." });
+  const [trackerMappingStatus, setTrackerMappingStatus] = useState("UNMAPPED");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +45,8 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
       if (!res.ok) throw new Error(data.error ?? "Failed to load vehicle");
       setVehicle(data.vehicle);
       setDocuments(data.documents);
+      setTrackerDataSummary(data.trackerDataSummary);
+      setTrackerMappingStatus(data.trackerMappingStatus);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -99,6 +105,10 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
             <dd>{vehicle.fuelLevelPercent != null ? `${vehicle.fuelLevelPercent}%` : "—"}</dd>
             <dt className="text-slate-500">GPS status</dt>
             <dd>{vehicle.gpsStatus}</dd>
+            <dt className="text-slate-500">Tracker source</dt>
+            <dd className={trackerDataSummary.kind === "SYNTHETIC" ? "font-semibold text-amber-800" : "font-medium"}>{trackerDataSummary.label}</dd>
+            <dt className="text-slate-500">Mapping status</dt>
+            <dd>{trackerMappingStatus}</dd>
             <dt className="text-slate-500">Licence disc expiry</dt>
             <dd>{vehicle.licenceDiscExpiry ? new Date(vehicle.licenceDiscExpiry).toLocaleDateString() : "—"}</dd>
             <dt className="text-slate-500">Roadworthy expiry</dt>
@@ -106,6 +116,8 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
             <dt className="text-slate-500">Insurance expiry</dt>
             <dd>{vehicle.insuranceExpiry ? new Date(vehicle.insuranceExpiry).toLocaleDateString() : "—"}</dd>
           </dl>
+
+          <p role="status" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{trackerDataSummary.warning}</p>
 
           <div className="mt-4 flex flex-wrap gap-2">
             {STATUS_OPTIONS.filter((s) => s !== vehicle.operationalStatus).map((s) => (

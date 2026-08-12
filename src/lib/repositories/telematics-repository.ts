@@ -7,10 +7,14 @@ import { computeDistanceSoFar } from "@/lib/telematics/distance-engine";
 import { MockTelematicsProvider } from "@/lib/telematics/mock-provider";
 import { DisabledTelematicsProvider, TelematicsProviderUnavailableError, type TelematicsProvider } from "@/lib/telematics/provider";
 import type { Prisma } from "@/generated/prisma/client";
+import { classifyTrackerFreshness } from "@/lib/telematics/integration-contract";
 
+const localMockAllowed = ["development", "test"].includes(process.env.APP_ENV ?? "") ||
+  (!process.env.APP_ENV && process.env.NODE_ENV !== "production");
+const configuredSyntheticAllowed = process.env.TELEMATICS_PROVIDER === "synthetic" &&
+  process.env.APP_ENV !== "production" && process.env.NODE_ENV !== "production";
 const defaultProvider: TelematicsProvider =
-  process.env.TELEMATICS_PROVIDER === "mock" ||
-  (!process.env.TELEMATICS_PROVIDER && process.env.APP_ENV !== "production")
+  (localMockAllowed && (process.env.TELEMATICS_PROVIDER === "mock" || !process.env.TELEMATICS_PROVIDER)) || configuredSyntheticAllowed
     ? new MockTelematicsProvider()
     : new DisabledTelematicsProvider();
 
@@ -73,9 +77,8 @@ export interface SyncVehicleTelematicsResult {
 }
 
 /**
- * Pulls a current snapshot from the (mock) provider for a vehicle that
- * already has `gpsDeviceReference` configured (GPS-003's tracker mapping —
- * already possible via the existing Phase 2 `updateVehicle`), records a
+ * Pulls a current snapshot through the configured legacy-compatible provider
+ * boundary for a vehicle with an active Phase 15 tracker mapping, records a
  * TelematicsEvent, updates `Vehicle.gpsStatus`/`gpsLastCommunicationAt`, and
  * — if the reading isn't stale — evaluates it against the vehicle's active
  * VehicleUsePolicy (GPS-004/POLICY-002).
@@ -87,7 +90,22 @@ export async function syncVehicleTelematics(
   const vehicle = await prisma.vehicle.findFirst({ where: tenantWhere(input.tenantId, { id: input.vehicleId }) });
   if (!vehicle) throw new VehicleNotFoundError();
 
-  const providerVehicleId = vehicle.gpsDeviceReference ?? vehicle.id;
+  const mapping = await prisma.trackerVehicleMapping.findFirst({
+    where: { tenantId: input.tenantId, vehicleId: vehicle.id, effectiveFrom: { lte: new Date() }, effectiveTo: null },
+    orderBy: { effectiveFrom: "desc" },
+  });
+  if (!mapping) {
+    await recordAudit({ tenantId: input.tenantId, userId: input.actorUserId, action: "telematics.unmappedQuarantined", entityType: "Vehicle", entityId: vehicle.id, reason: "No active tracker mapping; no provider request was attempted." });
+    throw new TelematicsProviderUnavailableError("Vehicle tracker data is quarantined because no active mapping exists.");
+  }
+  if (mapping.source === "SYNTHETIC" && (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production")) {
+    throw new TelematicsProviderUnavailableError("Synthetic tracker mappings are forbidden in production.");
+  }
+  if (mapping.source === "LIVE_PROVIDER" && provider instanceof MockTelematicsProvider) {
+    throw new TelematicsProviderUnavailableError("A synthetic provider cannot ingest data for a live-provider mapping.");
+  }
+
+  const providerVehicleId = mapping.providerAssetId;
 
   let snapshot;
   try {
@@ -107,8 +125,9 @@ export async function syncVehicleTelematics(
     throw err;
   }
 
-  const isStale =
-    !snapshot.lastCommunicationAt || Date.now() - snapshot.lastCommunicationAt.getTime() > STALE_THRESHOLD_MS;
+  const receivedAt = new Date();
+  const freshness = classifyTrackerFreshness(snapshot.lastCommunicationAt, receivedAt, STALE_THRESHOLD_MS);
+  const isStale = freshness !== "FRESH";
 
   const updatedVehicle = await prisma.vehicle.update({
     where: { id: vehicle.id },
@@ -120,11 +139,12 @@ export async function syncVehicleTelematics(
 
   let event = null;
   if (snapshot.position) {
-    event = await prisma.telematicsEvent.create({
-      data: {
+    event = await prisma.telematicsEvent.upsert({
+      where: { tenantId_providerId_providerEventId: { tenantId: input.tenantId, providerId: mapping.providerId, providerEventId: snapshot.providerReference } },
+      create: {
         tenantId: input.tenantId,
         vehicleId: vehicle.id,
-        source: "PROVIDER",
+        source: mapping.source === "SYNTHETIC" ? "SYNTHETIC" : "PROVIDER",
         latitude: snapshot.position.latitude,
         longitude: snapshot.position.longitude,
         speedKmh: snapshot.position.speedKmh,
@@ -133,7 +153,20 @@ export async function syncVehicleTelematics(
         odometerKm: snapshot.odometerKm,
         recordedAt: snapshot.position.recordedAt,
         providerReference: snapshot.providerReference,
+        trackerMappingId: mapping.id,
+        providerId: mapping.providerId,
+        providerEventId: snapshot.providerReference,
+        collectionMethod: mapping.source === "SYNTHETIC" ? "SIMULATOR" : "POLLING",
+        receivedAt,
+        normalizedAt: receivedAt,
+        freshness,
+        mappingState: "MAPPED",
+        processingStatus: "ACCEPTED",
+        correctionStatus: "ORIGINAL",
+        confidenceLimitations: mapping.source === "SYNTHETIC" ? "Synthetic test data; not observed from a real vehicle." : "Location accuracy was not supplied by the provider contract version used for this event.",
+        isSynthetic: mapping.source === "SYNTHETIC",
       },
+      update: {},
     });
   }
 

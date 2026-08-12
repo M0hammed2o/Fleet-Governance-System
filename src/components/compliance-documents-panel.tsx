@@ -84,7 +84,7 @@ export function ComplianceDocumentsPanel({
       <h2 className="mb-3 text-sm font-semibold text-slate-900">Compliance documents</h2>
 
       <form onSubmit={handleAdd} className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-end">
-        <select value={documentType} onChange={(e) => setDocumentType(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+        <select aria-label="Document type" value={documentType} onChange={(e) => setDocumentType(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
           {DOCUMENT_TYPES_BY_OWNER[ownerType].map((t) => (
             <option key={t} value={t}>
               {t.replace(/_/g, " ")}
@@ -99,6 +99,7 @@ export function ComplianceDocumentsPanel({
         />
         <input
           type="date"
+          aria-label="Expiry date"
           value={expiryDate}
           onChange={(e) => setExpiryDate(e.target.value)}
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"

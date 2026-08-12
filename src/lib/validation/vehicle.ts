@@ -31,8 +31,6 @@ export const createVehicleSchema = z.object({
   licenceDiscExpiry: isoDateToDate.optional(),
   roadworthyExpiry: isoDateToDate.optional(),
   insuranceExpiry: isoDateToDate.optional(),
-  gpsProvider: z.string().trim().max(100).optional(),
-  gpsDeviceReference: z.string().trim().max(100).optional(),
   tyrePositionConfigId: z.string().trim().optional().or(z.literal("")),
 });
 export type CreateVehicleInput = z.infer<typeof createVehicleSchema>;

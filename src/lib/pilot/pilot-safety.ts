@@ -48,6 +48,7 @@ export const PILOT_EXPECTED_COUNTS = {
   exceptions: 4,
   investigations: 2,
   analyticsIndicators: 6,
+  trackerVehicleMappings: 13,
   telematicsEvents: 2,
   manualGpsConfirmations: 1,
 } as const;

@@ -19,6 +19,20 @@ export const resolveManualGpsConfirmationSchema = z.object({
   decision: z.enum(["APPROVED", "DENIED"]),
 });
 
+export const createTrackerMappingSchema = z.object({
+  providerId: z.string().trim().min(1, "Provider identifier is required").max(100).regex(/^[a-z0-9][a-z0-9-]*$/, "Provider identifier must be a lower-case slug"),
+  providerAssetId: z.string().trim().min(1, "Tracker asset identifier is required").max(200),
+  source: z.enum(["SYNTHETIC", "LIVE_PROVIDER"]),
+  effectiveFrom: isoDateTimeToDate,
+  reason: z.string().trim().min(10, "A mapping reason is required").max(1000),
+  correctionOfId: z.string().trim().min(1).optional(),
+});
+
+export const endTrackerMappingSchema = z.object({
+  effectiveTo: isoDateTimeToDate,
+  reason: z.string().trim().min(10, "An end reason is required").max(1000),
+});
+
 export const createGeofenceSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   centerLatitude: z.coerce.number().min(-90).max(90),

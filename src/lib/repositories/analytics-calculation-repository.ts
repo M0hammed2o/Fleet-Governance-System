@@ -70,9 +70,11 @@ function worstDataQuality(values: AnalyticsDataQuality[]): AnalyticsDataQuality 
   return values.reduce((worst, value) => (rank[value] > rank[worst] ? value : worst), "COMPLETE" as AnalyticsDataQuality);
 }
 
-function trackerQuality(providerReference: string | null, source: "PROVIDER" | "MANUAL" | null): AnalyticsDataQuality {
+function trackerQuality(providerReference: string | null, source: "PROVIDER" | "MANUAL" | "SYNTHETIC" | "ESTIMATED" | "UNAVAILABLE" | null): AnalyticsDataQuality {
   if (!source) return "UNAVAILABLE";
   if (source === "MANUAL") return "MANUAL";
+  if (source === "SYNTHETIC") return "MOCK";
+  if (source === "ESTIMATED" || source === "UNAVAILABLE") return "UNAVAILABLE";
   if (!providerReference || /mock|synthetic|demo/i.test(providerReference)) return "MOCK";
   // No production provider is configured in Phase 12. A non-mock provider
   // reference is therefore still incomplete rather than represented as live.

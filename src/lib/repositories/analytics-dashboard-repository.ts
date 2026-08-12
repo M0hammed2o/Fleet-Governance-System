@@ -47,14 +47,16 @@ function bucket(rows: Array<{ date: Date; key: string }>, timeZone: string, kind
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([period, count]) => ({ period, count }));
 }
 
-function trackingQuality(events: Array<{ source: "PROVIDER" | "MANUAL"; providerReference: string | null }>, trackedCount: number): AnalyticsDataQuality {
+function trackingQuality(events: Array<{ source: "PROVIDER" | "MANUAL" | "SYNTHETIC" | "ESTIMATED" | "UNAVAILABLE"; providerReference: string | null }>, trackedCount: number): AnalyticsDataQuality {
   if (trackedCount === 0 || events.length === 0) return "UNAVAILABLE";
   const hasManual = events.some((event) => event.source === "MANUAL");
-  const hasMock = events.some((event) => event.source === "PROVIDER" && (!event.providerReference || /mock|synthetic|demo/i.test(event.providerReference)));
+  const hasMock = events.some((event) => event.source === "SYNTHETIC" || (event.source === "PROVIDER" && (!event.providerReference || /mock|synthetic|demo/i.test(event.providerReference))));
+  const hasUnavailable = events.some((event) => event.source === "ESTIMATED" || event.source === "UNAVAILABLE");
   const hasUnverifiedProvider = events.some((event) => event.source === "PROVIDER" && event.providerReference && !/mock|synthetic|demo/i.test(event.providerReference));
-  if ([hasManual, hasMock, hasUnverifiedProvider].filter(Boolean).length > 1) return "MIXED";
+  if ([hasManual, hasMock, hasUnverifiedProvider, hasUnavailable].filter(Boolean).length > 1) return "MIXED";
   if (hasManual) return "MANUAL";
   if (hasMock) return "MOCK";
+  if (hasUnavailable) return "UNAVAILABLE";
   // Phase 12 has no production provider credentials. Do not call this live.
   return "INCOMPLETE";
 }
@@ -263,7 +265,7 @@ export async function getGovernanceAnalyticsDashboard(session: AuthenticatedSess
       activeCount: tracked.filter((item) => item.gpsStatus === "ACTIVE").length,
       staleOrUnavailableCount: tracked.filter((item) => item.gpsStatus !== "ACTIVE" || !item.gpsLastCommunicationAt).length,
       latestTrackingTimestamp: tracking.map((item) => item.recordedAt).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
-      sourceLabels: [...new Set(tracking.map((item) => item.source === "MANUAL" ? "MANUAL" : !item.providerReference || /mock|synthetic|demo/i.test(item.providerReference) ? "MOCK" : "UNVERIFIED_PROVIDER"))],
+      sourceLabels: [...new Set(tracking.map((item) => item.source === "MANUAL" ? "MANUAL" : item.source === "SYNTHETIC" ? "SYNTHETIC — NOT LIVE" : item.source === "ESTIMATED" ? "ESTIMATED" : item.source === "UNAVAILABLE" ? "UNAVAILABLE" : !item.providerReference || /mock|synthetic|demo/i.test(item.providerReference) ? "MOCK" : "UNVERIFIED_PROVIDER"))],
       limitation: "No production tracker provider is connected. Route deviation is not calculated when route or GPS information is insufficient, and unavailable tracking is never treated as proof of misconduct.",
     },
     indicators,

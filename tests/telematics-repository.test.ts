@@ -30,7 +30,12 @@ async function baseSetup() {
   const supervisor = await createUser({ tenantId: tenant.id, roleId: role.id, email: `${crypto.randomUUID()}@example.test` });
   const driver = await createDriver(tenant.id);
   const vehicle = await createVehicle(tenant.id);
+  await addSyntheticMapping(tenant.id, vehicle.id, user.id, vehicle.id);
   return { tenant, user, supervisor, driver, vehicle };
+}
+
+async function addSyntheticMapping(tenantId: string, vehicleId: string, userId: string, providerAssetId: string) {
+  return prisma.trackerVehicleMapping.create({ data: { tenantId, vehicleId, providerId: "synthetic", providerAssetId, source: "SYNTHETIC", effectiveFrom: new Date("2026-01-01T00:00:00Z"), reason: "Synthetic test mapping for repository verification.", createdByUserId: userId } });
 }
 
 describe("MockTelematicsProvider", () => {
@@ -279,10 +284,21 @@ describe("syncVehicleTelematics (GPS-001/003/006)", () => {
     expect(result.event).not.toBeNull();
   });
 
+  it("does not activate a future-dated mapping or synthesize a live-provider reading", async () => {
+    const { tenant, user } = await baseSetup();
+    const futureVehicle = await createVehicle(tenant.id);
+    await prisma.trackerVehicleMapping.create({ data: { tenantId: tenant.id, vehicleId: futureVehicle.id, providerId: "synthetic", providerAssetId: futureVehicle.id, source: "SYNTHETIC", effectiveFrom: new Date("2999-01-01T00:00:00Z"), reason: "Future synthetic assignment for effective-date testing.", createdByUserId: user.id } });
+    await expect(syncVehicleTelematics({ tenantId: tenant.id, vehicleId: futureVehicle.id, actorUserId: user.id })).rejects.toThrow(/no active mapping|quarantined/i);
+
+    const liveVehicle = await createVehicle(tenant.id);
+    await prisma.trackerVehicleMapping.create({ data: { tenantId: tenant.id, vehicleId: liveVehicle.id, providerId: "unselected-provider", providerAssetId: liveVehicle.id, source: "LIVE_PROVIDER", effectiveFrom: new Date("2026-01-01T00:00:00Z"), reason: "Live boundary must never be backed by the synthetic provider.", createdByUserId: user.id } });
+    await expect(syncVehicleTelematics({ tenantId: tenant.id, vehicleId: liveVehicle.id, actorUserId: user.id })).rejects.toThrow(/synthetic provider cannot/i);
+  });
+
   it("marks the vehicle INACTIVE and flags stale when the provider reports offline (defense-in-depth against trusting stale data)", async () => {
     const { tenant, user } = await baseSetup();
     const vehicle = await createVehicle(tenant.id);
-    await prisma.vehicle.update({ where: { id: vehicle.id }, data: { gpsDeviceReference: `${vehicle.id}:force:offline` } });
+    await addSyntheticMapping(tenant.id, vehicle.id, user.id, `${vehicle.id}:force:offline`);
 
     const result = await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
     expect(result.vehicle.gpsStatus).toBe("INACTIVE");
@@ -293,7 +309,7 @@ describe("syncVehicleTelematics (GPS-001/003/006)", () => {
   it("surfaces a provider failure as a typed error, not a raw 500, and marks the vehicle INACTIVE", async () => {
     const { tenant, user } = await baseSetup();
     const vehicle = await createVehicle(tenant.id);
-    await prisma.vehicle.update({ where: { id: vehicle.id }, data: { gpsDeviceReference: `${vehicle.id}:force:unavailable` } });
+    await addSyntheticMapping(tenant.id, vehicle.id, user.id, `${vehicle.id}:force:unavailable`);
 
     await expect(
       syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id }),
@@ -307,6 +323,7 @@ describe("syncVehicleTelematics (GPS-001/003/006)", () => {
     const { tenant, user } = await baseSetup();
     const driver = await createDriver(tenant.id);
     const vehicle = await createVehicle(tenant.id);
+    await addSyntheticMapping(tenant.id, vehicle.id, user.id, vehicle.id);
     // Approved geofence far from the mock provider's default position.
     const geofence = await createGeofence({ tenantId: tenant.id, name: "Approved Site", centerLatitude: -33.9249, centerLongitude: 18.4241, radiusMeters: 500 });
     const policy = await createVehicleUsePolicy({
@@ -318,8 +335,6 @@ describe("syncVehicleTelematics (GPS-001/003/006)", () => {
       approvedGeofenceId: geofence.id,
     });
     await approveVehicleUsePolicy(tenant.id, policy.id, user.id);
-
-    await prisma.vehicle.update({ where: { id: vehicle.id }, data: { gpsDeviceReference: vehicle.id } }); // default JHB position, outside Cape Town geofence
 
     const result = await syncVehicleTelematics({ tenantId: tenant.id, vehicleId: vehicle.id, actorUserId: user.id });
     expect(result.violations.some((v) => v.type === "OUTSIDE_APPROVED_GEOFENCE")).toBe(true);
@@ -352,7 +367,6 @@ describe("GPS-exception deduplication (Phase 8A) — episode tracking, escalatio
       approvedGeofenceId: geofence.id,
     });
     await approveVehicleUsePolicy(tenant.id, policy.id, user.id);
-    await prisma.vehicle.update({ where: { id: vehicle.id }, data: { gpsDeviceReference: vehicle.id } }); // default JHB position, outside Cape Town geofence
     return { tenant, user, vehicle, policy };
   }
 
