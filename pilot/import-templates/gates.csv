@@ -1,0 +1,3 @@
+tenant_slug,gate_code,site_code,name,direction
+genbridge-synthetic-fleet-pilot,SYN-NORTH-MAIN,SYN-NORTH,Synthetic North Main Gate,BOTH
+genbridge-synthetic-fleet-pilot,SYN-SERVICE-IN,SYN-SERVICE,Synthetic Service Entry,ENTRY

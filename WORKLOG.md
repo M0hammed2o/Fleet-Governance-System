@@ -2364,3 +2364,10 @@ deployments be created.
 - The readiness report intentionally exited 1 in both gates with code foundations ready and the local release blocked: 1 READY, 1 BLOCKED, 4 NOT_CONFIGURED, 3 MOCK_ONLY and 5 MANUAL_CONFIRMATION_REQUIRED. Optional Phase 14A was not started; it remains a separate local-only follow-up because its complete pilot/UAT/training package could not be finished cleanly in the remaining session.
 - **Phase 13A commits.** `146b738` (configuration/readiness/health), `4ecaf30` (database/storage/recovery), `3ba1a8f` (provider contracts), `bee65a6` (security/jobs/retries), `91a2bc9` (CI/container/runbooks), and `721f5a6` (bounded browser fixture hardening), followed by this verification closeout.
 - No deployment, production migration, provider account, real credential/customer data, payment or external message was used.
+
+# 2026-08-12 — Phase 14A local pilot preparation
+
+- Verified the clean Phase 13A baseline at `17874a9`, with all seven reported commits present, no remote and no working-tree changes.
+- Added a fixed local-only synthetic pilot generator/reset/verifier. The first seed produced 2 sites, 4 gates, 10 role users, 15 drivers, 15 vehicles, 30 documents, 9 scenario movements, 2 cases and 4 indicators; it contains zero biometric templates and only `pilot.example.test` addresses.
+- Exercised seed replacement twice, exact-tenant reset, unrelated-tenant preservation and reseed. Boundary verification passed while preserving 14 unrelated local tenants.
+- Added ten dry-run CSV templates and row-specific validation for tenant boundaries, duplicates, required values, non-deliverable addresses, spreadsheet formulas and biometric-column rejection. Eight focused safety/import tests and all ten sample dry-runs passed.

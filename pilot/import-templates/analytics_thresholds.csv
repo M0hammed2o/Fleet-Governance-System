@@ -1,0 +1,2 @@
+tenant_slug,rule_code,minimum_occurrence_count,evaluation_period_days
+genbridge-synthetic-fleet-pilot,SYNTHETIC_PILOT_REVIEW,2,30

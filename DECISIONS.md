@@ -907,3 +907,10 @@ business/vendor decision.
 - D-057: no tracker/email/payment vendor or hosted platform is selected. PayFast/R2/provider names are adapter boundaries, not commercial approval.
 - D-058: production diagnostics are read-only and platform-authorized. Provider accounts, schedules, deployment and migrations can never be created from the readiness page.
 - D-059: patch/minor security updates moved Next.js to 16.3.0 and the Prisma toolchain to 7.9.1 after `npm audit`; no automatic major upgrade was performed.
+
+# Phase 14A decisions (2026-08-12)
+
+- D-060: the pilot is one fixed, visibly synthetic tenant with deterministic IDs. Re-seeding replaces only that exact tenant; reset refuses a mismatched id/name/slug, non-loopback database, non-approved database name, or any production environment.
+- D-061: pilot roles copy the already verified customer-role permission sets without expansion. “Investigation Manager” maps to the established Security Supervisor / Approving Manager and “Internal Auditor” maps to Internal Investigator / Auditor; Phase 14A does not create broader convenience roles.
+- D-062: pilot CSV tooling is dry-run only. It validates tenant identity, duplicates, required fields, non-deliverable addresses, formula prefixes, and forbids biometric columns; a future authorised production importer requires a separate design and approval.
+- D-063: no disposable pilot-only schema is added. Provider degradation, operating hours and department assumptions use existing source-labelled records/configuration plus the UAT catalogue, keeping production history models free of fixture metadata.

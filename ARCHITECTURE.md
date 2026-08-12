@@ -830,3 +830,9 @@ There is no production tracker connection and no route-deviation calculation in 
 # Phase 13A production boundary
 
 The server-only runtime configuration is the single deployment policy boundary. `APP_ENV=production` rejects local/mock providers and test/local databases. Public liveness is process-only, readiness checks essential dependencies without identifiers, and detailed diagnostics require platform `CONFIGURE`. Provider implementations sit behind storage, tracker, transactional-email and payment capability contracts; no repository may silently select a development provider in production. Scheduler invocations use rotated timing-safe tokens plus the database JobRun overlap constraint. Structured diagnostic logs are redacted and remain separate from immutable tenant audit history. The standalone container is stateless; PostgreSQL and private object storage are durable dependencies.
+
+# Phase 14A local pilot architecture
+
+The synthetic pilot reuses the production domain and permission model rather than introducing a pilot code path. A fixed tenant identity owns deterministic local fixtures; role permissions are copied from the canonical seeded customer role definitions without broadening. The generator is destructive only to that exact synthetic tenant and uses a transaction-local audit-trigger bypass solely to remove its own append-only fixture audit rows before the normal tenant cascade. Local evidence files are tenant-prefixed, plainly synthetic text and individually removed after path containment checks.
+
+Pilot imports remain validation-only and cannot mutate the database or send invitations. The UAT catalogue and verification tools are local evidence, not deployment approval. Provider state remains mock/no-op/disabled and source-labelled; no biometric template is generated.

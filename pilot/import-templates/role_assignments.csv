@@ -1,0 +1,3 @@
+tenant_slug,email,role_name
+genbridge-synthetic-fleet-pilot,dispatch@pilot.example.test,Dispatch and Logistics Officer
+genbridge-synthetic-fleet-pilot,security.officer@pilot.example.test,Gate Security Officer

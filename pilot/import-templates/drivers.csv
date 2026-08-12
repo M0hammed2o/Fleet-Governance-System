@@ -1,0 +1,3 @@
+tenant_slug,employee_number,name,email,licence_class
+genbridge-synthetic-fleet-pilot,SYN-D001,Synthetic Driver 01,driver.01@pilot.example.test,C1
+genbridge-synthetic-fleet-pilot,SYN-D011,Synthetic Driver 11,driver.11@pilot.example.test,EC

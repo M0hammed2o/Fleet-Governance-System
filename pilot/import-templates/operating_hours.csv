@@ -1,0 +1,3 @@
+tenant_slug,site_code,day_of_week,opens_at,closes_at
+genbridge-synthetic-fleet-pilot,SYN-NORTH,MONDAY,06:00,20:00
+genbridge-synthetic-fleet-pilot,SYN-NORTH,TUESDAY,06:00,20:00

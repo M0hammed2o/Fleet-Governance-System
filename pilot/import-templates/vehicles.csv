@@ -1,0 +1,3 @@
+tenant_slug,fleet_number,registration_number,vin,category
+genbridge-synthetic-fleet-pilot,SYN-FLT-001,SYN001GP,SYNTHETICVIN00001,LIGHT_COMMERCIAL
+genbridge-synthetic-fleet-pilot,SYN-FLT-014,SYN014GP,SYNTHETICVIN00014,TRAILER
