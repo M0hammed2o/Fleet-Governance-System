@@ -56,4 +56,10 @@ Run `npm run pilot:seed`, `npm run pilot:verify`, `npm run pilot:test-boundaries
 
 ## Phase 15A operations
 
+## Phase 16A mobile operations
+
+The app is online-only. On disconnect, stop critical input, reconnect, refresh authoritative state and inspect audit/event status before retrying; never keep an unofficial queue. A 409 in-progress receipt requires reconciliation, not a new key. Device loss/compromise requires session revocation and incident handling; secure storage does not make an unlocked/rooted device safe.
+
+Keep production mobile auth and trusted origins fail-closed until approved. Evidence failures use only approved synthetic content and must retain no unnecessary copy. Push is disabled. Run `npm run mobile:rc` twice, then complete native device/store checks before any candidate release.
+
 Initialize/validate/export human results only under ignored private storage with the commands in `HUMAN_UAT_EXECUTION_GUIDE.md`; retain accepted pack revisions and never edit their final chronology. For tracker degradation, display source/freshness, quarantine unmapped/invalid events, stop bounded retries, preserve checkpoints/audit, and never infer misconduct. Mapping correction ends the active row then creates a linked replacement; do not delete history. Credential compromise triggers provider disablement/revocation, checkpoint clearance, secret rotation and incident review. Run `tracker:conformance` before any sandbox activation and `staging:check`/`staging:rc` before a separately approved staging change.

@@ -932,3 +932,21 @@ business/vendor decision.
 - D-074: missing provider fields remain unknown and poisoned observations are quarantined. Future mappings
   cannot ingest before their effective date, correction lineage stays on the same vehicle, and synthetic
   adapters are forbidden from populating mappings labelled live.
+
+# Phase 16A decisions (2026-08-12)
+
+- D-075: use React 19, TypeScript, Vite and Capacitor 8 for the native foundation. The evaluated Expo 57 /
+  React Native 0.87 graph had 21 unresolved advisories (14 High) and was removed before commit; Capacitor
+  preserves the existing React model with zero audit findings.
+- D-076: final Android/iOS identifiers remain `MANUAL_CONFIRMATION_REQUIRED`; do not generate native
+  folders, signing state or store artifacts until ownership, privacy and identifiers are approved.
+- D-077: mobile uses the existing revocable Session table through strict bearer tokens. Native tokens live
+  only in Keychain/Keystore secure storage; browser simulation is memory-only.
+- D-078: the server remains authoritative. Navigation uses effective permission capabilities for usability,
+  while every route/repository separately enforces authentication, permission and tenant scope.
+- D-079: mobile gate actions are online-only and idempotent. No general offline queue or success-before-
+  server-confirmation is permitted without a separately approved encrypted conflict/reconciliation design.
+- D-080: notification delivery is derived in-app from currently authorized records and stores only user read
+  state. APNS, FCM, email, SMS and messaging remain disabled.
+- D-081: mobile CORS accepts only exact approved `MOBILE_TRUSTED_ORIGINS`; production native password auth
+  remains disabled until explicitly configured. Wildcard origins and invented OAuth credentials are barred.

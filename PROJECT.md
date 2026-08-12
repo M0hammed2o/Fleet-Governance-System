@@ -98,3 +98,14 @@ The repository now includes a guarded deterministic 15-vehicle synthetic tenant,
 # Phase 15A provider-independent staging preparation (2026-08-12)
 
 Provider-neutral tracker simulation/conformance, effective-dated mapping/provenance, a separate validated 27-case human-UAT execution pack, staging validation/release design, redacted configuration inventory and provider/business decision packages are implemented locally. There are 29 migrations. No provider facts were invented and no external connection, message, account, resource, credential, real data or deployment was used. Production and staging readiness intentionally remain fail-closed pending the recorded external decisions.
+
+# Phase 16A mobile foundation (2026-08-12)
+
+A local Android/iOS foundation now exists under `apps/mobile` using React, TypeScript, Vite and Capacitor,
+with shared API/types/UI packages. It reuses authoritative backend sessions, effective permissions, tenant
+scope, audit, gate/media/movement/tracker/reconciliation rules and adds bounded Bearer mobile APIs,
+idempotency receipts, an in-app notification centre, guard workflows and an executive summary/approval
+experience. The app is online-only, synthetic and not published. Final identifiers, native project
+generation, production authentication/origins, signing, device testing, push, privacy/store decisions and
+every Phase 13–15 external blocker remain `MANUAL_CONFIRMATION_REQUIRED`. See
+`PHASE16A_MOBILE_READINESS_REPORT.md`.

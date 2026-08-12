@@ -496,3 +496,17 @@ requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Obtain official provider docs, sandbox, authorization, privacy/security/commercial evidence and make one approved adapter conform.
 - [ ] Name owners and perform genuine human UAT; no result is currently accepted.
 - [ ] Approve/create staging only in a separately authorized phase; current `staging:check` must remain blocked.
+
+# Phase 16A completion and blockers
+
+- [x] Capacitor Android/iOS workspace, shared API/types/UI, secure-session boundary and release bundle.
+- [x] Tenant-scoped bearer APIs, database idempotency, guard workflows, owner overview/approval and in-app notifications.
+- [x] Synthetic evidence, tracker provenance, connectivity denial, permission/deep-link controls and responsive browser verification.
+- [x] Migration 30 applied locally and included in clean replay/restore verification.
+- [ ] MANUAL_CONFIRMATION_REQUIRED: Android/iOS identifiers, deep-link scheme, release ownership and signing custody.
+- [ ] Approve HTTPS API/native origins and production identity; keep password auth disabled meanwhile.
+- [ ] Complete privacy/store declarations, device policies and independent mobile security review.
+- [ ] Generate native projects only after identifiers; test Android and macOS/Xcode iOS with synthetic accounts.
+- [ ] Decide push provider/token lifecycle or retain in-app-only notifications.
+- [ ] Approve encrypted conflict resolution before any offline mutation queue claim.
+- [ ] Add detailed owner drill-down only where mobile value and canonical permissions justify it; web remains authoritative.

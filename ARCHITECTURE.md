@@ -846,3 +846,19 @@ Candidate verification composes existing independent commands in `scripts/releas
 `TrackerVehicleMapping` is the authoritative effective-dated assignment. Partial unique indexes permit one active vehicle and asset mapping per tenant; composite foreign keys bind vehicles/actors to that tenant. End/correction preserves rows and linked events. Unmapped/ambiguous input is quarantined. Mutation requires `telematics:CONFIGURE`, records an audit-safe asset fingerprint and keeps raw IDs out of ordinary reads. Only unambiguous legacy rows are backfilled; old vehicle fields are a compatibility projection.
 
 `TelematicsEvent` retains provider event, receipt and normalization times, source/collection method, freshness, accuracy, mapping/processing/correction state, confidence limitations and a synthetic flag. UI distinguishes provider, delayed, manual, estimated, synthetic and unavailable states. Human UAT catalogue/results are separate: the local pack binds to the catalogue digest and uses chronological role-constrained events with final snapshot immutability. Staging is a fourth `APP_ENV`, production-like for HTTPS/database/TLS/secrets/storage but synthetic/disabled for external providers pending approvals.
+
+# Phase 16A mobile architecture
+
+`apps/mobile` packages a React/Vite client through Capacitor 8; `packages/api-client`, `shared-types` and
+`mobile-ui` keep transport contracts and mobile presentation separate from the Next server. No second
+backend or database exists. Native tokens use Keychain/Keystore secure storage, browser simulation uses
+memory, and gate form/gate assignment state is not persisted across launch. The server accepts strict
+Bearer tokens against the same revocable `Session` table, derives effective permissions including active
+delegation/overrides, scopes every repository call by tenant and exposes safe tracker projections only.
+
+Mutation receipts bind tenant, user, key, operation and request digest; exact completed retries replay,
+conflicts/in-progress actions fail closed. Notification content is reconstructed from authorized tenant
+records while only per-user read keys are stored. Exact `MOBILE_TRUSTED_ORIGINS` enables native CORS; absent
+production auth/origin configuration remains blocked. Connectivity is online-only with no mutation queue.
+Private evidence reuses `MediaAsset`; no GPS, public URL, direct provider or biometric implementation is
+introduced. Full details and the endpoint matrix are in `MOBILE_APPLICATION_ARCHITECTURE.md`.

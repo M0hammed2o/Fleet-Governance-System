@@ -91,4 +91,8 @@ Phase 14A adds no migration and deploys nothing. `pilot:seed`, `pilot:reset`, `p
 
 # Phase 15A staging boundary
 
+Phase 16A adds an unsigned local Capacitor bundle and migration 30 for mobile receipts/read state; nothing was deployed or published. A future migration follows the normal reviewed forward/backup process and rollback uses compatible application rollback plus forward correction—never edited SQL or dropped history.
+
+Native generation stays blocked until Android/iOS identifiers are approved. Production requires HTTPS `VITE_API_BASE_URL`, exact `MOBILE_TRUSTED_ORIGINS`, approved auth/redirects, privacy/store material, managed signing, Android SDK/JDK and macOS/Xcode for iOS. No signing secret belongs in Git. `mobile:export` is not an APK/AAB/IPA. Follow `MOBILE_RELEASE_CHECKLIST.md`.
+
 `STAGING_ENVIRONMENT_PLAN.md` is design only. `APP_ENV=staging` validates hosted HTTPS, explicitly staging-named managed PostgreSQL URLs, TLS, strong secrets, durable private storage and isolated/disabled providers. `npm run staging:check` remains non-zero until manual approvals/evidence exist; `npm run staging:rc` is a local non-deploying verification gate. Migrations 28–29 add mapping/provenance and hard constraints/backfill. Apply later only via reviewed `prisma migrate deploy`; rollback is compatible application rollback plus forward correction, never editing applied SQL or deleting mapping/event history.

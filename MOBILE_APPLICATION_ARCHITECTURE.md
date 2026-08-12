@@ -39,7 +39,7 @@ approved. `capacitor.config.ts` fails closed without `MOBILE_APP_ID`.
 
 The hash-based internal router supports deterministic Capacitor app links without open redirects. Deep
 links pass a capability policy before a screen renders and then encounter server authorization on data
-load. Guard areas are exposed only with `gateEvent:VIEW` + `CREATE`; owner overview requires canonical
+load. Guard areas are exposed only with `gateEvent:VIEW` + `CREATE` + `EDIT`; owner overview requires canonical
 analytics visibility or movement approval. Investigation summaries require `investigationCase:VIEW` and do
 not include confidential content. In-memory component state holds form input and the current gate choice.
 There is no offline transaction queue or cross-launch form persistence.
@@ -52,6 +52,10 @@ idempotency key. The database stores operation and request digests plus a safe c
 retry returns that response, while changed content or an in-progress duplicate returns 409. Timeouts and
 network failures are retryable; 401 clears the local session. Server errors are generic and logging uses the
 existing redaction boundary.
+
+The remote native API is cross-origin from its WebView. `MOBILE_TRUSTED_ORIGINS` is an exact allowlist for
+Capacitor/HTTP(S) origins; the API proxy handles bounded preflight and response headers only for a match.
+Production remains unusable until an approved origin is configured. Wildcards are not supported.
 
 ## Evidence and facial verification
 

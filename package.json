@@ -44,6 +44,7 @@
     "mobile:config:validate": "tsx scripts/validate-mobile-config.ts",
     "mobile:export": "npm run export --workspace @genbridge/mobile",
     "mobile:preview": "npm run export --workspace @genbridge/mobile && npm run preview --workspace @genbridge/mobile",
+    "mobile:rc": "node scripts/phase16a-mobile-release-check.mjs",
     "job": "node scripts/run-job.mjs"
   },
   "dependencies": {

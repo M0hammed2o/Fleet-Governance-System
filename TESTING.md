@@ -759,3 +759,9 @@ exited 1 under full-gate load. Its immediate standalone rerun passed all 858 tes
 the final count was restarted and both gates above then passed. Known non-failing output remains BUG-010's
 upstream Prisma PostgreSQL adapter warning plus browser-server listener/MediaPipe diagnostics; none affected
 assertions or data correctness.
+
+# Phase 16A mobile verification scope
+
+`MOBILE_TESTING.md` records focused commands and native limitations. `npm run mobile:test` runs 5 files / 13 tests; Playwright adds 4 rendered Capacitor-web journeys for guard success, guard exception, owner approval and security/responsive/connectivity boundaries at 360×640, 430×932, 844×390, 768×1024 and 1024×768. Mobile TypeScript, lint, config and export are independent gates.
+
+`npm run mobile:rc` includes established web/backend coverage, 30-migration replay/restore, build, pilot/UAT/tracker checks, all Playwright, audit/secret/package checks, expected blocked production/staging readiness, performance and non-root Docker liveness. No native emulator/simulator/device result is claimed.

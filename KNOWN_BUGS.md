@@ -425,3 +425,11 @@ seconds; assertion budgets were not broadened.
 BUG-010 remains Low/upstream: the existing Prisma PostgreSQL adapter test warning is not suppressed and has
 not affected assertions/data correctness. Provider interoperability, hosted capacity and real webhook/
 legal/commercial suitability remain explicit external evidence gaps, not claimed defects.
+
+# Phase 16A mobile findings
+
+No unresolved Critical or High Phase 16A defect is known. The initial Expo/React Native candidate was rejected—not shipped—after npm reported 21 advisories (14 High, 7 Moderate) without a compatible fixed graph. The committed Capacitor graph audits at zero.
+
+MOBILE-DEF-001 (High if released) found browser `fetch` invoked with the API client as `this`; it is now bound to `globalThis`. MOBILE-DEF-002 (High availability) found exact `home`, `guard` and `owner` routes omitted while child routes were allowed; exact roots are now tested. MOBILE-DEF-003 (High release boundary) found native CORS absent and trusted cross-site origins rejected too early; exact `MOBILE_TRUSTED_ORIGINS`, bounded CORS and trusted-origin precedence now pass.
+
+Known limitations are no native build/device verification, final identifiers, production auth, push, offline mutations, automatic EXIF stripping, native upload cancellation/background resume or detailed owner drill-down. BUG-010 remains the known Low upstream warning.
