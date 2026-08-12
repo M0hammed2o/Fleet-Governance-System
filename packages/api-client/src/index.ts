@@ -67,14 +67,18 @@ function safeBaseUrl(value: string): string {
 
 export class GenbridgeMobileClient {
   private readonly baseUrl: string;
+  private readonly fetcher: typeof fetch;
 
   constructor(
     baseUrl: string,
     private readonly tokens: SessionTokenStore,
     private readonly connectivity: ConnectivityState,
-    private readonly fetcher: typeof fetch = fetch,
+    fetcher: typeof fetch = fetch,
   ) {
     this.baseUrl = safeBaseUrl(baseUrl);
+    // Browser fetch is a host function and must not receive the client instance
+    // as its implicit `this` value when stored behind an object boundary.
+    this.fetcher = fetcher.bind(globalThis);
   }
 
   private async request<T>(

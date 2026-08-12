@@ -40,9 +40,10 @@
     "security:scan": "node scripts/verify-no-secrets.mjs",
     "mobile:typecheck": "tsc --noEmit -p apps/mobile/tsconfig.json",
     "mobile:lint": "eslint apps/mobile packages/api-client packages/mobile-ui packages/shared-types",
-    "mobile:test": "vitest run tests/mobile-*.test.ts",
+    "mobile:test": "vitest run tests/mobile-api-client.test.ts tests/mobile-api-contract.test.ts tests/mobile-idempotency.test.ts tests/mobile-security-foundation.test.ts tests/mobile-session-storage.test.ts",
     "mobile:config:validate": "tsx scripts/validate-mobile-config.ts",
     "mobile:export": "npm run export --workspace @genbridge/mobile",
+    "mobile:preview": "npm run export --workspace @genbridge/mobile && npm run preview --workspace @genbridge/mobile",
     "job": "node scripts/run-job.mjs"
   },
   "dependencies": {

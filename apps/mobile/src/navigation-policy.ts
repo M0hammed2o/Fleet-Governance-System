@@ -25,11 +25,13 @@ export function authorizeDeepLink(
   bootstrap: MobileBootstrapResponse,
 ): boolean {
   const normalized = path.split("?")[0].replace(/^\//, "");
-  if (!normalized || normalized === "login") return true;
-  if (normalized.startsWith("guard/")) return bootstrap.capabilities.guard;
+  if (!normalized || normalized === "login" || normalized === "home")
+    return true;
+  if (normalized === "guard" || normalized.startsWith("guard/"))
+    return bootstrap.capabilities.guard;
   if (normalized.startsWith("owner/investigations/"))
     return bootstrap.capabilities.investigations;
-  if (normalized.startsWith("owner/"))
+  if (normalized === "owner" || normalized.startsWith("owner/"))
     return bootstrap.capabilities.ownerOverview;
   return normalized === "notifications" || normalized === "profile";
 }
