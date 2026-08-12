@@ -1,8 +1,10 @@
 import "server-only";
 import crypto from "node:crypto";
 
-export const TRACKER_PROVIDER_IDS = ["cartrack", "netstar", "tracker", "ctrack", "mix-powerfleet", "synthetic"] as const;
-export type TrackerProviderId = (typeof TRACKER_PROVIDER_IDS)[number];
+// Provider IDs are opaque adapter identifiers. Keeping this type open prevents
+// the application contract from assuming a vendor or requiring core changes
+// when an approved provider is eventually selected.
+export type TrackerProviderId = string;
 
 export type TrackerCapability =
   | "LATEST_POSITION"
@@ -19,8 +21,12 @@ export type TrackerCapability =
   | "WEBHOOKS"
   | "POLLING";
 
-export type TrackerDataSource = "MOCK" | "LIVE" | "MANUAL" | "UNAVAILABLE";
+export type TrackerDataSource = "SYNTHETIC" | "LIVE" | "MANUAL" | "UNAVAILABLE";
 export type TrackerFreshness = "FRESH" | "STALE" | "UNAVAILABLE";
+export type TrackerCollectionMethod = "POLLING" | "WEBHOOK" | "MANUAL" | "SIMULATOR";
+export type TrackerMappingState = "MAPPED" | "UNMAPPED" | "AMBIGUOUS" | "REVOKED";
+export type TrackerProcessingStatus = "ACCEPTED" | "DUPLICATE" | "QUARANTINED" | "REJECTED";
+export type TrackerCorrectionStatus = "ORIGINAL" | "CORRECTED" | "SUPERSEDED";
 export type TrackerErrorClassification = "AUTHENTICATION" | "AUTHORIZATION" | "RATE_LIMIT" | "TIMEOUT" | "UNAVAILABLE" | "INVALID_RESPONSE" | "REVOKED" | "UNSUPPORTED";
 
 export interface TrackerConnectionContext {
@@ -47,15 +53,26 @@ export interface TrackerPosition {
   longitude: number;
   gpsTimestamp: Date;
   lastCommunicationAt: Date;
-  online: boolean;
+  online: boolean | null;
   ignitionOn: boolean | null;
   moving: boolean | null;
   speedKmh: number | null;
   headingDegrees: number | null;
   odometerKm: number | null;
+  accuracyMeters: number | null;
+  driverReference?: string | null;
   fuelPercent?: number | null;
   diagnosticCodes?: string[];
   source: TrackerDataSource;
+  collectionMethod: TrackerCollectionMethod;
+  receivedAt: Date;
+  normalizedAt: Date;
+  freshness: TrackerFreshness;
+  mappingState: TrackerMappingState;
+  processingStatus: TrackerProcessingStatus;
+  correctionStatus: TrackerCorrectionStatus;
+  confidenceLimitations: string[];
+  synthetic: boolean;
 }
 
 export interface TrackerPage<T> {
@@ -168,7 +185,7 @@ export async function callTrackerWithPolicy<T>(input: {
 
 export class SyntheticTrackerAdapter implements TrackerProviderAdapter {
   readonly providerId = "synthetic" as const;
-  readonly source = "MOCK" as const;
+  readonly source = "SYNTHETIC" as const;
   private revoked = new Set<string>();
   private credentialVersions = new Map<string, number>();
   private checkpoints = new Map<string, string>();
@@ -192,7 +209,7 @@ export class SyntheticTrackerAdapter implements TrackerProviderAdapter {
     void request;
     this.assertActive(connection);
     const now = new Date("2026-08-11T12:00:00.000Z");
-    return { providerAssetId, latitude: -26.2041, longitude: 28.0473, gpsTimestamp: now, lastCommunicationAt: now, online: true, ignitionOn: true, moving: true, speedKmh: 42, headingDegrees: 90, odometerKm: 12_345, source: "MOCK" };
+    return { providerAssetId, latitude: 0.123456, longitude: 0.654321, gpsTimestamp: now, lastCommunicationAt: now, online: true, ignitionOn: true, moving: true, speedKmh: 42, headingDegrees: 90, odometerKm: 12_345, accuracyMeters: 8, driverReference: "SYNTHETIC-DRIVER-001", source: "SYNTHETIC", collectionMethod: "SIMULATOR", receivedAt: now, normalizedAt: now, freshness: "FRESH", mappingState: "MAPPED", processingStatus: "ACCEPTED", correctionStatus: "ORIGINAL", confidenceLimitations: ["Synthetic test data; not observed from a real vehicle."], synthetic: true };
   }
   async listEvents(connection: TrackerConnectionContext, capability: TrackerCapability, cursor: string | null, pageSize: number, request: TrackerRequestContext): Promise<TrackerPage<TrackerEvent>> {
     void cursor;

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type {
   TelematicsProvider,
   TelematicsConnectionResult,
@@ -6,10 +7,10 @@ import type {
 } from "@/lib/telematics/provider";
 import { TelematicsProviderUnavailableError } from "@/lib/telematics/provider";
 
-// Roughly central Johannesburg — a plausible, fixed fictional default
-// position, not a real tracked location.
-const DEFAULT_LATITUDE = -26.2041;
-const DEFAULT_LONGITUDE = 28.0473;
+// Deliberately artificial coordinates that are recognisable as test data,
+// not a plausible real tracked location.
+const DEFAULT_LATITUDE = 0.123456;
+const DEFAULT_LONGITUDE = 0.654321;
 
 /**
  * Deterministic dev/test provider — no real vendor connection. Behaviour is
@@ -37,7 +38,7 @@ export class MockTelematicsProvider implements TelematicsProvider {
       throw new TelematicsProviderUnavailableError("Mock provider forced unavailability.");
     }
 
-    const providerReference = `mock-${providerVehicleId}-${Date.now()}`;
+    const providerReference = `mock-${providerVehicleId}-${Date.now()}-${crypto.randomUUID()}`;
 
     if (providerVehicleId.includes("force:offline")) {
       return {
