@@ -44,3 +44,7 @@ Monitoring remains provider-neutral. A future service must ingest structured JSO
 Existing category policies, evidence/investigation/legal holds, two-person deletion, recovery windows, export expiry, tombstones and audit history remain. Production decisions still require Information Officer confirmation, PAIA manual status, lawful bases/notices, data-subject workflow, breach contacts, final category/location/notification/billing/audit/backup retention periods, provider deletion propagation, backup expiry, offboarding evidence, and cross-border processing. Safe defaults are not legal advice and remain `MANUAL_CONFIRMATION_REQUIRED`.
 
 The pilot requires approved synthetic-to-real data transition, support owner, incident contacts, tenant/site/gate/roles, training/UAT sign-off, provider selections, backup restore evidence, monitoring alerts and release approval. No real customer data should enter the system before these checks are complete.
+
+## Phase 14A local evidence
+
+The local package can be exercised with `npm run pilot:rc`; its expected production-readiness exit is 1 because durable storage, real tracker/email/payment, scheduler/monitoring, deployment identity, legal confirmations and named approvals are absent. The synthetic tenant and UAT documents prove engineering behavior only. Do not change readiness classifications to make the candidate appear green: resolve every external blocker with approved facts and configuration, then rerun the production checker in the separately authorised target environment.

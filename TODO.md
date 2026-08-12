@@ -477,3 +477,13 @@ requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Confirm Information Officer, PAIA manual, privacy/lawful-basis notices, DPAs, breach contacts and final retention/backup/offboarding periods.
 - [ ] Configure production secrets, alerts, backups and restore evidence; make `production:check` exit zero.
 - [ ] Approve pilot owner/support/UAT/training/rollback package and real-data transition. Optional Phase 14A remains next after Phase 13A verification.
+
+# Phase 14A local completion and remaining real-pilot blockers
+
+- [x] Guarded deterministic synthetic pilot seed/reset/verify and unrelated-tenant boundary proof.
+- [x] Ten dry-run import templates, 27 machine-validated UAT cases, role matrix, onboarding checklist, seven training guides, support rehearsals and defect register.
+- [x] Pilot-specific browser isolation/responsive/accessibility/disconnection checks and local release-candidate/container commands.
+- [ ] MANUAL_CONFIRMATION_REQUIRED: named customer/pilot/support/security/privacy owners, authorised representative, sites/gates/assets/drivers/users, operating hours, approval chains, thresholds and training/UAT signatories.
+- [ ] MANUAL_CONFIRMATION_REQUIRED: Information Officer, lawful bases/notices (especially location and any future biometrics), PAIA/DPA/cross-border position, retention/backup/offboarding periods, breach contacts and legal acceptance.
+- [ ] Select and approve hosting, durable database/storage, monitoring/scheduler, tracker, email and payment providers; supply contracts, sandbox evidence and credentials only under a separately authorised production phase.
+- [ ] Do not transition from synthetic to real data until `production:check` exits zero and the business, security/privacy and rollback gates are signed.

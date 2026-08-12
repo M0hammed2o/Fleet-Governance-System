@@ -51,3 +51,14 @@
 - [ ] Logs/alerts/correlation IDs arrive redacted; backup monitoring is healthy.
 
 If any security, isolation, migration, backup, provider-authenticity or data-integrity check fails, stop/roll back under `OPERATIONS_RUNBOOK.md`. Never weaken a control to complete a release.
+
+## Phase 14A local pilot acceptance (not deployment approval)
+
+- [ ] `npm run pilot:rc` passes twice from the same clean commit; expected blocked production readiness is recorded.
+- [ ] `npm run pilot:docker:smoke` confirms the disposable image runs non-root and returns minimal liveness.
+- [ ] Synthetic counts/invariants, idempotent reset and preservation of unrelated tenants pass.
+- [ ] All ten import templates and all 27 UAT catalogue entries validate.
+- [ ] Pilot Playwright and the established dispatch/gate/reconciliation, investigation, analytics, external-audit, billing and readiness workflows pass.
+- [ ] No Critical/High pilot defect is open; accepted Medium/Low risks have an owner/expiry.
+- [ ] Role guides, onboarding checklist, support rehearsals, evidence rules, online-only limitation and rollback criteria are reviewed.
+- [ ] Named owners, real pilot facts, legal/POPIA decisions, providers, credentials and human UAT/sign-off remain `MANUAL_CONFIRMATION_REQUIRED` until actually supplied.

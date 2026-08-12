@@ -49,3 +49,7 @@ Confirm the synthetic pilot dataset, named support/on-call owner, escalation con
 - Confirm last successful backup and restore-drill evidence in the external backup system.
 - Review storage expiry/holds, tracker freshness, failed email attempts, unresolved billing events and active incidents.
 - Re-run `npm run production:check` after every configuration or provider change.
+
+## Local pilot rehearsal commands
+
+Run `npm run pilot:seed`, `npm run pilot:verify`, `npm run pilot:test-boundaries`, `npm run pilot:imports:validate` and `npm run pilot:uat:validate` before a UAT session. `npm run pilot:rc` performs the full non-deploying candidate gate and writes its sanitized summary beneath ignored `.data`; `npm run pilot:docker:smoke` builds a disposable image, confirms the non-root user/liveness and removes only its own fixed smoke container. The detailed lockout, device, network, provider, job, database, evidence, mapping, reconciliation, disclosure, revocation, compromise, breach, restore, rollback and offboarding rehearsals are in `PILOT_SUPPORT_GUIDE.md`. The current gate workflow is online-only: reconnect, reload authoritative state and reconcile before retrying; never keep a shadow paper/digital queue unless the business separately approves its process and later reconciliation controls.

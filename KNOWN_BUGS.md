@@ -405,3 +405,7 @@ worker during a full suite run, unrelated to BUG-004 above (traced separately â€
 - Actual result before fix: the production dashboard correctly returned its bounded 100-row window, so the title locator could wait until the workflow timeout even though the fixture existed.
 - Status: fixed â€” 2026-08-11. The workflow still verifies dashboard loading/filter reset, then navigates to the newly inserted fixture using the ID returned by its deterministic setup helper.
 - Fix verification: the analytics workflow and the investigation workflow that followed the prior timeout passed together (2/2) in 3.4 minutes.
+
+# Phase 14A pilot findings (2026-08-12)
+
+PILOT-DEF-001 (Medium) found the investigation table widening a 390px document by 50px; the table is now in a local horizontal container and page/filter/header layouts wrap. PILOT-DEF-002 (Medium) found an unhandled gate-list rejection when disconnection raced initial load; it now produces a user-facing alert and recovery reload. Both passed the pilot Chromium retest. No Critical or High pilot defect is open; details remain in `PILOT_DEFECT_REGISTER.md`. The current online-only boundary and lack of an installable PWA are known product limitations, not hidden defects.
