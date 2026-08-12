@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 
-const image = "genbridge-governance:phase14a-local";
-const container = "genbridge-phase14a-smoke";
+const image = "genbridge-governance:phase15a-local";
+const container = "genbridge-phase15a-smoke";
 let created = false;
+const windowsDocker = "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe";
+const dockerExecutable = process.platform === "win32" && fs.existsSync(windowsDocker) ? windowsDocker : "docker";
 
 function docker(args, stdio = "inherit") {
-  return spawnSync("docker", args, { stdio, encoding: stdio === "pipe" ? "utf8" : undefined });
+  return spawnSync(dockerExecutable, args, { stdio, encoding: stdio === "pipe" ? "utf8" : undefined });
 }
 
 function requireSuccess(label, result) {

@@ -88,3 +88,7 @@ Use `PRODUCTION_READINESS_AND_PROVIDER_INTEGRATIONS.md`, `OPERATIONS_RUNBOOK.md`
 # Phase 14A deployment boundary
 
 Phase 14A adds no migration and deploys nothing. `pilot:seed`, `pilot:reset`, `pilot:test-boundaries`, `pilot:rc` and `pilot:docker:smoke` are local-only tools. Never run the synthetic generator as a substitute for production onboarding and never copy its accounts, password, media or UAT evidence into a hosted tenant. A real pilot requires a clean production checker, approved infrastructure/providers, controlled migration/backup evidence, named owners, completed human UAT and signed privacy/security/business acceptance. Rollback during local UAT is exact synthetic-tenant reset plus return to the last verified commit; a future real pilot needs its own approved data-preserving plan.
+
+# Phase 15A staging boundary
+
+`STAGING_ENVIRONMENT_PLAN.md` is design only. `APP_ENV=staging` validates hosted HTTPS, explicitly staging-named managed PostgreSQL URLs, TLS, strong secrets, durable private storage and isolated/disabled providers. `npm run staging:check` remains non-zero until manual approvals/evidence exist; `npm run staging:rc` is a local non-deploying verification gate. Migrations 28–29 add mapping/provenance and hard constraints/backfill. Apply later only via reviewed `prisma migrate deploy`; rollback is compatible application rollback plus forward correction, never editing applied SQL or deleting mapping/event history.

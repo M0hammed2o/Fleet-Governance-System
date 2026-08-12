@@ -59,12 +59,22 @@ jobs:
       - run: npm run pilot:seed
       - run: npm run pilot:verify
       - run: npm run pilot:uat:validate
+      - run: npm run tracker:conformance
+      - run: npm run pilot:uat:execution:init -- .data/ci-uat-execution.json
+      - run: npm run pilot:uat:execution:validate -- .data/ci-uat-execution.json
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - name: Confirm readiness checker remains fail-closed without production providers
         run: |
           set +e
           npm run production:check
+          readiness_exit=$?
+          set -e
+          test "$readiness_exit" -eq 1
+      - name: Confirm staging checker remains fail-closed without approvals
+        run: |
+          set +e
+          npm run staging:check
           readiness_exit=$?
           set -e
           test "$readiness_exit" -eq 1

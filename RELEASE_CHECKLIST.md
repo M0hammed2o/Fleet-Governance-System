@@ -62,3 +62,13 @@ If any security, isolation, migration, backup, provider-authenticity or data-int
 - [ ] No Critical/High pilot defect is open; accepted Medium/Low risks have an owner/expiry.
 - [ ] Role guides, onboarding checklist, support rehearsals, evidence rules, online-only limitation and rollback criteria are reviewed.
 - [ ] Named owners, real pilot facts, legal/POPIA decisions, providers, credentials and human UAT/sign-off remain `MANUAL_CONFIRMATION_REQUIRED` until actually supplied.
+
+## Phase 15A non-deploying staging candidate
+
+- [ ] Approved immutable commit, clean tree and 29-migration forward/rollback plan recorded.
+- [ ] `tracker:conformance`, simulator/mapping/provenance/security tests and all 27 rehearsal classifications pass.
+- [ ] UAT catalogue and separately initialized execution pack validate; human results/sign-off remain unclaimed.
+- [ ] `staging:check` and `production:check` remain accurately blocked until every external approval is evidenced.
+- [ ] Synthetic-only data, email/payment/tracker isolation, secrets inventory and no-real-data checks reviewed.
+- [ ] `staging:rc` passes twice, including empty replay, restore, build, Playwright, audit, secret scan and non-root container health.
+- [ ] Provider matrix/questionnaire/non-response contingency and business/legal decision register reviewed; no draft was sent.

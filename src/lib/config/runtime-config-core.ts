@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const DEPLOYMENT_ENVIRONMENTS = ["development", "test", "production"] as const;
+export const DEPLOYMENT_ENVIRONMENTS = ["development", "test", "staging", "production"] as const;
 export type DeploymentEnvironment = (typeof DEPLOYMENT_ENVIRONMENTS)[number];
 
 export const STORAGE_PROVIDERS = ["local", "r2"] as const;
@@ -9,6 +9,7 @@ export const EMAIL_PROVIDERS = ["noop", "mock", "dev-console", "transactional"] 
 export const TRACKER_PROVIDERS = [
   "disabled",
   "mock",
+  "synthetic",
   "cartrack",
   "netstar",
   "tracker",
@@ -98,6 +99,13 @@ const schema = z.object({
   PAIA_MANUAL_CONFIRMED: booleanValue(false),
   PILOT_APPROVED: booleanValue(false),
   PILOT_SUPPORT_OWNER: optionalString,
+  STAGING_APPROVED_COMMIT: optionalString,
+  STAGING_RELEASE_APPROVED: booleanValue(false),
+  STAGING_ROLLBACK_OWNER: optionalString,
+  STAGING_SYNTHETIC_DATA_CONFIRMED: booleanValue(false),
+  STAGING_EXTERNAL_EMAIL_DISABLED: booleanValue(false),
+  STAGING_PAYMENT_DISABLED_OR_SANDBOX: booleanValue(false),
+  STAGING_TRACKER_SANDBOX_ISOLATED: booleanValue(false),
 });
 
 export type RuntimeConfiguration = z.infer<typeof schema>;
@@ -140,7 +148,7 @@ function validateProductionDatabase(variable: string, value: string | undefined,
     return;
   }
   if (LOCAL_HOSTS.has(parsed.hostname.toLowerCase())) {
-    issues.push(issue(variable, "must not target a loopback/local development host in production"));
+    issues.push(issue(variable, "must not target a loopback/local development host in a hosted environment"));
   }
   if (/(^|[_-])(test|dev|local)([_-]|$)/i.test(parsed.pathname.replace(/^\//, ""))) {
     issues.push(issue(variable, "must not target a database whose name is marked test/dev/local"));
@@ -193,29 +201,30 @@ export function validateRuntimeConfiguration(input: RuntimeEnvironmentInput): Ru
     }
   }
 
-  if (config.APP_ENV === "production") {
+  if (config.APP_ENV === "staging" || config.APP_ENV === "production") {
+    const environmentLabel = config.APP_ENV;
     const appUrl = safeUrl(config.APP_BASE_URL);
     if (!appUrl || appUrl.protocol !== "https:" || LOCAL_HOSTS.has(appUrl.hostname.toLowerCase())) {
-      issues.push(issue("APP_BASE_URL", "must be a non-local HTTPS URL in production"));
+      issues.push(issue("APP_BASE_URL", `must be a non-local HTTPS URL in ${environmentLabel}`));
     }
     validateProductionDatabase("DATABASE_URL", config.DATABASE_URL, issues);
     validateProductionDatabase("DIRECT_DATABASE_URL", config.DIRECT_DATABASE_URL, issues);
     if (!["require", "verify-full"].includes(config.DATABASE_SSL_MODE)) {
-      issues.push(issue("DATABASE_SSL_MODE", "must require TLS in production"));
+      issues.push(issue("DATABASE_SSL_MODE", `must require TLS in ${environmentLabel}`));
     }
     validateSecret("SESSION_SECRET", config.SESSION_SECRET, issues);
     validateSecret("MEDIA_URL_SIGNING_SECRET", config.MEDIA_URL_SIGNING_SECRET, issues);
     validateSecret("BIOMETRIC_TEMPLATE_ENCRYPTION_KEY", config.BIOMETRIC_TEMPLATE_ENCRYPTION_KEY, issues);
     validateSecret("JOB_SCHEDULER_TOKEN", config.JOB_SCHEDULER_TOKEN, issues);
     if (config.STORAGE_PROVIDER === "local") {
-      issues.push(issue("STORAGE_PROVIDER", "production evidence cannot use the local filesystem provider"));
+      issues.push(issue("STORAGE_PROVIDER", `${environmentLabel} evidence cannot use the local filesystem provider`));
     }
     if (config.STORAGE_PROVIDER === "r2") {
       for (const variable of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"] as const) {
         if (!config[variable]) issues.push(issue(variable, "is required when STORAGE_PROVIDER=r2"));
       }
     }
-    if (config.PAYMENT_PROVIDER === "mock") {
+    if (config.APP_ENV === "production" && config.PAYMENT_PROVIDER === "mock") {
       issues.push(issue("PAYMENT_PROVIDER", "mock payment success is forbidden in production"));
     }
     for (const [variable, provider] of [
@@ -224,12 +233,12 @@ export function validateRuntimeConfiguration(input: RuntimeEnvironmentInput): Ru
       ["AUDITOR_INVITATION_PROVIDER", config.AUDITOR_INVITATION_PROVIDER],
       ["RETENTION_NOTIFICATION_PROVIDER", config.RETENTION_NOTIFICATION_PROVIDER],
     ] as const) {
-      if (provider === "mock" || provider === "dev-console") {
+      if (config.APP_ENV === "production" && (provider === "mock" || provider === "dev-console")) {
         issues.push(issue(variable, "mock/dev-console delivery is forbidden in production"));
       }
     }
-    if (config.TELEMATICS_PROVIDER === "mock") {
-      issues.push(issue("TELEMATICS_PROVIDER", "mock tracker data is forbidden in production"));
+    if (config.APP_ENV === "production" && ["mock", "synthetic"].includes(config.TELEMATICS_PROVIDER)) {
+      issues.push(issue("TELEMATICS_PROVIDER", "mock or synthetic tracker data is forbidden in production"));
     }
     if (config.EMAIL_REQUIRED && config.BILLING_EMAIL_PROVIDER !== "transactional") {
       issues.push(issue("BILLING_EMAIL_PROVIDER", "must select the approved transactional adapter when EMAIL_REQUIRED=true"));
@@ -239,6 +248,17 @@ export function validateRuntimeConfiguration(input: RuntimeEnvironmentInput): Ru
     }
     if (config.TRACKER_REQUIRED && config.TELEMATICS_PROVIDER === "disabled") {
       issues.push(issue("TELEMATICS_PROVIDER", "must select the approved tracker adapter when TRACKER_REQUIRED=true"));
+    }
+    if (config.APP_ENV === "staging") {
+      const database = safeUrl(config.DATABASE_URL);
+      const directDatabase = safeUrl(config.DIRECT_DATABASE_URL);
+      if (database && !/(^|[_-])staging([_-]|$)/i.test(database.pathname.replace(/^\//, ""))) issues.push(issue("DATABASE_URL", "must name an explicitly staging-marked database when APP_ENV=staging"));
+      if (directDatabase && !/(^|[_-])staging([_-]|$)/i.test(directDatabase.pathname.replace(/^\//, ""))) issues.push(issue("DIRECT_DATABASE_URL", "must name an explicitly staging-marked database when APP_ENV=staging"));
+      if (!["noop", "mock"].includes(config.PAYMENT_PROVIDER)) issues.push(issue("PAYMENT_PROVIDER", "staging may use only disabled or synthetic billing until an approved sandbox is configured"));
+      for (const [variable, provider] of [["BILLING_EMAIL_PROVIDER", config.BILLING_EMAIL_PROVIDER], ["INVESTIGATION_NOTIFICATION_PROVIDER", config.INVESTIGATION_NOTIFICATION_PROVIDER], ["AUDITOR_INVITATION_PROVIDER", config.AUDITOR_INVITATION_PROVIDER], ["RETENTION_NOTIFICATION_PROVIDER", config.RETENTION_NOTIFICATION_PROVIDER]] as const) {
+        if (!["noop", "mock"].includes(provider)) issues.push(issue(variable, "staging external email delivery must remain disabled or use the synthetic sink"));
+      }
+      if (!["disabled", "mock", "synthetic"].includes(config.TELEMATICS_PROVIDER)) issues.push(issue("TELEMATICS_PROVIDER", "staging requires disabled/synthetic tracking until an approved sandbox adapter passes conformance"));
     }
   }
 
