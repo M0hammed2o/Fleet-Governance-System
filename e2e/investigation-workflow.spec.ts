@@ -34,7 +34,10 @@ async function caseIdFromDashboard(page: Page, title: string) {
 }
 
 test("manual investigation runs from intake through evidence, approval, report, closure and revoked external audit", async ({ browser }, testInfo) => {
-  test.setTimeout(180_000);
+  // The test deliberately exercises the full multi-role case lifecycle,
+  // evidence/PDF generation and a second portal. Locator waits stay bounded,
+  // while the complete cold-server workflow gets a realistic full-gate budget.
+  test.setTimeout(240_000);
   const ids = await seededUserIds(browser);
   const suffix = crypto.randomUUID().slice(0, 8);
   const title = `E2E governance case ${suffix}`;
