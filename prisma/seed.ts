@@ -660,12 +660,16 @@ async function main() {
     create: { tenantId: demoTenant.id },
   });
 
-  console.log("\nSeed complete. Dev-only fictional accounts (all share the same dev password):");
-  console.log(`  Password: ${DEV_PASSWORD}`);
-  console.log(`  Platform tenant slug: ${platformTenant.slug}`);
-  console.log(`  Demo tenant slug:     ${demoTenant.slug}`);
-  for (const u of createdUsers) {
-    console.log(`  - ${u.role.padEnd(24)} ${u.email}`);
+  if (process.env.SEED_SUPPRESS_CREDENTIAL_OUTPUT === "true") {
+    console.log("\nSeed complete. Fictional local accounts created; credential output suppressed.");
+  } else {
+    console.log("\nSeed complete. Dev-only fictional accounts (all share the same dev password):");
+    console.log(`  Password: ${DEV_PASSWORD}`);
+    console.log(`  Platform tenant slug: ${platformTenant.slug}`);
+    console.log(`  Demo tenant slug:     ${demoTenant.slug}`);
+    for (const u of createdUsers) {
+      console.log(`  - ${u.role.padEnd(24)} ${u.email}`);
+    }
   }
 }
 

@@ -11,7 +11,7 @@ async function main() {
   const templatesRoot = path.resolve(process.cwd(), "pilot/import-templates");
   if (!suppliedPath && !filePath.startsWith(`${templatesRoot}${path.sep}`)) throw new Error("Default import template escaped its expected directory.");
   const result = validatePilotImport(type, await fs.readFile(filePath, "utf8"));
-  process.stdout.write(`${JSON.stringify({ ...result, records: result.valid ? result.records : undefined }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ result: result.valid ? "PASS" : "FAIL", ...result, records: result.valid ? result.records : undefined }, null, 2)}\n`);
   if (!result.valid) process.exitCode = 1;
 }
 
