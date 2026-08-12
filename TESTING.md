@@ -743,3 +743,19 @@ offline paths. Automated rehearsal remains evidence for human testers, never a U
 Focused suites cover all 27 simulator scenarios, production refusal, capability/pagination, units/timestamps, duplicate/out-of-order/late/freshness, partial/malformed data, timeout/rate-limit/recovery, webhook signature/replay, revocation, cross-tenant mapping, mapping authorization/uniqueness/audit/correction history, provenance labels, UAT pack digest/roles/chronology/formula safety and staging fail-closed rules.
 
 Commands are `npm run tracker:conformance`, UAT execution init/validate/export under ignored storage, `npm run staging:check` (expected exit 1 without approvals) and `npm run staging:rc`. The final staging gate covers 29 migrations/clean replay/restore, TypeScript, ESLint, full Vitest/build/Playwright, pilot boundaries/import/UAT, secret scan, audit, expected blocked production/staging readiness, performance and non-root container health twice. Automated rehearsal remains distinct from human UAT.
+
+The executable candidate `c9df227` passed that complete 25-step gate twice consecutively. Gate A ran
+17:45:48-18:03:57Z (18.1 minutes): Vitest 208.6 seconds, build 65.6 seconds, Playwright 362.2 seconds and
+container verification 174.6 seconds. Gate B ran 18:04:56-18:19:20Z (14.4 minutes): Vitest 224.9 seconds,
+build 58.1 seconds, Playwright 353.9 seconds and cached container verification 14.9 seconds. Each pass
+confirmed all 29 migrations, 81 Vitest files / 858 tests, 104/104 generated pages, 25/25 provider
+conformance checks, all 27 UAT definitions with zero human execution events, 20/20 serial Chromium tests,
+623 tracked files scanned for secrets/environment leakage, zero dependency vulnerabilities, fail-closed
+production and staging readiness, and a clean tree at entry and exit. The image
+`genbridge-governance:phase15a-local` ran non-root and passed liveness without production data.
+
+An earlier complete-gate attempt was excluded from the consecutive count after the unit/integration step
+exited 1 under full-gate load. Its immediate standalone rerun passed all 858 tests without a code change;
+the final count was restarted and both gates above then passed. Known non-failing output remains BUG-010's
+upstream Prisma PostgreSQL adapter warning plus browser-server listener/MediaPipe diagnostics; none affected
+assertions or data correctness.

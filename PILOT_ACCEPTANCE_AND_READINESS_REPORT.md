@@ -47,3 +47,13 @@ No deployment, production migration, production database access, cloud resource,
 ## Phase 15A addendum — historical Phase 14 evidence unchanged
 
 Phase 15A does not reinterpret the Phase 14A gate or claim human acceptance. It adds a separate digest-bound execution mechanism for the same 27 cases, case-by-case automated/manual/provider/legal/business classifications, a tracker simulator/conformance gate, mapping/provenance controls and a non-deploying staging plan/checker. Human execution events and signatures remain zero until authorized representatives actually run them. Migrations 28–29 are Phase 15 changes and do not alter the recorded 27-migration Phase 14 evidence.
+
+The Phase 15A executable candidate `c9df227` subsequently passed two consecutive 25-step local release
+gates: 17:45:48-18:03:57Z and 18:04:56-18:19:20Z. Both passes covered all 29 migrations, 81 Vitest files /
+858 tests, 104/104 generated pages, 25/25 provider-conformance checks, the 27-case execution pack with zero
+human events, 20/20 Chromium tests, secret and dependency scans, expected fail-closed readiness, local
+performance and non-root container liveness. A prior attempted gate was discarded after a transient full-
+gate unit-step exit; the same full suite immediately passed standalone without a code change, and the
+consecutive count was restarted. This is engineering readiness evidence only: staging remains unprovisioned
+and blocked on named approvals/configuration, provider interoperability remains untested, and human UAT
+remains unexecuted.
