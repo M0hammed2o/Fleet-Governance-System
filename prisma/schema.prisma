@@ -114,6 +114,10 @@ model Tenant {
   analyticsIndicatorEvents AnalyticsIndicatorEvent[]
   analyticsCalculationRuns AnalyticsCalculationRun[]
 
+  // --- Phase 16A: mobile safety boundaries ------------------------------
+  mobileMutationReceipts   MobileMutationReceipt[]
+  mobileNotificationStates MobileNotificationState[]
+
   @@map("tenants")
 }
 
@@ -232,6 +236,8 @@ model User {
   reconciliationDiscrepanciesResolved ReconciliationDiscrepancy[]        @relation("DiscrepancyResolvedBy")
   manualGpsConfirmationsRequested     ManualGpsConfirmation[]            @relation("ManualGpsConfirmationRequestedBy")
   manualGpsConfirmationsApproved      ManualGpsConfirmation[]            @relation("ManualGpsConfirmationApprovedBy")
+  mobileMutationReceipts              MobileMutationReceipt[]
+  mobileNotificationStates            MobileNotificationState[]
   vehicleUsePoliciesApproving         VehicleUsePolicy[]                 @relation("VehicleUsePolicyApprovingManager")
   supportAccessSessionsAsActor        SupportAccessSession[]             @relation("SupportAccessSessionActor")
   supportNotesAuthored                SupportNote[]                      @relation("SupportNoteAuthor")
@@ -432,6 +438,51 @@ model Session {
   @@index([tenantId])
   @@index([userId])
   @@map("sessions")
+}
+
+enum MobileMutationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Server-side idempotency receipt for native-client critical mutations.
+// The request body is represented only by a SHA-256 digest; raw form/evidence
+// data is never copied here. Completed safe JSON responses support exact retry.
+model MobileMutationReceipt {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  idempotencyKey String
+  operation      String
+  requestHash    String
+  status         MobileMutationStatus @default(IN_PROGRESS)
+  response       Json?
+  createdAt      DateTime             @default(now())
+  completedAt    DateTime?
+
+  @@unique([tenantId, userId, idempotencyKey])
+  @@index([tenantId, createdAt])
+  @@map("mobile_mutation_receipts")
+}
+
+// Read/unread state only. Notification content is a permission-filtered,
+// tenant-scoped projection from authoritative records and is never copied.
+model MobileNotificationState {
+  id              String    @id @default(cuid())
+  tenantId        String
+  userId          String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  notificationKey String
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([tenantId, userId, notificationKey])
+  @@index([tenantId, userId, readAt])
+  @@map("mobile_notification_states")
 }
 
 // Privacy-preserving authentication throttle. Only keyed HMAC digests are

@@ -334,6 +334,7 @@ export const PERMISSION_CATALOGUE = {
 } as const;
 
 export type PermissionResource = keyof typeof PERMISSION_CATALOGUE;
+export type PermissionKey = `${PermissionResource}:${PermissionAction}`;
 
 export function permissionKey(resource: string, action: string): string {
   return `${resource}:${action}`;

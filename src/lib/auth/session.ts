@@ -6,7 +6,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 
 export const SESSION_COOKIE_NAME = "gfg_session";
 const DEV_SESSION_SECRET = "dev-only-insecure-secret-change-me";
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours — gate shifts are long; revisit if too short in practice.
+export const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours — gate shifts are long; revisit if too short in practice.
 
 type PrismaTx = Pick<PrismaClient, "session">;
 
@@ -139,6 +139,31 @@ export async function getSession(): Promise<AuthenticatedSession | null> {
 
   const evaluation = evaluateSession(record);
   return evaluation.valid ? evaluation.session : null;
+}
+
+/** Validates an opaque native bearer token against the same revocable session table as the web cookie. */
+export async function getSessionFromToken(token: string): Promise<AuthenticatedSession | null> {
+  if (!token || token.length > 512) return null;
+  const tokenHashes = configuredSessionSecrets().map((secret) => hashToken(token, secret));
+  const record = await prisma.session.findFirst({
+    where: { tokenHash: { in: tokenHashes } },
+    include: { user: { include: { role: true, tenant: true } } },
+  });
+  const evaluation = evaluateSession(record);
+  return evaluation.valid ? evaluation.session : null;
+}
+
+/** Strict bearer extraction: malformed, repeated or non-Bearer authorization is unauthenticated. */
+export function bearerTokenFromRequest(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+  if (!authorization) return null;
+  const match = /^Bearer ([A-Za-z0-9_-]{32,512})$/.exec(authorization);
+  return match?.[1] ?? null;
+}
+
+export async function getSessionFromRequest(request: Request): Promise<AuthenticatedSession | null> {
+  const token = bearerTokenFromRequest(request);
+  return token ? getSessionFromToken(token) : null;
 }
 
 export async function setSessionCookie(token: string): Promise<void> {
