@@ -43,6 +43,11 @@ export const PILOT_EXPECTED_COUNTS = {
   vehicles: 15,
   complianceDocuments: 30,
   movements: 9,
+  gateEvents: 14,
+  reconciliations: 5,
+  exceptions: 4,
   investigations: 2,
   analyticsIndicators: 4,
+  telematicsEvents: 2,
+  manualGpsConfirmations: 1,
 } as const;

@@ -193,7 +193,7 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
       destination: "Synthetic Customer, Example Test District", expectedDepartureAt: new Date(FIXED_NOW.getTime() - 4 * 3_600_000), expectedReturnAt: new Date(FIXED_NOW.getTime() + 4 * 3_600_000),
       expectedDistanceKm: 80, approvedCargoSummary: "Synthetic sealed test cargo", senderName: "Synthetic Dispatch", recipientName: "Synthetic Recipient",
       referenceCode: `SYNPILOT${String(index + 1).padStart(3, "0")}`, requesterUserId: dispatch.id,
-      approverUserId: scenario === "unauthorised-attempt" ? null : manager.id, status: scenario === "unauthorised-attempt" ? "SUBMITTED" : completed ? "COMPLETED" : "APPROVED",
+      approverUserId: scenario === "unauthorised-attempt" ? null : manager.id, status: scenario === "unauthorised-attempt" ? "SUBMITTED" : scenario === "condition-failure" ? "IN_PROGRESS" : completed ? "COMPLETED" : "APPROVED",
       approvalComments: scenario === "unauthorised-attempt" ? null : "Approved for synthetic UAT only.",
     } }));
   }
@@ -203,12 +203,19 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     const movement = movements[index];
     const scenario = scenarioNames[index];
     const departure = await prisma.gateEvent.create({ data: { id: id("gate-event", `${scenario}-out`), tenantId: PILOT_TENANT_ID, siteId: north.id, gateId: gates[0].id, direction: "EXIT", vehicleId: movement.vehicleId, driverId: movement.driverId, movementAuthorisationId: movement.id, securityOfficerUserId: officer.id, inspectionTemplateId: template.id, status: "COMPLETED", identityVerificationResult: "SYNTHETIC_MANUAL_VERIFIED", identityVerifiedAt: new Date(FIXED_NOW.getTime() - 3 * 3_600_000), startedAt: new Date(FIXED_NOW.getTime() - 3 * 3_600_000), completedAt: new Date(FIXED_NOW.getTime() - 2.8 * 3_600_000), decision: "CLEARED", decisionByUserId: officer.id, decisionAt: new Date(FIXED_NOW.getTime() - 2.8 * 3_600_000), decisionReason: "Synthetic pilot departure checks complete." } });
-    const returnEvent = await prisma.gateEvent.create({ data: { id: id("gate-event", `${scenario}-in`), tenantId: PILOT_TENANT_ID, siteId: north.id, gateId: gates[0].id, direction: "ENTRY", vehicleId: movement.vehicleId, driverId: movement.driverId, movementAuthorisationId: movement.id, securityOfficerUserId: officer.id, inspectionTemplateId: template.id, status: scenario === "condition-failure" ? "DENIED" : "COMPLETED", identityVerificationResult: "SYNTHETIC_MANUAL_VERIFIED", identityVerifiedAt: new Date(FIXED_NOW.getTime() + 3 * 3_600_000), startedAt: new Date(FIXED_NOW.getTime() + 3 * 3_600_000), completedAt: new Date(FIXED_NOW.getTime() + 3.2 * 3_600_000), decision: scenario === "condition-failure" ? "DENIED" : "CLEARED", decisionByUserId: scenario === "condition-failure" ? manager.id : officer.id, decisionAt: new Date(FIXED_NOW.getTime() + 3.2 * 3_600_000), decisionReason: scenario === "condition-failure" ? "Synthetic safety defect requires corrective action." : "Synthetic return checks complete." } });
+    const returnOffsetHours = scenario === "late-return" ? 6 : 3;
+    const returnEvent = await prisma.gateEvent.create({ data: { id: id("gate-event", `${scenario}-in`), tenantId: PILOT_TENANT_ID, siteId: north.id, gateId: gates[0].id, direction: "ENTRY", vehicleId: movement.vehicleId, driverId: movement.driverId, movementAuthorisationId: movement.id, securityOfficerUserId: officer.id, inspectionTemplateId: template.id, status: scenario === "condition-failure" ? "DENIED" : "COMPLETED", identityVerificationResult: "SYNTHETIC_MANUAL_VERIFIED", identityVerifiedAt: new Date(FIXED_NOW.getTime() + returnOffsetHours * 3_600_000), startedAt: new Date(FIXED_NOW.getTime() + returnOffsetHours * 3_600_000), completedAt: new Date(FIXED_NOW.getTime() + (returnOffsetHours + 0.2) * 3_600_000), decision: scenario === "condition-failure" ? "DENIED" : "CLEARED", decisionByUserId: scenario === "condition-failure" ? manager.id : officer.id, decisionAt: new Date(FIXED_NOW.getTime() + (returnOffsetHours + 0.2) * 3_600_000), decisionReason: scenario === "condition-failure" ? "Synthetic safety defect requires corrective action." : "Synthetic return checks complete." } });
     eventPairs.set(scenario, { departureId: departure.id, returnId: returnEvent.id });
     await prisma.gateEventInspectionItem.createMany({ data: [
       { id: id("inspection-result", `${scenario}-out-condition`), tenantId: PILOT_TENANT_ID, gateEventId: departure.id, inspectionItemId: inspectionItems[0].id, outcome: "PASS", recordedByUserId: officer.id, recordedAt: departure.completedAt! },
       { id: id("inspection-result", `${scenario}-in-condition`), tenantId: PILOT_TENANT_ID, gateEventId: returnEvent.id, inspectionItemId: inspectionItems[0].id, outcome: scenario === "condition-failure" ? "FAIL" : "PASS", comment: scenario === "condition-failure" ? "Synthetic tyre-sidewall defect observed." : null, exceptionSeverity: scenario === "condition-failure" ? "HIGH" : null, supervisorApprovalRequired: scenario === "condition-failure", recordedByUserId: officer.id, recordedAt: returnEvent.completedAt! },
     ] });
+  }
+
+  const overrideMovement = movements[scenarioNames.indexOf("gate-override")];
+  for (const [suffix, direction, offset] of [["out", "EXIT", -2], ["in", "ENTRY", 2]] as const) {
+    const overrideEvent = await prisma.gateEvent.create({ data: { id: id("gate-event", `gate-override-${suffix}`), tenantId: PILOT_TENANT_ID, siteId: north.id, gateId: gates[0].id, direction, vehicleId: overrideMovement.vehicleId, driverId: overrideMovement.driverId, movementAuthorisationId: overrideMovement.id, securityOfficerUserId: officer.id, inspectionTemplateId: template.id, status: "COMPLETED", identityVerificationResult: "SYNTHETIC_MANUAL_VERIFIED", identityVerifiedAt: new Date(FIXED_NOW.getTime() + offset * 3_600_000), startedAt: new Date(FIXED_NOW.getTime() + offset * 3_600_000), completedAt: new Date(FIXED_NOW.getTime() + (offset + 0.2) * 3_600_000), decision: "CLEARED", decisionByUserId: manager.id, decisionAt: new Date(FIXED_NOW.getTime() + (offset + 0.2) * 3_600_000), decisionReason: "Synthetic authorised override with compulsory reason and independent manager attribution." } });
+    await prisma.gateEventInspectionItem.create({ data: { id: id("inspection-result", `gate-override-${suffix}-condition`), tenantId: PILOT_TENANT_ID, gateEventId: overrideEvent.id, inspectionItemId: inspectionItems[0].id, outcome: "UNABLE_TO_VERIFY", comment: "Synthetic override retained for human review.", exceptionSeverity: "MEDIUM", supervisorApprovalRequired: true, recordedByUserId: officer.id, recordedAt: overrideEvent.completedAt! } });
   }
 
   const conditionResultId = id("inspection-result", "condition-failure-in-condition");
@@ -277,14 +284,15 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
   const tenant = await prisma.tenant.findUnique({ where: { slug: PILOT_TENANT_SLUG }, select: { id: true, slug: true, name: true, status: true, subscriptionStatus: true } });
   if (!tenant) throw new Error("Synthetic pilot tenant is not seeded.");
   assertPilotTenantIdentity(tenant);
-  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, investigations, analyticsIndicators, biometrics, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
+  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, telematicsEvents, manualGpsConfirmations, biometrics, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
     prisma.site.count({ where: { tenantId: tenant.id } }), prisma.gate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id } }),
     prisma.driver.count({ where: { tenantId: tenant.id } }), prisma.vehicle.count({ where: { tenantId: tenant.id } }), prisma.complianceDocument.count({ where: { tenantId: tenant.id } }),
-    prisma.movementAuthorisation.count({ where: { tenantId: tenant.id } }), prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }),
+    prisma.movementAuthorisation.count({ where: { tenantId: tenant.id } }), prisma.gateEvent.count({ where: { tenantId: tenant.id } }), prisma.reconciliation.count({ where: { tenantId: tenant.id } }), prisma.exception.count({ where: { tenantId: tenant.id } }),
+    prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }), prisma.telematicsEvent.count({ where: { tenantId: tenant.id } }), prisma.manualGpsConfirmation.count({ where: { tenantId: tenant.id } }),
     prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id, NOT: { email: { endsWith: `@${PILOT_EMAIL_DOMAIN}` } } } }),
     prisma.mediaAsset.count({ where: { tenantId: tenant.id, investigationHold: true } }), prisma.externalAuditorAccessGrant.count({ where: { tenantId: tenant.id, revokedAt: null } }),
   ]);
-  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, investigations, analyticsIndicators };
+  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, telematicsEvents, manualGpsConfirmations };
   for (const [key, expected] of Object.entries(PILOT_EXPECTED_COUNTS)) {
     if (counts[key as keyof typeof counts] !== expected) throw new Error(`Pilot verification failed: ${key} expected ${expected}.`);
   }

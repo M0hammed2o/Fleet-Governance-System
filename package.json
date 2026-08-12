@@ -13,6 +13,7 @@
     "pilot:verify": "tsx prisma/pilot-seed.ts verify",
     "pilot:test-boundaries": "npm run seed && tsx scripts/verify-pilot-boundaries.ts",
     "pilot:import:dry": "tsx scripts/pilot-import-dry-run.ts",
+    "pilot:uat:validate": "tsx scripts/validate-uat-catalogue.ts",
     "pretest": "node scripts/test-db-setup.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
