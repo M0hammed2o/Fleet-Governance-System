@@ -432,4 +432,11 @@ No unresolved Critical or High Phase 16A defect is known. The initial Expo/React
 
 MOBILE-DEF-001 (High if released) found browser `fetch` invoked with the API client as `this`; it is now bound to `globalThis`. MOBILE-DEF-002 (High availability) found exact `home`, `guard` and `owner` routes omitted while child routes were allowed; exact roots are now tested. MOBILE-DEF-003 (High release boundary) found native CORS absent and trusted cross-site origins rejected too early; exact `MOBILE_TRUSTED_ORIGINS`, bounded CORS and trusted-origin precedence now pass.
 
+MOBILE-DEF-004 (High release integrity) was found by the first complete candidate gate: the Docker dependency
+stage copied only the root manifest before `npm ci`, so the new workspace packages were absent and the
+container build failed Next's TypeScript check. The dependency stage now copies every workspace manifest
+before installation. A focused clean image build then generated all 112 pages, ran as non-root `nextjs`,
+returned healthy liveness and connected to no production data. The failed candidate is not counted as a
+final gate.
+
 Known limitations are no native build/device verification, final identifiers, production auth, push, offline mutations, automatic EXIF stripping, native upload cancellation/background resume or detailed owner drill-down. BUG-010 remains the known Low upstream warning.

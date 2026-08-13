@@ -2399,3 +2399,6 @@ deployments be created.
 - Added 5 focused mobile test files and 4 rendered browser journeys. Browser testing exposed and fixed a host-function `fetch` binding defect and exact root-route authorization defect.
 - Added the mobile architecture, security/privacy, testing, release, guard, owner and readiness documents plus the reproducible `npm run mobile:rc` gate.
 - No native project, emulator/device test, signing/store artifact, deployment, account, message, provider, real credential/data/location/biometric or secret was created.
+- The first complete candidate passed 29/30 steps but exposed MOBILE-DEF-004 in the container dependency
+  layer. Copying all workspace manifests before `npm ci` fixed the missing mobile package types; the focused
+  image rebuild/non-root/liveness smoke passed. The consecutive final-gate count restarted after this fix.

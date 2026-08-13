@@ -7,6 +7,11 @@ RUN apt-get update \
 FROM base AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
+RUN mkdir -p apps/mobile packages/api-client packages/mobile-ui packages/shared-types
+COPY apps/mobile/package.json ./apps/mobile/
+COPY packages/api-client/package.json ./packages/api-client/
+COPY packages/mobile-ui/package.json ./packages/mobile-ui/
+COPY packages/shared-types/package.json ./packages/shared-types/
 RUN npm ci
 
 FROM base AS builder
