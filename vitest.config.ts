@@ -27,6 +27,6 @@ export default defineConfig({
     // tenant cleanup do not starve unrelated repository tests on local CI.
     // Tests within a tenant-isolation fixture still run serially per file.
     fileParallelism: true,
-    maxWorkers: 4,
+    maxWorkers: 2,
   },
 });
