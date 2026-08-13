@@ -36,9 +36,24 @@ TypeScript and ESLint pass; the Vite bundle exports 39 modules (about 231 KB JS 
 validation and secret scan pass; npm audit reports zero. Browser viewports cover small/large phone portrait,
 phone landscape and tablet portrait/landscape with 44-point navigation and no document overflow.
 
-The two complete final `npm run mobile:rc` results, full regression totals, commit list and durations are
-recorded in the Phase 16A closeout entry after stable-source execution. No emulator, simulator, device,
-APK/AAB, IPA/archive, deployment or store submission is claimed.
+The executable candidate was `d9276d3`. Two consecutive 30-step `npm run mobile:rc` gates passed from that
+same clean commit. Gate A ran 2026-08-13 09:05:13–09:25:31Z (20.3 minutes): full Vitest 212.4s, Next build
+102.9s, Playwright 369.1s and Docker 182.2s. Gate B ran 09:25:54–09:40:39Z (14.8 minutes): Vitest 220.3s,
+build 61.0s, Playwright 359.6s and cached Docker 14.9s.
+
+Each passed package/lock integrity; Prisma format/validate/generate/status; empty replay and isolated
+restore of all 30 migrations; root/mobile TypeScript and ESLint; **86 Vitest files / 871 tests** (including
+**5 mobile files / 13 tests**); the Next build with **112 generated pages/routes**; pilot boundaries,
+fixtures/imports and 27-case UAT pack validation; tracker conformance **25/25**; mobile config and the 39-
+module Vite bundle; **24/24 Playwright tests** (20 established + 4 mobile); secret scan; npm audit with zero
+vulnerabilities; expected non-zero fail-closed production/staging readiness; performance; non-root Docker
+liveness; required documents and clean Git state. No emulator, simulator, physical device, APK/AAB,
+IPA/archive, deployment or store submission is claimed.
+
+Phase 16A commits are `47c13a4` (Capacitor workspace/client), `9c115a3` (workspace dependency exclusion),
+`cff2f68` (mobile API/migration), `2221724` (workflow/security tests), `7476563` (readiness/runbooks) and
+`d9276d3` (workspace-aware container). This report is the documentation-only closeout after the verified
+executable candidate.
 
 ## Remaining blockers
 
@@ -53,3 +68,11 @@ configuration remain web-only. Evidence is synthetic; tracking is simulator/manu
 are generated in-app and no external delivery occurs. Recommended next action: approve identifiers, privacy/
 security ownership and a synthetic native-device UAT matrix, then generate un-signed native projects and
 test on Android plus macOS/Xcode without connecting a real provider or real data.
+
+## Phase outcome
+
+Phase 16A is complete at the safe local engineering scope. There are zero unresolved Critical, High or
+Medium defects attributed to the phase; BUG-010 remains the documented Low upstream Prisma adapter warning.
+No deployment/publication, developer account, paid service, external message/push, provider connection,
+real credential, customer/person/vehicle/location data or biometric was used. No signing key, certificate,
+profile, token or secret was committed.

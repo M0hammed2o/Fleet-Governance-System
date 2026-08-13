@@ -2402,3 +2402,10 @@ deployments be created.
 - The first complete candidate passed 29/30 steps but exposed MOBILE-DEF-004 in the container dependency
   layer. Copying all workspace manifests before `npm ci` fixed the missing mobile package types; the focused
   image rebuild/non-root/liveness smoke passed. The consecutive final-gate count restarted after this fix.
+- **Final verification — two consecutive stable 30-step gates at executable candidate `d9276d3`.** Both
+  passed all 30 migrations/status/empty replay/restore; package integrity; root/mobile TypeScript and
+  ESLint; 86 Vitest files / 871 tests; 112-page/route Next build; pilot/import/UAT; 25/25 tracker
+  conformance; mobile config/export; 24/24 Playwright tests; secret scan; zero-vulnerability audit; expected
+  blocked production/staging readiness; performance; non-root container liveness; documents and clean tree.
+  Gate A ran 20.3 minutes (Vitest 212.4s, build 102.9s, Playwright 369.1s, Docker 182.2s); Gate B ran 14.8
+  minutes (Vitest 220.3s, build 61.0s, Playwright 359.6s, cached Docker 14.9s).

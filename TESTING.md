@@ -765,3 +765,9 @@ assertions or data correctness.
 `MOBILE_TESTING.md` records focused commands and native limitations. `npm run mobile:test` runs 5 files / 13 tests; Playwright adds 4 rendered Capacitor-web journeys for guard success, guard exception, owner approval and security/responsive/connectivity boundaries at 360×640, 430×932, 844×390, 768×1024 and 1024×768. Mobile TypeScript, lint, config and export are independent gates.
 
 `npm run mobile:rc` includes established web/backend coverage, 30-migration replay/restore, build, pilot/UAT/tracker checks, all Playwright, audit/secret/package checks, expected blocked production/staging readiness, performance and non-root Docker liveness. No native emulator/simulator/device result is claimed.
+
+Two consecutive stable gates passed at `d9276d3`: Gate A 20.3 minutes and Gate B 14.8 minutes. Each
+reported 86 Vitest files / 871 tests, 112 generated pages/routes, 25/25 tracker conformance checks, 24/24
+Playwright tests, zero audit findings and a clean source tree. The established visible listener/MediaPipe
+diagnostics did not affect assertions. The earlier 29/30 candidate exposed and fixed MOBILE-DEF-004 and is
+not counted.

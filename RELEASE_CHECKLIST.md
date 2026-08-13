@@ -75,9 +75,9 @@ If any security, isolation, migration, backup, provider-authenticity or data-int
 
 ## Phase 16A mobile candidate (not store/deployment approval)
 
-- [ ] Two `npm run mobile:rc` runs pass from one clean immutable commit with all 30 migrations.
-- [ ] Mobile TypeScript/lint/tests/config/export and four rendered priority journeys pass.
-- [ ] Secure storage, revocation, exact origins, tenant/permission, idempotency, evidence and disconnected denial reviewed.
+- [x] Two `npm run mobile:rc` runs pass from one clean immutable commit with all 30 migrations.
+- [x] Mobile TypeScript/lint/tests/config/export and four rendered priority journeys pass.
+- [x] Secure storage, revocation, exact origins, tenant/permission, idempotency, evidence and disconnected denial reviewed.
 - [ ] Android/iOS identifiers and signing/privacy/release owners no longer say `MANUAL_CONFIRMATION_REQUIRED`.
 - [ ] Android and iOS simulator/device matrices verify permissions, camera/files, storage, links, lifecycle, recovery and large text.
 - [ ] Production auth/API origins, privacy/store declarations/assets/accounts/reviewer access and support/rollback are approved.
