@@ -452,6 +452,10 @@ and the provisional ID. Debug/release sources are separated and Gradle refuses l
 ANDROID-DEF-004 (High build integrity) was found by the first complete Phase 16B candidate gate: the Docker
 Next typecheck did not accept Vite's `ImportMetaEnv` as a string-indexed default parameter. The default is
 now explicitly narrowed at the boundary; the failed candidate is excluded from consecutive gate counts.
+ANDROID-DEF-005 (Medium verification stability) was found by the corrected candidate gate: unbounded Vitest
+workers saturated the shared local PostgreSQL instance, timing out three repository cases while their 872
+peers passed. Both affected files passed 28/28 together. The suite now caps four workers and uses a 30-second
+default/120-second documented global billing scan ceiling without removing or weakening assertions.
 
 ANDROID-ENV-001 remains open: the API 35 AVD becomes offline during both streamed and non-streaming APK
 installation. APK/JVM/lint/instrumentation compilation pass, but installation/native execution does not.

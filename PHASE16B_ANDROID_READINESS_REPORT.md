@@ -29,6 +29,10 @@ The first complete candidate gate also exposed and fixed a container-only TypeSc
 `ImportMetaEnv` and the explicit runtime environment record. That failed candidate is not a release gate
 pass; consecutive verification restarts from the corrected commit.
 
+A later corrected-candidate attempt was also excluded after full-suite PostgreSQL contention timed out three
+repository tests while 872 passed; the two affected files immediately passed 28/28 together. Verification
+worker concurrency/time ceilings were bounded before restarting the candidate count again.
+
 ## Release blockers
 
 1. Repair/recreate the emulator and complete connected tests plus direct launch/deep-link/native workflow smoke.

@@ -22,10 +22,11 @@ export default defineConfig({
     // don't keep growing the test database. Runs once per file (its own
     // module instance), not once globally — see the file's own docstring.
     setupFiles: ["./tests/setup/global-cleanup.ts"],
-    testTimeout: 15000,
-    // Integration tests share one Postgres connection pool per file; running
-    // files in parallel workers is fine, but tests within a tenant-isolation
-    // fixture must not race each other, so each file runs its cases serially.
+    testTimeout: 30000,
+    // Bound worker concurrency so full-gate database scans and per-file
+    // tenant cleanup do not starve unrelated repository tests on local CI.
+    // Tests within a tenant-isolation fixture still run serially per file.
     fileParallelism: true,
+    maxWorkers: 4,
   },
 });
