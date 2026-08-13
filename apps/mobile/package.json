@@ -6,6 +6,7 @@
     "start": "vite",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "android": "cap open android",
+    "android:sync": "npm run export && cap sync android",
     "ios": "cap open ios",
     "export": "vite build",
     "typecheck": "tsc --noEmit",

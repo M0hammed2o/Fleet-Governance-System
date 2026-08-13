@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="InsecureBaseConfiguration">
+    <!-- Debug-only: localhost/10.0.2.2 API traffic still requires the local
+         Capacitor config and never reaches a release manifest. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

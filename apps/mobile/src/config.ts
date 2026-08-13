@@ -14,16 +14,31 @@ export function resolveMobileRuntimeConfig(
   if (!apiBaseUrl)
     throw new Error("VITE_API_BASE_URL is required outside local development.");
   const parsed = new URL(apiBaseUrl);
+  const productionLike = appEnv === "staging" || appEnv === "production";
   const isLocalHttp =
     parsed.protocol === "http:" &&
     ["localhost", "127.0.0.1", "10.0.2.2"].includes(parsed.hostname);
+  if (parsed.username || parsed.password || parsed.hash)
+    throw new Error(
+      "The mobile API URL cannot contain credentials or a fragment.",
+    );
   if (parsed.protocol !== "https:" && !isLocalHttp)
     throw new Error(
       "The mobile API URL must use HTTPS outside an approved local host.",
     );
-  if (appEnv === "production" && isLocalHttp)
+  if (productionLike && isLocalHttp)
     throw new Error(
-      "Production mobile authentication cannot target a local or synthetic backend.",
+      "Staging and production mobile authentication cannot target a local backend.",
+    );
+  if (
+    productionLike &&
+    (parsed.hostname.endsWith(".test") ||
+      parsed.hostname.endsWith(".example") ||
+      parsed.hostname === "example.com" ||
+      parsed.hostname === "0.0.0.0")
+  )
+    throw new Error(
+      "Staging and production mobile authentication cannot target a placeholder host.",
     );
   return {
     apiBaseUrl,

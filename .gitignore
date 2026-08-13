@@ -24,7 +24,6 @@
 /build
 /apps/mobile/dist
 /apps/mobile/.expo
-/apps/mobile/android
 /apps/mobile/ios
 
 # misc

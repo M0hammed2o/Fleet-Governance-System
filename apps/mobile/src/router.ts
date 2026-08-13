@@ -1,6 +1,31 @@
 import { useEffect, useState } from "react";
 import { App as NativeApp } from "@capacitor/app";
 
+export const ANDROID_DEEP_LINK_SCHEME = "genbridgefleet:";
+export const ANDROID_DEEP_LINK_HOST = "open";
+
+export function routeFromNativeUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol !== ANDROID_DEEP_LINK_SCHEME ||
+      parsed.hostname !== ANDROID_DEEP_LINK_HOST ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    const path = parsed.pathname.replace(/^\/+/, "");
+    if (!path || path.split("/").some((segment) => segment === ".."))
+      return null;
+    return `${path}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
 export function currentRoute(): string {
   return location.hash.replace(/^#\/?/, "") || "home";
 }
@@ -17,8 +42,8 @@ export function useRoute(): string {
     window.addEventListener("hashchange", update);
     let remove: (() => Promise<void>) | undefined;
     void NativeApp.addListener("appUrlOpen", ({ url }) => {
-      const parsed = new URL(url);
-      navigate(parsed.pathname);
+      const route = routeFromNativeUrl(url);
+      if (route) navigate(route);
     }).then((handle) => {
       remove = () => handle.remove();
     });
