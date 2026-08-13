@@ -78,3 +78,14 @@ assessment.
 Strict bearer tokens reuse hashed revocable sessions. Native storage is Keychain/Keystore-backed and web testing is memory-only. Effective permissions, tenant scope, state, separation of duties, audit actor/time and evidence ownership remain server-enforced. Exact `MOBILE_TRUSTED_ORIGINS` enables native CORS; production password auth remains disabled without approval. Critical actions require database idempotency and ambiguous completion fails closed. There is no provider/database/storage access, raw tracker ID, public evidence URL, automatic GPS, real biometric, offline queue or external notification delivery.
 
 Tests cover identifier/role/deep-link manipulation, cross-tenant results, origin policy, token clearing, unsafe URLs/storage, replay/conflict, evidence abuse, disconnected mutation and provenance. No unresolved Critical/High defect is known, but compromised devices, screenshots/overlays, native permissions and independent assessment remain blockers. See `MOBILE_SECURITY_AND_PRIVACY.md`.
+
+# Phase 16B Android security boundary
+
+Android source now constrains deep links, disables backups, limits FileProvider paths and declares no
+location/microphone/storage permission. Release source disables cleartext, debug WebView access/logging and
+screenshots; a Gradle guard refuses the provisional local ID/settings. The debug merged manifest was
+reviewed, including the system-permission-protected AndroidX ProfileInstaller receiver.
+
+Native runtime security is not yet passed: the local AVD dropped offline on APK install. Keystore lifecycle,
+permission UX, camera/file picker, deep-link launch, overlays/root behavior and physical-device testing
+remain open. Automatic EXIF/location stripping is a release blocker. See `ANDROID_SECURITY_REVIEW.md`.

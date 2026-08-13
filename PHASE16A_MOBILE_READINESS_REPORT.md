@@ -76,3 +76,12 @@ Medium defects attributed to the phase; BUG-010 remains the documented Low upstr
 No deployment/publication, developer account, paid service, external message/push, provider connection,
 real credential, customer/person/vehicle/location data or biometric was used. No signing key, certificate,
 profile, token or secret was committed.
+
+## Phase 16B continuation note
+
+Phase 16B supersedes only the historical native-project limitation above. The provisional Android identity
+`za.co.genbridge.fleet` and deep-link scheme `genbridgefleet` were authorized for local work, so a hardened
+Android project and ignored debug APK now exist. The Phase 16A gates/results remain unchanged. Native app
+installation still did not complete because the API 35 AVD repeatedly became offline during ADB install;
+final identity, signing, production configuration, physical-device testing and release authority remain
+blocked. See `PHASE16B_ANDROID_READINESS_REPORT.md`.

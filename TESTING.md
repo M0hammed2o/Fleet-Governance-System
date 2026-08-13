@@ -771,3 +771,14 @@ reported 86 Vitest files / 871 tests, 112 generated pages/routes, 25/25 tracker 
 Playwright tests, zero audit findings and a clean source tree. The established visible listener/MediaPipe
 diagnostics did not affect assertions. The earlier 29/30 candidate exposed and fixed MOBILE-DEF-004 and is
 not counted.
+
+# Phase 16B Android verification scope
+
+Android checks add `android:sync`, source validation, 6 focused mobile/native Vitest files / 17 tests,
+3 Android JVM tests, `lintDebug` and `assembleDebug`. The debug APK was built against API 36 and recorded in
+`ANDROID_TEST_EXECUTION_REPORT.md`; release preparation correctly rejects the provisional local config.
+
+An API 35 AVD reached Android service readiness but became offline during every streamed/non-streaming APK
+installation attempt. The instrumentation APK compiled but did not run, and no native UI/device pass is
+claimed. Connected tests plus the full phone/tablet/accessibility/evidence matrix must be rerun after AVD or
+physical-device repair.

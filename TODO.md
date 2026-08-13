@@ -510,3 +510,20 @@ requirement detail in PRODUCT_REQUIREMENTS.md.
 - [ ] Decide push provider/token lifecycle or retain in-app-only notifications.
 - [ ] Approve encrypted conflict resolution before any offline mutation queue claim.
 - [ ] Add detailed owner drill-down only where mobile value and canonical permissions justify it; web remains authoritative.
+
+# Phase 16B Android completion and blockers
+
+- [x] Authorize and constrain provisional local Android ID `za.co.genbridge.fleet` and scheme `genbridgefleet`.
+- [x] Generate/commit Capacitor Android source; sync, validate, JVM-test, lint and build an ignored debug APK.
+- [x] Add debug/release network separation, release guard, backup/screenshot/WebView/logging controls, scoped
+  FileProvider, minimal permissions and constrained deep links.
+- [x] Record SDK/JDK/ADB/AVD inventory, APK SHA-256 and honest execution evidence in Android runbooks.
+- [ ] Repair/recreate the API 35 AVD or attach an approved device; pass installation, instrumentation and
+  direct native smoke because the current AVD drops offline during install.
+- [ ] Complete phone/tablet/physical-device, Android back/keyboard, large-text/TalkBack, camera/gallery/file,
+  Keystore restart/revocation and connectivity-loss/recovery testing with synthetic data.
+- [ ] Implement and device-verify automatic EXIF/location stripping before any real evidence workflow.
+- [ ] MANUAL_CONFIRMATION_REQUIRED: final Android application ID/version policy/signing custody. The local
+  ID is not approved for staging, production or store use.
+- [ ] Approve HTTPS API/auth/native CORS, privacy/retention/device-loss/BYOD/store declarations, independent
+  security testing, human UAT and explicit release/publication authority.

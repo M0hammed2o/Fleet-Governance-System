@@ -37,3 +37,17 @@ This checklist prepares a future release; it does not authorize one.
 - [ ] No Critical/High defect; accepted lower risks have owner, expiry and rollback decision.
 - [ ] Staged rollout, monitoring, support, revocation, rollback and store-removal procedures rehearsed.
 - [ ] Explicit publication approval recorded before any upload or submission.
+
+## Phase 16B Android status
+
+- [x] Local provisional ID/display name/deep-link source configured and contract-tested.
+- [x] Android project generated, synced, statically reviewed, linted and debug APK assembled.
+- [x] Backup, scoped FileProvider, debug/release cleartext, WebView/logging and screenshot controls added.
+- [x] APK/build/local SDK/signing/generated asset exclusions verified.
+- [ ] Repair AVD install transport and pass connected instrumentation/native smoke.
+- [ ] Pass representative phone/tablet/physical-device, back/keyboard/large-text/TalkBack matrix.
+- [ ] Prove camera/gallery/file selection, permission denial/recovery, Keystore restart/revocation and
+  connectivity loss/recovery with synthetic data.
+- [ ] Implement and device-verify automatic EXIF/location stripping before real evidence.
+- [ ] MANUAL_CONFIRMATION_REQUIRED: final Android application ID/versioning/signing custody and release
+  merged-manifest/AAB review. The local ID is not store authorization.

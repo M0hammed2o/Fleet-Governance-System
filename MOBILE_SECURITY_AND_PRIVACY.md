@@ -62,3 +62,17 @@ link denial, insecure-storage absence, unsafe API URLs, replay/key conflict, off
 validation, provider-ID omission and synthetic provenance have automated coverage. Phase 16A has no known
 unresolved Critical or High security defect. Native penetration testing and an independent privacy/security
 assessment remain mandatory before real customer data.
+
+## Phase 16B Android review
+
+Android source now disables app backup/data transfer, release screenshots, release cleartext, unconditional
+WebView inspection and release Capacitor logging. Local cleartext/mixed content is isolated to debug and a
+Gradle guard rejects release preparation with the provisional ID or local settings. The deep-link origin,
+FileProvider paths, permissions and merged exported components were reviewed; only the launcher/deep-link
+activity is app-exported, while AndroidX's exported ProfileInstaller receiver is protected by the system
+`DUMP` permission.
+
+The AVD could not retain an online ADB connection during APK installation, so Keystore persistence,
+camera/file-picker behavior, screenshot enforcement, runtime permission prompts and native attack testing
+remain unverified. Automatic EXIF/location stripping is an explicit release blocker for real evidence.
+`ANDROID_SECURITY_REVIEW.md` is the current Android-specific disposition.

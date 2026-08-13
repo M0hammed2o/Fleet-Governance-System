@@ -95,4 +95,14 @@ Phase 16A adds an unsigned local Capacitor bundle and migration 30 for mobile re
 
 Native generation stays blocked until Android/iOS identifiers are approved. Production requires HTTPS `VITE_API_BASE_URL`, exact `MOBILE_TRUSTED_ORIGINS`, approved auth/redirects, privacy/store material, managed signing, Android SDK/JDK and macOS/Xcode for iOS. No signing secret belongs in Git. `mobile:export` is not an APK/AAB/IPA. Follow `MOBILE_RELEASE_CHECKLIST.md`.
 
+# Phase 16B Android deployment boundary
+
+The generated Android source and an ignored local debug APK now exist. This changes no deployment status.
+`za.co.genbridge.fleet` is local-only; release tasks deliberately reject it and debug mixed-content/logging.
+No AAB, managed signing, store account, hosted API, native production authentication or publication was
+created. Before any Android release, approve the final ID and HTTPS/native CORS, run a production-mode sync,
+inspect the merged release manifest/AAB, complete native device/security/privacy/UAT gates and use signing
+material only from the approved secret system. Follow `ANDROID_DEVELOPMENT_SETUP.md` and
+`MOBILE_RELEASE_CHECKLIST.md`.
+
 `STAGING_ENVIRONMENT_PLAN.md` is design only. `APP_ENV=staging` validates hosted HTTPS, explicitly staging-named managed PostgreSQL URLs, TLS, strong secrets, durable private storage and isolated/disabled providers. `npm run staging:check` remains non-zero until manual approvals/evidence exist; `npm run staging:rc` is a local non-deploying verification gate. Migrations 28–29 add mapping/provenance and hard constraints/backfill. Apply later only via reviewed `prisma migrate deploy`; rollback is compatible application rollback plus forward correction, never editing applied SQL or deleting mapping/event history.

@@ -440,3 +440,17 @@ returned healthy liveness and connected to no production data. The failed candid
 final gate.
 
 Known limitations are no native build/device verification, final identifiers, production auth, push, offline mutations, automatic EXIF stripping, native upload cancellation/background resume or detailed owner drill-down. BUG-010 remains the known Low upstream warning.
+
+# Phase 16B Android findings
+
+ANDROID-DEF-001 (High if released) found the native URL listener accepted any parseable scheme/host. It now
+accepts only `genbridgefleet://open/<non-empty-path>` and capability authorization remains mandatory.
+ANDROID-DEF-002 (High if released) found default Android backup enabled and a FileProvider external-root
+path. Backups/data transfer are disabled and paths are app-specific Pictures/cache only.
+ANDROID-DEF-003 (High release integrity) found no build-type separation/guard for local cleartext, logging
+and the provisional ID. Debug/release sources are separated and Gradle refuses local config on release.
+
+ANDROID-ENV-001 remains open: the API 35 AVD becomes offline during both streamed and non-streaming APK
+installation. APK/JVM/lint/instrumentation compilation pass, but installation/native execution does not.
+Automatic EXIF/location stripping is also an explicit release blocker. No unresolved Critical code defect
+is known; device runtime, final identity/signing and independent review remain mandatory.

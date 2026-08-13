@@ -45,3 +45,15 @@ Native project generation is intentionally blocked by the unapproved application
 cannot run Xcode/iOS builds. Camera invocation, OS permission prompts, Keychain/Keystore persistence,
 background/termination behavior, app/universal links, network handover and store packaging therefore
 remain native-device test cases, not claimed passes.
+
+## Phase 16B Android coverage
+
+The historical Phase 16A paragraph above remains accurate for that candidate. Phase 16B subsequently added
+the Android project and a debug APK. Current focused coverage is 6 Vitest files / 17 tests plus 3/3 Android
+JVM contract tests. `npm run android:config:validate`, Gradle `testDebugUnitTest`, `lintDebug` (zero errors)
+and `assembleDebug` pass.
+
+The API 35 AVD booted and exposed Android services, and the instrumentation APK compiled, but the device
+became offline during both Gradle/direct streamed install and direct non-streaming install. Consequently no
+installed app, instrumentation, native UI/camera/Keystore/deep-link/accessibility result is claimed. See
+`ANDROID_TEST_EXECUTION_REPORT.md` and rerun `ANDROID_DEVICE_TESTING_GUIDE.md` on a repaired AVD/device.

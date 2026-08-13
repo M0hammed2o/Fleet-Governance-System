@@ -105,3 +105,17 @@ Online-only; no offline critical mutation queue. No push provider. No production
 tenant switching, background sync, device-biometric unlock, driver facial verification, native emulator or
 device evidence, final identifiers, signing or store submission. Most administration remains web-only by
 design.
+
+## Phase 16B Android host
+
+`apps/mobile/android` is now the committed Capacitor Android host. Local generation uses only provisional
+ID `za.co.genbridge.fleet`; staging/production require a separately approved identifier. Android accepts
+`genbridgefleet://open/...`, while the JavaScript listener independently validates the scheme/host before
+the existing capability router runs. The WebView origin is `https://localhost`, so native CORS must list
+that exact origin.
+
+Release source disables backup, cleartext, WebView debugging/logging and screenshots; local debug alone
+allows localhost/`10.0.2.2` HTTP. The FileProvider is limited to app-specific Pictures/cache and declared
+permissions are Internet, plugin network state and camera—no GPS, microphone or storage permission. The
+online/session/evidence boundaries above are unchanged. Full native composition and environment matrix are
+in `ANDROID_NATIVE_ARCHITECTURE.md`.

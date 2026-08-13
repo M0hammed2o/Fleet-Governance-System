@@ -862,3 +862,13 @@ records while only per-user read keys are stored. Exact `MOBILE_TRUSTED_ORIGINS`
 production auth/origin configuration remains blocked. Connectivity is online-only with no mutation queue.
 Private evidence reuses `MediaAsset`; no GPS, public URL, direct provider or biometric implementation is
 introduced. Full details and the endpoint matrix are in `MOBILE_APPLICATION_ARCHITECTURE.md`.
+
+# Phase 16B Android architecture
+
+The repository now commits the Capacitor Android project under `apps/mobile/android` while continuing to
+ship the same React/Vite client and Next API. Local identity is `za.co.genbridge.fleet`; non-local builds
+require a final approved ID. Exact `genbridgefleet://open/...` intents pass through origin validation and
+then server-capability navigation. Debug alone permits local HTTP/mixed WebView content; release source and
+Gradle guards disable/reject cleartext, provisional identity, logging, WebView inspection, backup and
+screenshots. Keystore sessions, online-only operations and private evidence reuse remain unchanged. See
+`ANDROID_NATIVE_ARCHITECTURE.md`.

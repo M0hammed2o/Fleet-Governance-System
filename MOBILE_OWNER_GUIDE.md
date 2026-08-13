@@ -21,3 +21,11 @@ role/tenant administration and most reports remain web-only in Phase 16A. The ov
 summaries are useful triage, not a substitute for those full review surfaces. Tenant switching is not
 offered because the current user model authorizes one tenant per user. On disconnection or ambiguous state,
 do not decide; reconnect, refresh and reconcile with audit chronology.
+
+## Android test-device notes
+
+Phase 16B supplies a local debug APK, not an owner-ready release. Use it only for synthetic review after the
+device appears healthy in ADB and the approved local/staging environment is visible in the app. The custom
+link origin is `genbridgefleet://open/`; server capabilities and separation of duties still decide access.
+Do not use screenshots or captured files as business evidence, and do not approve a pilot from this APK:
+native installation, accessibility, Keystore, camera and network-handover testing remain incomplete.

@@ -25,3 +25,15 @@ shadow mobile queue. Reconnect, refresh authoritative state, confirm whether the
 idempotency prevents an exact completed retry from duplicating work. For 401/revocation, sign in again. For
 409/in-progress, refresh and escalate—do not invent a new key to force the action. For an unsafe or
 unauthorized movement, block with a factual reason and follow the existing incident/escalation procedure.
+
+## Android test-device notes
+
+The local debug APK may be used only with the approved synthetic tenant. Android camera permission is for
+explicit evidence capture; deny it if capture is not required, and use file selection instead. The app does
+not request location, microphone or storage access. Until automatic EXIF stripping passes native tests,
+choose only controlled synthetic images with known metadata.
+
+Open only links beginning `genbridgefleet://open/` from a trusted test source. A link selects a destination
+but never grants permission. On device loss, suspected token exposure, repeated WebView errors or an
+unexpected permission prompt, stop using the app, revoke the server session and escalate through the
+approved incident process. Do not collect debug screenshots/logs containing real operational data.
