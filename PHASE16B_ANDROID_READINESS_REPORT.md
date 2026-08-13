@@ -25,6 +25,10 @@ Mobile typecheck/lint passed; 6 focused files / 17 tests passed; Android JVM tes
 
 The available Pixel 7/API 35 AVD booted and Android services became ready, but ADB lost it during every streamed and non-streaming APK installation attempt. The compiled instrumentation test never executed, no physical device was present, and no native UI result is claimed. See `ANDROID_TEST_EXECUTION_REPORT.md`.
 
+The first complete candidate gate also exposed and fixed a container-only TypeScript boundary between Vite
+`ImportMetaEnv` and the explicit runtime environment record. That failed candidate is not a release gate
+pass; consecutive verification restarts from the corrected commit.
+
 ## Release blockers
 
 1. Repair/recreate the emulator and complete connected tests plus direct launch/deep-link/native workflow smoke.

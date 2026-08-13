@@ -449,6 +449,9 @@ ANDROID-DEF-002 (High if released) found default Android backup enabled and a Fi
 path. Backups/data transfer are disabled and paths are app-specific Pictures/cache only.
 ANDROID-DEF-003 (High release integrity) found no build-type separation/guard for local cleartext, logging
 and the provisional ID. Debug/release sources are separated and Gradle refuses local config on release.
+ANDROID-DEF-004 (High build integrity) was found by the first complete Phase 16B candidate gate: the Docker
+Next typecheck did not accept Vite's `ImportMetaEnv` as a string-indexed default parameter. The default is
+now explicitly narrowed at the boundary; the failed candidate is excluded from consecutive gate counts.
 
 ANDROID-ENV-001 remains open: the API 35 AVD becomes offline during both streamed and non-streaming APK
 installation. APK/JVM/lint/instrumentation compilation pass, but installation/native execution does not.

@@ -5,11 +5,18 @@ export interface MobileRuntimeConfig {
 }
 
 export function resolveMobileRuntimeConfig(
-  env: Record<string, string | undefined> = import.meta.env,
+  env?: Record<string, string | undefined>,
 ): MobileRuntimeConfig {
-  const appEnv = (env.VITE_APP_ENV ?? "local") as MobileRuntimeConfig["appEnv"];
+  const runtimeEnv = env ?? {
+    VITE_APP_ENV: Reflect.get(import.meta.env, "VITE_APP_ENV") as
+      string | undefined,
+    VITE_API_BASE_URL: Reflect.get(import.meta.env, "VITE_API_BASE_URL") as
+      string | undefined,
+  };
+  const appEnv = (runtimeEnv.VITE_APP_ENV ??
+    "local") as MobileRuntimeConfig["appEnv"];
   const apiBaseUrl =
-    env.VITE_API_BASE_URL ??
+    runtimeEnv.VITE_API_BASE_URL ??
     (appEnv === "local" ? "http://127.0.0.1:3000" : "");
   if (!apiBaseUrl)
     throw new Error("VITE_API_BASE_URL is required outside local development.");
