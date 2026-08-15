@@ -272,7 +272,10 @@ export default function GateEventPage({ params }: { params: Promise<{ id: string
               <button
                 disabled={busy || !fallbackReason}
                 onClick={async () => {
-                  const res = await call(`/api/drivers/${event.driver.id}/facial-verification/manual-fallback`, { reason: fallbackReason });
+                  const res = await call(`/api/drivers/${event.driver.id}/facial-verification/manual-fallback`, {
+                    reason: fallbackReason,
+                    relatedGateEventId: id,
+                  });
                   if (res?.fallback?.id) setManualFallbackId(res.fallback.id);
                 }}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"

@@ -36,7 +36,8 @@ export const driverStatusSchema = z.object({
 });
 
 export const requestManualFallbackSchema = z.object({
-  reason: z.string().trim().min(3, "A reason is required").max(1000),
+  reason: z.string().trim().min(10, "A reason of at least 10 characters is required").max(1000),
+  relatedGateEventId: z.string().trim().min(1).max(200).optional(),
 });
 
 export const resolveManualFallbackSchema = z.object({

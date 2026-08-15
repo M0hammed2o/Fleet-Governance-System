@@ -173,7 +173,10 @@ test.describe("Phase 9I: full facial-verification workflow", () => {
 
     // --- Manual fallback completes the NOT_ENROLLED gate event ---
     const fallbackRequestRes = await officerPage.request.post(`/api/drivers/${notEnrolledDriver.id}/facial-verification/manual-fallback`, {
-      data: { reason: "Driver not yet enrolled — manual verification by officer" },
+      data: {
+        reason: "Driver not yet enrolled — manual verification by officer",
+        relatedGateEventId: notEnrolledGateEventId,
+      },
     });
     expect(fallbackRequestRes.ok()).toBe(true);
     const { fallback } = await fallbackRequestRes.json();
