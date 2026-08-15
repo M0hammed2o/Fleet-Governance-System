@@ -1,5 +1,9 @@
 # Android device testing guide
 
+## Phase 17A diagnostic
+
+On 2026-08-14 SDK tools were found under `%LOCALAPPDATA%\Android\Sdk` but were not on `PATH`. No physical device was listed. `PropertyVault_Pixel7_API35` reported Android 15 briefly, then returned to `offline` without `sys.boot_completed=1`; the Phase 17A APK was not installed. The launched emulator processes were stopped and ADB reset. Follow `PILOT_DEVICE_SETUP_GUIDE.md` for the required physical-device run.
+
 ## Test data and safety
 
 Use only the fictional Phase 14 pilot tenant/accounts. Never capture a real person, vehicle, registration, document, location or biometric. Keep the API local or in an explicitly approved synthetic staging environment. Do not enable a provider, push channel, analytics/crash exporter or real notification delivery.

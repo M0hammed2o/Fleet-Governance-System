@@ -1,0 +1,17 @@
+[
+  {"id":"UAT-FACE-001","title":"Driver enrolment","executionClass":"HUMAN","automatedEvidence":["tests/facial-enrolment-repository.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-002","title":"Successful synthetic facial verification","executionClass":"BROWSER_SIMULATED","automatedEvidence":["tests/facial-verification-contracts.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-003","title":"Non-match","executionClass":"BROWSER_SIMULATED","automatedEvidence":["tests/facial-verification-contracts.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-004","title":"Facial-liveness failure","executionClass":"BROWSER_SIMULATED","automatedEvidence":["tests/facial-verification-contracts.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-005","title":"Provider unavailable","executionClass":"BROWSER_SIMULATED","automatedEvidence":["tests/facial-verification-contracts.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-006","title":"Manual identity fallback","executionClass":"HUMAN","automatedEvidence":["tests/facial-verification.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-007","title":"Authorized override","executionClass":"HUMAN","automatedEvidence":["tests/facial-verification.test.ts"],"deviceRequirement":"BROWSER","status":"NOT_RUN"},
+  {"id":"UAT-FACE-008","title":"Unauthorized override","executionClass":"AUTOMATED","automatedEvidence":["tests/facial-verification.test.ts"],"deviceRequirement":"NONE","status":"NOT_RUN"},
+  {"id":"UAT-FACE-009","title":"Revoked enrolment","executionClass":"AUTOMATED","automatedEvidence":["tests/facial-enrolment-repository.test.ts"],"deviceRequirement":"NONE","status":"NOT_RUN"},
+  {"id":"UAT-FACE-010","title":"Cross-tenant biometric reference","executionClass":"AUTOMATED","automatedEvidence":["tests/facial-enrolment-repository.test.ts"],"deviceRequirement":"NONE","status":"NOT_RUN"},
+  {"id":"UAT-FACE-011","title":"Biometric deletion","executionClass":"AUTOMATED","automatedEvidence":["tests/biometric-lifecycle.test.ts"],"deviceRequirement":"NONE","status":"NOT_RUN"},
+  {"id":"UAT-ANDROID-001","title":"Android camera permission","executionClass":"PHYSICAL_DEVICE","automatedEvidence":["tests/android-native-config.test.ts"],"deviceRequirement":"PHYSICAL_ANDROID","status":"NOT_RUN"},
+  {"id":"UAT-ANDROID-002","title":"Android disconnected behavior","executionClass":"PHYSICAL_DEVICE","automatedEvidence":["tests/mobile-security-foundation.test.ts"],"deviceRequirement":"PHYSICAL_ANDROID","status":"NOT_RUN"},
+  {"id":"UAT-ANDROID-003","title":"Android session restoration","executionClass":"PHYSICAL_DEVICE","automatedEvidence":["tests/mobile-session-storage.test.ts"],"deviceRequirement":"PHYSICAL_ANDROID","status":"NOT_RUN"},
+  {"id":"UAT-LIFECYCLE-001","title":"Complete departure and return lifecycle","executionClass":"HUMAN","automatedEvidence":["e2e/facial-verification-workflow.spec.ts"],"deviceRequirement":"BROWSER_AND_PHYSICAL_ANDROID","status":"NOT_RUN"}
+]

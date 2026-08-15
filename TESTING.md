@@ -1,5 +1,9 @@
 # TESTING.md
 
+## Phase 17A verification additions
+
+`pilot:rehearsal` validates 27 existing plus 15 new cases without fabricating execution. `pilot:readiness` deliberately exits non-zero until physical-device, human-UAT, defect, sign-off and handover evidence exists. `facial:readiness` separately prevents real biometric activation. Automated, browser-simulated, emulator, physical-device, human and customer results remain distinct.
+
 ## Test strategy
 Vitest for unit + integration tests (services, repositories, permission logic, state machine transitions
 run against a real test-Postgres instance, not mocks — DB behaviour, especially tenant scoping, is exactly

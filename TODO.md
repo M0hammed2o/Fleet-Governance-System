@@ -1,5 +1,13 @@
 # TODO.md
 
+## Phase 17A external/manual blockers
+
+- [ ] Complete all 42 internal synthetic human UAT cases with reviewed evidence and zero open Critical/High defects.
+- [ ] Verify the final debug APK on a named physical Android device.
+- [ ] Obtain five internal sign-offs and a named Genbridge handover authorizer.
+- [ ] Complete POPIA, provider/DPA, retention, threshold, bias/performance, customer and incident approvals before real facial activation.
+- [ ] With explicit authorization, create and verify a private remote backup; its absence is a Critical operational risk.
+
 ## Now
 Phase 8 (Pilot Hardening, Cost-Efficient Evidence Storage and Retention Management) is **complete** —
 8A-8E all done, see WORKLOG.md Sessions 13-17. Phase 9 (on-device one-to-one facial verification and

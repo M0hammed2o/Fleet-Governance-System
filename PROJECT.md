@@ -1,5 +1,9 @@
 # PROJECT.md — Gate Fleet Governance
 
+## Phase 17A internal pilot candidate
+
+Phase 17A adds provider-neutral facial-verification contracts, a 25-scenario non-biometric simulator, versioned lifecycle controls, gate idempotency, synthetic fixtures, 42-case rehearsal validation, and fail-closed activation/handover checks. It does not approve a real provider. Human UAT, physical Android verification, owner sign-off, POPIA/provider decisions, hosted infrastructure, and private remote backup remain blockers; see `PHASE17A_INTERNAL_PILOT_READINESS_REPORT.md`.
+
 ## Product identity
 **Gate Fleet Governance** is the first product of a new software company building governance-focused
 enterprise applications for large businesses and large family-owned companies. It controls and records

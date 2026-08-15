@@ -1,5 +1,9 @@
 # Operations runbook
 
+## Phase 17A operations
+
+Run `pilot:rehearsal`, `pilot:readiness`, `facial:readiness`, and `backup:readiness`. Provider unavailable is not failed identity; use the reasoned, independently approved document/record fallback. Revoke on compromise/offboarding and follow dual-control deletion. Do not put biometric media in support channels. Customer handover stops on any readiness blocker.
+
 This runbook is provider-neutral. It authorizes no deployment, account creation, production migration, external message, payment, or real-data import.
 
 ## Build and start

@@ -1,5 +1,7 @@
 # Phase 14A local pilot acceptance and readiness report
 
+> Phase 17A superseding note: the internal catalogue is now 42 cases and includes synthetic facial lifecycle plus Android cases. No new human or customer execution is claimed. External handover remains NO-GO under `PHASE17A_INTERNAL_PILOT_READINESS_REPORT.md`.
+
 Date: 2026-08-12
 
 Scope: local engineering release candidate only

@@ -1,5 +1,7 @@
 # Human UAT execution guide
 
+Phase 17A expands the internal matrix to 42 cases: the canonical 27 plus `pilot/phase17a-rehearsal-cases.json`. Record browser-simulated, emulator, physical-device, human and customer execution independently. A simulator PASS is never a facial-recognition or human-UAT PASS. Use `INTERNAL_PILOT_SIGNOFF.md` only after all case evidence and the defect register are complete.
+
 Status: 27 canonical cases are ready for human execution with synthetic data. Automated rehearsal is not human acceptance and no case has been marked passed or signed off.
 
 ## Execution pack

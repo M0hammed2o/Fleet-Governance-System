@@ -14,6 +14,20 @@
 # testing
 /coverage
 /test-results
+/artifacts
+/screenshots
+*.apk
+*.aab
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.bak
+*.backup
+*.jks
+*.keystore
+*.p12
+*.pfx
 /playwright-report
 
 # next.js
@@ -29,6 +43,7 @@
 # misc
 .DS_Store
 *.pem
+*.key
 
 # debug
 npm-debug.log*

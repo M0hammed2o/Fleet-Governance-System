@@ -14,6 +14,7 @@ import {
   assertPilotDatabaseSafety,
   assertPilotTenantIdentity,
 } from "./pilot-safety";
+import { SYNTHETIC_BIOMETRIC_LABEL } from "../facial-verification/contracts";
 
 const PILOT_PASSWORD = "SyntheticPilot!Local1";
 const FIXED_NOW = new Date("2026-08-01T08:00:00.000Z");
@@ -149,6 +150,71 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     } }));
   }
 
+  // These bytes are an explicit non-biometric sentinel. They are not an
+  // image, descriptor, embedding, or material derived from a person. The
+  // simulator only needs an enrolled lifecycle row and never decrypts it.
+  const syntheticSentinel = Buffer.from("NOT-A-BIOMETRIC-TEMPLATE", "utf8");
+  const syntheticIv = Buffer.from("SYNTHETIC-IV", "utf8");
+  const syntheticTag = Buffer.from("SYNTHETIC-AUTH-TAG", "utf8");
+  const activeSyntheticTemplate = await prisma.driverFacialTemplate.create({
+    data: {
+      id: id("facial-template", "active"),
+      tenantId: PILOT_TENANT_ID,
+      driverId: drivers[0].id,
+      templateCiphertext: syntheticSentinel,
+      templateIv: syntheticIv,
+      templateAuthTag: syntheticTag,
+      encryptionKeyId: "synthetic-sentinel-no-key",
+      templateVersion: "synthetic-non-biometric-sentinel-v1",
+      modelVersion: "no-model-simulator-v1",
+      version: 1,
+      providerId: "genbridge-local-biometric-simulator",
+      synthetic: true,
+      syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL,
+      consentAcknowledgedAt: FIXED_NOW,
+      lawfulAuthority: "CONSENT",
+      noticeVersion: "phase17a-synthetic-pilot-v1",
+      retentionPolicyVersion: "phase17a-synthetic-pilot-v1",
+      enrolledByUserId: admin.id,
+      enrolledAt: FIXED_NOW,
+    },
+  });
+  await prisma.driver.update({
+    where: { id: drivers[0].id },
+    data: {
+      facialVerificationEnrolled: true,
+      facialVerificationProvider: "genbridge-local-biometric-simulator",
+      facialVerificationEnrolledAt: FIXED_NOW,
+    },
+  });
+  const revokedSyntheticTemplate = await prisma.driverFacialTemplate.create({
+    data: {
+      id: id("facial-template", "revoked"),
+      tenantId: PILOT_TENANT_ID,
+      driverId: drivers[2].id,
+      templateCiphertext: syntheticSentinel,
+      templateIv: syntheticIv,
+      templateAuthTag: syntheticTag,
+      encryptionKeyId: "synthetic-sentinel-no-key",
+      templateVersion: "synthetic-non-biometric-sentinel-v1",
+      modelVersion: "no-model-simulator-v1",
+      version: 1,
+      providerId: "genbridge-local-biometric-simulator",
+      synthetic: true,
+      syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL,
+      status: "REVOKED",
+      consentAcknowledgedAt: FIXED_NOW,
+      lawfulAuthority: "CONSENT",
+      noticeVersion: "phase17a-synthetic-pilot-v1",
+      retentionPolicyVersion: "phase17a-synthetic-pilot-v1",
+      enrolledByUserId: admin.id,
+      enrolledAt: FIXED_NOW,
+      revokedByUserId: admin.id,
+      revokedAt: new Date(FIXED_NOW.getTime() + 60_000),
+      revokedReason: "Deterministic revoked-enrolment rehearsal fixture.",
+    },
+  });
+
   const vehicles = [];
   for (let index = 1; index <= 15; index += 1) {
     const trailer = index >= 14;
@@ -231,6 +297,58 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     const overrideEvent = await prisma.gateEvent.create({ data: { id: id("gate-event", `gate-override-${suffix}`), tenantId: PILOT_TENANT_ID, siteId: north.id, gateId: gates[0].id, direction, vehicleId: overrideMovement.vehicleId, driverId: overrideMovement.driverId, movementAuthorisationId: overrideMovement.id, securityOfficerUserId: officer.id, inspectionTemplateId: template.id, status: "COMPLETED", identityVerificationResult: "SYNTHETIC_MANUAL_VERIFIED", identityVerifiedAt: new Date(FIXED_NOW.getTime() + offset * 3_600_000), startedAt: new Date(FIXED_NOW.getTime() + offset * 3_600_000), completedAt: new Date(FIXED_NOW.getTime() + (offset + 0.2) * 3_600_000), decision: "CLEARED", decisionByUserId: manager.id, decisionAt: new Date(FIXED_NOW.getTime() + (offset + 0.2) * 3_600_000), decisionReason: "Synthetic authorised override with compulsory reason and independent manager attribution." } });
     await prisma.gateEventInspectionItem.create({ data: { id: id("inspection-result", `gate-override-${suffix}-condition`), tenantId: PILOT_TENANT_ID, gateEventId: overrideEvent.id, inspectionItemId: inspectionItems[0].id, outcome: "UNABLE_TO_VERIFY", comment: "Synthetic override retained for human review.", exceptionSeverity: "MEDIUM", supervisorApprovalRequired: true, recordedByUserId: officer.id, recordedAt: overrideEvent.completedAt! } });
   }
+
+  const biometricAttemptSpecs = [
+    ["success", "normal-return", "MATCH", "PASSED", 0.91, null],
+    ["non-match", "late-return", "NO_MATCH", "PASSED", 0.31, "NON_MATCH"],
+    ["liveness-failure", "condition-failure", "LIVENESS_FAILED", "FAILED", null, "LIVENESS_FAILED"],
+    ["provider-unavailable", "cargo-discrepancy", "PROVIDER_UNAVAILABLE", "NOT_REQUIRED", null, "PROVIDER_OUTAGE"],
+  ] as const;
+  for (const [suffix, scenario, result, livenessResult, confidenceScore, safeErrorCode] of biometricAttemptSpecs) {
+    const gateEventId = eventPairs.get(scenario)!.departureId;
+    await prisma.facialVerificationAttempt.create({
+      data: {
+        id: id("facial-attempt", suffix),
+        tenantId: PILOT_TENANT_ID,
+        gateEventId,
+        driverId: drivers[scenarioNames.indexOf(scenario)].id,
+        templateId: scenario === "condition-failure" ? revokedSyntheticTemplate.id : scenario === "normal-return" ? activeSyntheticTemplate.id : null,
+        result,
+        idempotencyKey: `pilot:biometric:${suffix}`,
+        requestReceivedAt: FIXED_NOW,
+        confidenceScore,
+        threshold: 0.55,
+        templateVersion: scenario === "normal-return" ? activeSyntheticTemplate.templateVersion : null,
+        modelVersion: "no-model-simulator-v1",
+        providerId: "genbridge-local-biometric-simulator",
+        providerVersion: "phase17a-v1",
+        policyVersion: "synthetic-policy-v1",
+        synthetic: true,
+        syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL,
+        safeErrorCode,
+        livenessResult,
+        source: "ON_DEVICE",
+        gateId: gates[0].id,
+        deviceLabel: "synthetic-no-camera",
+        securityOfficerUserId: officer.id,
+        attemptedAt: FIXED_NOW,
+      },
+    });
+  }
+  await prisma.manualFacialVerificationFallback.create({
+    data: {
+      id: id("manual-fallback", "approved"),
+      tenantId: PILOT_TENANT_ID,
+      driverId: overrideMovement.driverId,
+      reason: "Synthetic document and existing driver record inspected; independent approval required.",
+      requestedByUserId: officer.id,
+      approvedByUserId: manager.id,
+      status: "APPROVED",
+      relatedGateEventId: id("gate-event", "gate-override-out"),
+      requestedAt: FIXED_NOW,
+      resolvedAt: new Date(FIXED_NOW.getTime() + 60_000),
+    },
+  });
 
   const conditionResultId = id("inspection-result", "condition-failure-in-condition");
   const conditionException = await prisma.exception.create({ data: { id: id("exception", "condition"), tenantId: PILOT_TENANT_ID, gateEventId: eventPairs.get("condition-failure")!.returnId, inspectionResultId: conditionResultId, exceptionTypeId: conditionType.id, description: "Synthetic safety defect; vehicle held for authorised correction.", severity: "HIGH", requiresSupervisorApproval: true, outcomeAction: "WORKSHOP_LOCKOUT", raisedByUserId: officer.id, raisedAt: FIXED_NOW } });
@@ -317,20 +435,44 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
   const tenant = await prisma.tenant.findUnique({ where: { slug: PILOT_TENANT_SLUG }, select: { id: true, slug: true, name: true, status: true, subscriptionStatus: true } });
   if (!tenant) throw new Error("Synthetic pilot tenant is not seeded.");
   assertPilotTenantIdentity(tenant);
-  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, biometrics, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
+  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, biometrics, syntheticBiometrics, activeBiometrics, revokedBiometrics, biometricAttempts, syntheticBiometricAttempts, manualFallbacks, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
     prisma.site.count({ where: { tenantId: tenant.id } }), prisma.gate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id } }),
     prisma.driver.count({ where: { tenantId: tenant.id } }), prisma.vehicle.count({ where: { tenantId: tenant.id } }), prisma.complianceDocument.count({ where: { tenantId: tenant.id } }),
     prisma.movementAuthorisation.count({ where: { tenantId: tenant.id } }), prisma.gateEvent.count({ where: { tenantId: tenant.id } }), prisma.reconciliation.count({ where: { tenantId: tenant.id } }), prisma.exception.count({ where: { tenantId: tenant.id } }),
     prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }), prisma.trackerVehicleMapping.count({ where: { tenantId: tenant.id } }), prisma.telematicsEvent.count({ where: { tenantId: tenant.id } }), prisma.manualGpsConfirmation.count({ where: { tenantId: tenant.id } }),
-    prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id, NOT: { email: { endsWith: `@${PILOT_EMAIL_DOMAIN}` } } } }),
+    prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id } }),
+    prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id, synthetic: true, syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL } }),
+    prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id, status: "ACTIVE" } }),
+    prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id, status: "REVOKED" } }),
+    prisma.facialVerificationAttempt.count({ where: { tenantId: tenant.id } }),
+    prisma.facialVerificationAttempt.count({ where: { tenantId: tenant.id, synthetic: true, syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL } }),
+    prisma.manualFacialVerificationFallback.count({ where: { tenantId: tenant.id, status: "APPROVED" } }),
+    prisma.user.count({ where: { tenantId: tenant.id, NOT: { email: { endsWith: `@${PILOT_EMAIL_DOMAIN}` } } } }),
     prisma.mediaAsset.count({ where: { tenantId: tenant.id, investigationHold: true } }), prisma.externalAuditorAccessGrant.count({ where: { tenantId: tenant.id, revokedAt: null } }),
   ]);
   const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations };
   for (const [key, expected] of Object.entries(PILOT_EXPECTED_COUNTS)) {
     if (counts[key as keyof typeof counts] !== expected) throw new Error(`Pilot verification failed: ${key} expected ${expected}.`);
   }
-  if (biometrics !== 0 || deliverableEmails !== 0 || heldEvidence < 1 || externalGrants !== 1) throw new Error("Pilot privacy/access invariants failed.");
-  return { tenant: { ...tenant, synthetic: true }, counts, invariants: { biometricTemplates: biometrics, nonDeliverableAddressesOnly: true, heldEvidence, caseScopedExternalGrants: externalGrants, providers: "synthetic/mock/no-op/disabled" } };
+  if (
+    biometrics !== 2 || syntheticBiometrics !== biometrics || activeBiometrics !== 1 || revokedBiometrics !== 1 ||
+    biometricAttempts !== 4 || syntheticBiometricAttempts !== biometricAttempts || manualFallbacks !== 1 ||
+    deliverableEmails !== 0 || heldEvidence < 1 || externalGrants !== 1
+  ) throw new Error("Pilot privacy/access invariants failed.");
+  return {
+    tenant: { ...tenant, synthetic: true },
+    counts,
+    invariants: {
+      biometricTemplates: biometrics,
+      biometricMaterial: "fixed non-biometric sentinels only",
+      biometricAttempts,
+      approvedManualFallbacks: manualFallbacks,
+      nonDeliverableAddressesOnly: true,
+      heldEvidence,
+      caseScopedExternalGrants: externalGrants,
+      providers: "synthetic/mock/no-op/disabled",
+    },
+  };
 }
 
 export async function withPilotClient<T>(operation: (prisma: PrismaClient) => Promise<T>): Promise<T> {

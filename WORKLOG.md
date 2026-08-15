@@ -1,5 +1,13 @@
 # WORKLOG.md
 
+## 2026-08-14 — Phase 17A internal pilot candidate (in progress)
+
+- Added provider-neutral contracts and 25 deterministic, no-network, non-biometric simulator scenarios with exact disclosure and environment refusal.
+- Added versioned authority/notice/retention metadata, idempotent audited attempts, dual-control deletion, synthetic enrolment/gate UI paths, production activation guard, and migration 31.
+- Extended the deterministic pilot with active/revoked synthetic sentinel enrolments, four labelled attempt outcomes, and independent manual fallback; no real face/template was used.
+- Added the 42-case rehearsal validator, fail-closed internal readiness checker, backup hygiene/remote-risk checker, Android diagnostic and handover documentation.
+- Android observation: no physical device; the API 35 AVD returned offline before boot completion, so no install or smoke pass is claimed. Final migration/full gates remain to be run.
+
 ## 2026-07-19 — Session 1 — Phase 0: repository assessment + project memory
 **Objective:** Inspect repository state, establish project memory documentation, begin Phase 1 foundation.
 

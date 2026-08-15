@@ -1,5 +1,9 @@
 # Phase 15 business, legal and operational decisions
 
+## Phase 17A biometric additions
+
+Add explicit decisions for special-personal-information purpose/lawful authority, Information Officer approval, driver notice/alternative, retention and deletion, threshold, demographic bias/performance acceptance, provider/DPA/sub-processors/transfers, incident response, customer authorization, physical-device/human UAT acceptance, and named operating owner. Until recorded, `facial:readiness` remains blocked.
+
 Engineering has not made these decisions for Genbridge. Recommended defaults are temporary fail-closed controls, not legal advice or vendor selection. Due dates, people and evidence are `MANUAL_CONFIRMATION_REQUIRED`.
 
 | ID | Area | Exact decision required / why | Options | Recommended safe default | Owner | Due | Status/evidence | Impact / block |

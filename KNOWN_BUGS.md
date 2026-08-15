@@ -1,5 +1,11 @@
 # KNOWN_BUGS.md
 
+## Phase 17A observed blockers
+
+- `PropertyVault_Pixel7_API35` became `offline` before boot completion on 2026-08-14; no emulator install/smoke result exists and no physical device was connected. This is a release blocker, not a verified application defect.
+- No private Git remote exists: Critical operational continuity risk, not a software defect.
+- POPIA/provider decisions, human UAT and sign-offs are incomplete. Readiness correctly blocks activation/handover.
+
 ## BUG-001 — ForbiddenError from a repository function surfaced as 500, not 403
 - Severity: medium
 - Reproduction steps: authenticate as a tenant user without the `platformTenant` permission, call

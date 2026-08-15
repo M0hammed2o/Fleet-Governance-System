@@ -1,5 +1,14 @@
 # Release checklist
 
+## Phase 17A customer-handover gate
+
+- [ ] `pilot:rehearsal` validates 42 cases and human results remain independently attributable.
+- [ ] `pilot:readiness` passes for the exact candidate commit.
+- [ ] A physical Android record matches the final APK SHA-256.
+- [ ] Zero open Critical/High defects; facial and tracker labels are accurate.
+- [ ] Five internal sign-offs and one named Genbridge handover authorization are complete.
+- [ ] No real customer/location/biometric data or unapproved provider/production action occurred.
+
 ## Before approval
 
 - [ ] Change set reviewed; working tree and staged diff contain no unrelated files, `.env`, dumps, reports or secrets.
