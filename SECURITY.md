@@ -1,5 +1,9 @@
 # SECURITY.md
 
+## Phase 17A biometric safeguards
+
+Tenant-scoped lifecycle metadata, safe provenance, idempotency, environment restrictions, production activation checks, and dual-control deletion are implemented. Raw biometric media remains excluded from logs/reports and was not used in the pilot. Legal basis, Information Officer approval, provider DPA, retention/threshold/bias decisions, physical-device evidence and human UAT remain mandatory; see `FACIAL_VERIFICATION_SECURITY_AND_POPIA.md`.
+
 This is the engineering security checklist. Privacy/legal context lives in `SECURITY_AND_POPIA.md`.
 
 ## Phase 11 guarantees

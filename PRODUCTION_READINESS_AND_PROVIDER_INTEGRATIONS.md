@@ -1,5 +1,7 @@
 # Production readiness and provider integrations
 
+Phase 17A adds a 17-item facial activation guard covering provider/model approval, DPA/POPIA/Information Officer decisions, retention/threshold/bias/customer/driver authority, credentials/keys, incident procedure, physical-device testing, human UAT and ownership. `facial:readiness` must pass before activation; mock, simulator, synthetic, disabled or absent providers are rejected in production.
+
 Phase 13A supplies production-safe foundations; it does not select a hosting company or connect an external provider. Run `npm run production:check` for the authoritative, read-only status report. A non-zero exit is expected until every provider/business blocker is resolved.
 
 ## Configuration

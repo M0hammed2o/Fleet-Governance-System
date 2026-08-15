@@ -76,6 +76,7 @@ model Tenant {
   exportRequests                        ExportRequest[]
   retentionNotificationRecords          RetentionNotificationRecord[]
   driverFacialTemplates                 DriverFacialTemplate[]
+  biometricTemplateDeletionRequests     BiometricTemplateDeletionRequest[]
   facialVerificationAttempts            FacialVerificationAttempt[]
   cloudFallbackInvocations              CloudFallbackInvocation[]
 
@@ -247,6 +248,9 @@ model User {
   exportRequestsRequested             ExportRequest[]                    @relation("ExportRequestRequestedBy")
   driverFacialTemplatesEnrolled       DriverFacialTemplate[]             @relation("DriverFacialTemplateEnrolledBy")
   driverFacialTemplatesRevoked        DriverFacialTemplate[]             @relation("DriverFacialTemplateRevokedBy")
+  driverFacialTemplatesDeleted        DriverFacialTemplate[]             @relation("DriverFacialTemplateDeletedBy")
+  biometricDeletionRequestsInitiated  BiometricTemplateDeletionRequest[] @relation("BiometricDeletionInitiatedBy")
+  biometricDeletionRequestsApproved   BiometricTemplateDeletionRequest[] @relation("BiometricDeletionApprovedBy")
   facialVerificationAttemptsAsOfficer FacialVerificationAttempt[]        @relation("FacialVerificationAttemptOfficer")
 
   // --- Phase 10: subscriptions, billing and invoicing ---------------------
@@ -617,6 +621,7 @@ model Driver {
   gateEvents                        GateEvent[]
   vehicleUsePolicies                VehicleUsePolicy[]
   facialTemplates                   DriverFacialTemplate[]
+  biometricTemplateDeletionRequests BiometricTemplateDeletionRequest[]
   facialVerificationAttempts        FacialVerificationAttempt[]
   investigationSubjectLinks         InvestigationSubject[]
 
@@ -678,6 +683,13 @@ model ManualFacialVerificationFallback {
 enum DriverFacialTemplateStatus {
   ACTIVE
   REVOKED
+  EXPIRED
+  DELETED
+}
+
+enum FacialLawfulAuthority {
+  CONSENT
+  APPROVED_ALTERNATIVE
 }
 
 // One encrypted biometric template per driver — at most one ACTIVE at a
@@ -697,25 +709,35 @@ model DriverFacialTemplate {
 
   // AES-256-GCM ciphertext of the face descriptor (a small float array, not
   // an image) — see lib/facial-verification/template-encryption.ts.
-  templateCiphertext Bytes
-  templateIv         Bytes
-  templateAuthTag    Bytes
+  templateCiphertext Bytes?
+  templateIv         Bytes?
+  templateAuthTag    Bytes?
   // Which key encrypted this row — supports future key rotation without
   // needing to re-encrypt every row atomically in one pass.
-  encryptionKeyId    String
+  encryptionKeyId    String?
 
   // FACIAL_VERIFICATION_LICENSING.md's exact package/model identifiers,
   // recorded per template so a future model/package upgrade can identify
   // which templates were computed with which model generation.
   templateVersion String
   modelVersion    String
+  version         Int    @default(1)
+  providerId      String @default("local-on-device")
+
+  synthetic           Boolean @default(false)
+  syntheticDisclosure String?
 
   status DriverFacialTemplateStatus @default(ACTIVE)
 
   // Biometric-processing notice + purpose/retention acknowledgement — a
   // timestamp, not a boolean, so it's evidence the notice was actually
   // shown at a specific moment, not just a UI checkbox default.
-  consentAcknowledgedAt DateTime
+  consentAcknowledgedAt    DateTime
+  lawfulAuthority          FacialLawfulAuthority @default(CONSENT)
+  lawfulAuthorityReference String?
+  noticeVersion            String                @default("legacy-phase9")
+  retentionPolicyVersion   String                @default("legacy-phase9")
+  expiresAt                DateTime?
 
   enrolledByUserId String
   enrolledBy       User     @relation("DriverFacialTemplateEnrolledBy", fields: [enrolledByUserId], references: [id])
@@ -726,13 +748,60 @@ model DriverFacialTemplate {
   revokedAt       DateTime?
   revokedReason   String?
 
+  deletedByUserId   String?
+  deletedBy         User?     @relation("DriverFacialTemplateDeletedBy", fields: [deletedByUserId], references: [id])
+  deletedAt         DateTime?
+  deletionReason    String?
+  materialDeletedAt DateTime?
+
   createdAt DateTime @default(now())
 
   verificationAttempts FacialVerificationAttempt[]
+  deletionRequests     BiometricTemplateDeletionRequest[]
 
+  @@unique([driverId, version])
   @@index([tenantId])
   @@index([driverId])
+  @@index([tenantId, driverId, status])
   @@map("driver_facial_templates")
+}
+
+// Dual-control deletion for biometric template material. The request keeps
+// non-biometric chronology; completion nulls ciphertext/IV/tag/key id from
+// DriverFacialTemplate after the recovery window and marks the template
+// DELETED. Requester and approver must be different users in repository code.
+model BiometricTemplateDeletionRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  driverId String
+  driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  templateId String
+  template   DriverFacialTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  reason String
+  status DeletionRequestStatus @default(PENDING_APPROVAL)
+
+  initiatedByUserId String
+  initiatedBy       User     @relation("BiometricDeletionInitiatedBy", fields: [initiatedByUserId], references: [id])
+  initiatedAt       DateTime @default(now())
+
+  approvedByUserId String?
+  approvedBy       User?     @relation("BiometricDeletionApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+
+  recoveryDays      Int       @default(30)
+  recoveryExpiresAt DateTime?
+  completedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@index([driverId])
+  @@index([templateId])
+  @@map("biometric_template_deletion_requests")
 }
 
 enum FacialVerificationResultType {
@@ -778,10 +847,19 @@ model FacialVerificationAttempt {
 
   result FacialVerificationResultType
 
-  confidenceScore Float?
-  threshold       Float?
-  templateVersion String?
-  modelVersion    String?
+  idempotencyKey    String?
+  requestReceivedAt DateTime @default(now())
+
+  confidenceScore     Float?
+  threshold           Float?
+  templateVersion     String?
+  modelVersion        String?
+  providerId          String  @default("local-on-device")
+  providerVersion     String?
+  policyVersion       String  @default("phase9-local-v1")
+  synthetic           Boolean @default(false)
+  syntheticDisclosure String?
+  safeErrorCode       String?
 
   captureQualityScore Float?
   livenessResult      LivenessChallengeResult @default(NOT_REQUIRED)
@@ -800,9 +878,11 @@ model FacialVerificationAttempt {
 
   attemptedAt DateTime @default(now())
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId])
   @@index([gateEventId])
   @@index([driverId])
+  @@index([tenantId, gateEventId, attemptedAt])
   @@map("facial_verification_attempts")
 }
 

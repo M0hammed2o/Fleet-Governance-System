@@ -1,5 +1,12 @@
 # DECISIONS.md
 
+## Phase 17A decisions
+
+- D-082: permit only one-to-one facial verification for the assigned driver; unrestricted one-to-many identification is out of scope.
+- D-083: the simulator is non-biometric/no-network, always labelled synthetic, refuses production, and requires explicit isolated test-only staging approval.
+- D-084: deletion needs independent approval and a 30-day recovery window, then removes encrypted material while retaining minimal chronology. Re-enrolment versions and revokes.
+- D-085: customer handover is fail-closed until 42-case human UAT, physical Android verification, zero open Critical/High defects, accurate labels, five sign-offs, and a named authorizer are evidenced.
+
 ## D-001 — 2026-07-19 — Data layer: Prisma over raw Supabase SDK
 **Context:** Build brief allows Supabase for managed Postgres/auth/storage but requires the architecture
 not be tightly coupled to it.

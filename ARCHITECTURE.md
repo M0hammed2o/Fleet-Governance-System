@@ -1,5 +1,9 @@
 # ARCHITECTURE.md
 
+## Phase 17A facial-verification boundary
+
+The neutral contract isolates enrolment, quality, template, verification, liveness, health, deletion, error, and audit provenance from provider choice. The deterministic adapter is local/no-network/non-biometric and environment guarded. One-to-one gate orchestration uses tenant-scoped templates, server time, idempotency, bounded retries, explicit outcomes, and independently approved fallback. Template lifecycle supports increasing versions, revocation/expiry and dual-control material deletion. See `FACIAL_VERIFICATION_ARCHITECTURE.md`.
+
 ## Stack decision (Decision D-001, see DECISIONS.md)
 - **App framework:** Next.js (App Router), TypeScript strict mode, React, Tailwind CSS. Single
   deployable app serving both UI and API (route handlers / server actions). Actual installed version is

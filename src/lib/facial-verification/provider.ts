@@ -18,6 +18,8 @@ export interface FacialVerificationOutcome {
   confidence?: number;
   verifiedAt: Date;
   failureReason?: string;
+  synthetic: boolean;
+  disclosure?: "SYNTHETIC BIOMETRIC TEST — NOT REAL FACIAL VERIFICATION";
 }
 
 export interface FacialVerificationProvider {
