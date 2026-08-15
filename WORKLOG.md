@@ -2417,3 +2417,12 @@ deployments be created.
   blocked production/staging readiness; performance; non-root container liveness; documents and clean tree.
   Gate A ran 20.3 minutes (Vitest 212.4s, build 102.9s, Playwright 369.1s, Docker 182.2s); Gate B ran 14.8
   minutes (Vitest 220.3s, build 61.0s, Playwright 359.6s, cached Docker 14.9s).
+
+# 2026-08-15 — Phase 17B Android synthetic facial-verification
+
+- Proved the identical Phase 16B/17A APK was caused by an unchanged Android web bundle: mobile had only a generic synthetic identity success action and none of the Phase 17A result/fallback experience.
+- Added an Android guard workflow for enrolment, no-image camera-permission rehearsal, six explicit simulator outcomes, retry budget, offline blocking, exact synthetic disclosure, mandatory-reason fallback, manager decision, officer application and audit confirmation.
+- Added tenant-scoped safe mobile facial context and manager endpoints, reused canonical permissions/idempotency, kept production simulation blocked, and hardened manual fallback to the same tenant, driver and gate event.
+- Added mobile client, repository/security, rendered accessibility/responsive, disconnected and synchronized Android-bundle tests. Focused checks passed: 7 Vitest files / 21 tests, 10/10 mobile Chromium, TypeScript/ESLint, Capacitor sync, Android validation/JVM/lint/build.
+- Rebuilt debug APK: 7,247,283 bytes, SHA-256 `D6DBD981ABF1D6E53C95C7E60859026B6F7BAC0EBDE0640255F0759B0706546B`, distinct from Phase 16B/17A.
+- No deployment, publication, real face, biometric material, customer data or production facial verification was used or enabled.

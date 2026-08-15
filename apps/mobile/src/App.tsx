@@ -25,6 +25,11 @@ import { navigate, useRoute } from "./router";
 import { resolveMobileRuntimeConfig } from "./config";
 import { validateEvidenceFile } from "./evidence";
 import { getSelectedGateId, setSelectedGateId } from "./gate-assignment";
+import {
+  ManualFallbackApprovals,
+  SyntheticFacialVerificationPanel,
+  SyntheticFacialVerificationOutcome,
+} from "./facial-verification";
 import "./styles.css";
 
 // Gate assignment is intentionally memory-only; the compatibility-shaped
@@ -86,7 +91,7 @@ function renderRoute(route: string, bootstrap: MobileBootstrapResponse) {
         bootstrap={bootstrap}
       />
     );
-  if (route === "owner") return <OwnerHome />;
+  if (route === "owner") return <OwnerHome bootstrap={bootstrap} />;
   if (route.startsWith("owner/movements/"))
     return (
       <OwnerMovement
@@ -658,30 +663,26 @@ function GateEventWorkflow({
       ) : null}
       {event.status === "IDENTITY_PENDING" &&
       bootstrap.environment.syntheticOnly ? (
-        <Button
-          label="Run synthetic identity verification"
-          disabled={!online}
+        <SyntheticFacialVerificationPanel
+          eventId={id}
+          identity={event.identity}
+          online={online}
           busy={busy}
-          onClick={() =>
-            void act(
-              {
-                action: "SYNTHETIC_IDENTITY_VERIFY",
-                capturedImageRef: `synthetic:mobile-${id}`,
-              },
-              "Synthetic identity verification confirmed by the server.",
-            )
-          }
+          onAction={act}
         />
       ) : null}
       {event.status === "IDENTITY_VERIFIED" ? (
-        <Button
-          label="Begin vehicle checks"
-          disabled={!online}
-          busy={busy}
-          onClick={() =>
-            void act({ action: "BEGIN_CHECKS" }, "Vehicle checks started.")
-          }
-        />
+        <>
+          <SyntheticFacialVerificationOutcome identity={event.identity} />
+          <Button
+            label="Begin vehicle checks"
+            disabled={!online}
+            busy={busy}
+            onClick={() =>
+              void act({ action: "BEGIN_CHECKS" }, "Vehicle checks started.")
+            }
+          />
+        </>
       ) : null}
       {event.status === "VEHICLE_CHECKS_IN_PROGRESS" ? (
         <Inspection event={event} busy={busy} onAction={act} />
@@ -939,7 +940,7 @@ function EvidenceCapture({ eventId }: { eventId: string }) {
   );
 }
 
-function OwnerHome() {
+function OwnerHome({ bootstrap }: { bootstrap: MobileBootstrapResponse }) {
   const { client } = useAuth();
   const [data, setData] = useState<OwnerOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -968,6 +969,11 @@ function OwnerHome() {
   return (
     <Screen>
       <AppText variant="title">Fleet overview</AppText>
+      {bootstrap.principal.permissions.includes(
+        "facialVerificationFallback:VIEW",
+      ) ? (
+        <ManualFallbackApprovals bootstrap={bootstrap} />
+      ) : null}
       <div className="metrics">
         <Metric label="Vehicles out" value={data.counts.vehiclesOut} />
         <Metric

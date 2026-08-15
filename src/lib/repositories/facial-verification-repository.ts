@@ -22,10 +22,22 @@ export interface RequestManualFallbackInput {
   driverId: string;
   requestedByUserId: string;
   reason: string;
+  relatedGateEventId?: string;
 }
 
 /** Gate officer requests manual verification when the (mock) provider can't confirm identity automatically. */
 export async function requestManualFallback(input: RequestManualFallbackInput) {
+  if (input.relatedGateEventId) {
+    const existing = await prisma.manualFacialVerificationFallback.findFirst({
+      where: tenantWhere(input.tenantId, {
+        relatedGateEventId: input.relatedGateEventId,
+        driverId: input.driverId,
+        status: "PENDING" as const,
+      }),
+      orderBy: { requestedAt: "desc" },
+    });
+    if (existing) return existing;
+  }
   const fallback = await prisma.manualFacialVerificationFallback.create({
     data: {
       tenantId: input.tenantId,
@@ -33,6 +45,7 @@ export async function requestManualFallback(input: RequestManualFallbackInput) {
       requestedByUserId: input.requestedByUserId,
       reason: input.reason,
       status: "PENDING",
+      relatedGateEventId: input.relatedGateEventId,
     },
   });
 
@@ -43,6 +56,7 @@ export async function requestManualFallback(input: RequestManualFallbackInput) {
     entityType: "ManualFacialVerificationFallback",
     entityId: fallback.id,
     reason: input.reason,
+    relatedGateEventId: input.relatedGateEventId,
   });
 
   return fallback;
@@ -129,6 +143,7 @@ export async function resolveManualFallback(input: ResolveManualFallbackInput) {
     action: `facialVerification.manualFallback.${input.decision === "APPROVED" ? "approved" : "denied"}`,
     entityType: "ManualFacialVerificationFallback",
     entityId: fallback.id,
+    relatedGateEventId: fallback.relatedGateEventId,
     beforeValue: { status: "PENDING" },
     afterValue: { status: input.decision },
   });

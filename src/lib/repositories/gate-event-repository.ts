@@ -151,6 +151,7 @@ async function transitionGateEvent(
     action: auditAction,
     entityType: "GateEvent",
     entityId: gateEventId,
+    relatedGateEventId: gateEventId,
     beforeValue: { status: gateEvent.status },
     afterValue: { status: to },
   });
@@ -352,8 +353,8 @@ export interface RunOnDeviceFacialVerificationResult {
 // (lib/facial-verification/liveness-challenge.ts's shouldEscalateAfterFailure),
 // enforced server-side too so it can't be bypassed by a client that simply
 // stops calling that function.
-const VERIFICATION_ATTEMPT_RATE_LIMIT = 5;
-const VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES = 5;
+export const VERIFICATION_ATTEMPT_RATE_LIMIT = 5;
+export const VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES = 5;
 
 export async function runOnDeviceFacialVerificationAttempt(input: RunOnDeviceFacialVerificationInput): Promise<RunOnDeviceFacialVerificationResult | null> {
   if (input.idempotencyKey) {
@@ -617,10 +618,26 @@ export async function markIdentityVerifiedManually(
   actorUserId: string,
   manualFallbackId: string,
 ) {
+  const gateEvent = await prisma.gateEvent.findFirst({
+    where: tenantWhere(tenantId, { id: gateEventId }),
+    select: { id: true, driverId: true, status: true },
+  });
+  if (!gateEvent) return null;
+  if (gateEvent.status !== "IDENTITY_PENDING") {
+    throw new GateEventPreconditionError(
+      `Gate event must be IDENTITY_PENDING to apply manual fallback (current: ${gateEvent.status}).`,
+    );
+  }
   const fallback = await prisma.manualFacialVerificationFallback.findFirst({
     where: tenantWhere(tenantId, { id: manualFallbackId }),
   });
   if (!fallback || fallback.status !== "APPROVED") {
+    throw new ManualFallbackNotApprovedError();
+  }
+  if (
+    fallback.driverId !== gateEvent.driverId ||
+    fallback.relatedGateEventId !== gateEvent.id
+  ) {
     throw new ManualFallbackNotApprovedError();
   }
 

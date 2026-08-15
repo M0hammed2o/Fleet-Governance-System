@@ -5,6 +5,7 @@ import {
   mobileApiErrorResponse,
 } from "@/lib/mobile/mobile-api-guard";
 import { getGateEventInTenant } from "@/lib/repositories/gate-event-repository";
+import { getMobileFacialVerificationContext } from "@/lib/mobile/facial-verification";
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -14,8 +15,13 @@ export async function GET(
     const { id } = await params;
     const event = await getGateEventInTenant(session.tenantId, id);
     if (!event) throw new ApiError(404, "Gate event not found.");
+    const identity = await getMobileFacialVerificationContext(
+      session.tenantId,
+      id,
+      session.userId,
+    );
     return NextResponse.json(
-      { gateEvent: event },
+      { gateEvent: { ...event, identity } },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

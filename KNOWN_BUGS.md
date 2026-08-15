@@ -467,3 +467,7 @@ ANDROID-ENV-001 remains open: the API 35 AVD becomes offline during both streame
 installation. APK/JVM/lint/instrumentation compilation pass, but installation/native execution does not.
 Automatic EXIF/location stripping is also an explicit release blocker. No unresolved Critical code defect
 is known; device runtime, final identity/signing and independent review remain mandatory.
+
+## Phase 17B Android facial-verification finding
+
+ANDROID-DEF-006 (High functional gap if Phase 17A were presented as mobile-complete) found the Phase 17A APK identical to Phase 16B because the Android bundle still exposed only the legacy generic synthetic identity success action. The mobile application had no enrolment state, explicit failure outcomes, camera-readiness surface, controlled fallback/manager workflow, attempt feedback or audit confirmation. The Android workflow, tenant-scoped mobile endpoints, binding/separation enforcement and synchronized-bundle JVM regression are now implemented. The rebuilt APK hash differs. Physical-device execution remains blocked by ANDROID-ENV-001 and is not claimed.

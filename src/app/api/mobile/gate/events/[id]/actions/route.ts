@@ -15,8 +15,11 @@ import {
   moveToIdentityPending,
   raiseException,
   recordInspectionResult,
-  verifyIdentityForGateEvent,
+  runSyntheticFacialVerificationAttempt,
+  markIdentityVerifiedManually,
+  getGateEventInTenant,
 } from "@/lib/repositories/gate-event-repository";
+import { requestManualFallback } from "@/lib/repositories/facial-verification-repository";
 import { hasPermission } from "@/lib/auth/authorize";
 import { assertBiometricSimulatorAllowed } from "@/lib/facial-verification/simulator";
 
@@ -50,6 +53,16 @@ export async function POST(
         403,
         "Synthetic identity verification is unavailable.",
       );
+    if (
+      parsed.data.action === "REQUEST_MANUAL_FALLBACK" &&
+      !(await hasPermission(session, "facialVerificationFallback", "CREATE"))
+    )
+      throw new ApiError(403, "This action is not permitted.");
+    if (
+      parsed.data.action === "APPLY_APPROVED_FALLBACK" &&
+      !(await hasPermission(session, "facialVerificationFallback", "VIEW"))
+    )
+      throw new ApiError(403, "This action is not permitted.");
     if (parsed.data.action === "SYNTHETIC_IDENTITY_VERIFY") {
       try {
         assertBiometricSimulatorAllowed({
@@ -63,9 +76,10 @@ export async function POST(
         throw new ApiError(403, "Synthetic identity verification is unavailable.");
       }
     }
+    const idempotencyKey = request.headers.get("idempotency-key");
     const result = await executeMobileMutation({
       session,
-      key: request.headers.get("idempotency-key"),
+      key: idempotencyKey,
       operation: `gateEvent.${parsed.data.action}`,
       body: { id, ...parsed.data },
       run: async () => {
@@ -79,12 +93,40 @@ export async function POST(
               ),
             };
           case "SYNTHETIC_IDENTITY_VERIFY":
-            return verifyIdentityForGateEvent(
-              session.tenantId,
-              id,
-              session.userId,
-              parsed.data.capturedImageRef,
-            );
+            return runSyntheticFacialVerificationAttempt({
+              tenantId: session.tenantId,
+              gateEventId: id,
+              securityOfficerUserId: session.userId,
+              scenario: parsed.data.scenario,
+              idempotencyKey: idempotencyKey!,
+            });
+          case "REQUEST_MANUAL_FALLBACK": {
+            const event = await getGateEventInTenant(session.tenantId, id);
+            if (!event) throw new ApiError(404, "Gate event not found.");
+            if (event.status !== "IDENTITY_PENDING")
+              throw new ApiError(
+                409,
+                "Manual fallback can only be requested while identity is pending.",
+              );
+            return {
+              fallback: await requestManualFallback({
+                tenantId: session.tenantId,
+                driverId: event.driverId,
+                requestedByUserId: session.userId,
+                reason: parsed.data.reason,
+                relatedGateEventId: id,
+              }),
+            };
+          }
+          case "APPLY_APPROVED_FALLBACK":
+            return {
+              gateEvent: await markIdentityVerifiedManually(
+                session.tenantId,
+                id,
+                session.userId,
+                parsed.data.manualFallbackId,
+              ),
+            };
           case "BEGIN_CHECKS":
             return {
               gateEvent: await beginVehicleChecks(
@@ -157,6 +199,10 @@ export async function POST(
   } catch (error) {
     if (error instanceof ApiError) return mobileApiErrorResponse(error);
     const name = error instanceof Error ? error.name : "";
+    if (name === "TooManyVerificationAttemptsError")
+      return mobileApiErrorResponse(
+        new ApiError(429, (error as Error).message),
+      );
     if (
       /Invalid|Precondition|NotApproved|NotAvailable|Already|Fallback/.test(
         name,

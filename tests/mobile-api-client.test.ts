@@ -23,6 +23,52 @@ describe("mobile API client", () => {
   it("prevents critical mutations while disconnected", async () => {
     const client = new GenbridgeMobileClient("http://localhost:3000", tokenStore(), { isOnline: () => false }, vi.fn() as typeof fetch);
     await expect(client.movementDecision("movement-1", "APPROVE", "Reviewed", "decision-0001")).rejects.toBeInstanceOf(DisconnectedMutationError);
+    await expect(
+      client.decideFacialFallback("fallback-1", "APPROVED", "fallback-0001"),
+    ).rejects.toBeInstanceOf(DisconnectedMutationError);
+  });
+
+  it("sends synthetic scenario and manager fallback decisions through distinct idempotent endpoints", async () => {
+    const calls: Array<{ url: string; body: unknown; key: string | null }> = [];
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+        key: new Headers(init?.headers).get("idempotency-key"),
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const client = new GenbridgeMobileClient(
+      "http://localhost:3000",
+      tokenStore(),
+      { isOnline: () => true },
+      fetcher as typeof fetch,
+    );
+    await client.gateAction(
+      "event-1",
+      { action: "SYNTHETIC_IDENTITY_VERIFY", scenario: "LIVENESS_FAILURE" },
+      "facial-attempt-0001",
+    );
+    await client.decideFacialFallback(
+      "fallback-1",
+      "DENIED",
+      "fallback-decision-0001",
+    );
+    expect(calls).toEqual([
+      expect.objectContaining({
+        url: "http://localhost:3000/api/mobile/gate/events/event-1/actions",
+        body: { action: "SYNTHETIC_IDENTITY_VERIFY", scenario: "LIVENESS_FAILURE" },
+        key: "facial-attempt-0001",
+      }),
+      expect.objectContaining({
+        url: "http://localhost:3000/api/mobile/facial-verification/fallbacks/fallback-1/decision",
+        body: { decision: "DENIED" },
+        key: "fallback-decision-0001",
+      }),
+    ]);
   });
 
   it("clears the local token when the server reports expiry or revocation", async () => {

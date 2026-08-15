@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+const syntheticDisclosure =
+  "SYNTHETIC BIOMETRIC TEST — NOT REAL FACIAL VERIFICATION";
+
 const tracker = {
   source: "SYNTHETIC_SIMULATOR",
   freshness: "FRESH",
@@ -21,14 +24,20 @@ function bootstrap(kind: "guard" | "owner") {
         ? [
             "gateEvent:VIEW",
             "gateEvent:CREATE",
-            "gateEvent:UPDATE",
+            "gateEvent:EDIT",
             "movement:VIEW",
+            "facialVerificationAttempt:CREATE",
+            "facialVerificationFallback:VIEW",
+            "facialVerificationFallback:CREATE",
           ]
         : [
             "movement:VIEW",
             "movement:APPROVE",
             "governanceAnalytics:VIEW",
             "exception:VIEW",
+            "facialVerificationFallback:VIEW",
+            "facialVerificationFallback:APPROVE",
+            "facialVerificationFallback:REJECT",
           ],
       sessionExpiresAt: "2026-08-13T18:00:00.000Z",
     },
@@ -97,11 +106,25 @@ async function installMobileApi(
   page: Page,
   kind: "guard" | "owner",
   exceptionPath = false,
+  enrolled = true,
 ) {
   let authenticated = false;
   let gateStatus = "INSPECTION_STARTED";
   let inspectionOutcome: string | null = null;
   let decisionCount = 0;
+  let latestAttempt: Record<string, unknown> | null = null;
+  let fallback: Record<string, unknown> | null = kind === "owner" ? {
+    id: "fallback-1",
+    gateEventId: "event-1",
+    driver: { id: "driver-1", name: "Synthetic Driver", employeeNumber: "SYN-D016" },
+    reason: "Synthetic provider unavailable at the gate",
+    status: "PENDING",
+    requestedBy: { id: "guard-user", name: "Synthetic Guard" },
+    approvedBy: null,
+    requestedAt: "2026-08-12T18:10:00.000Z",
+    resolvedAt: null,
+    selfApprovalBlocked: false,
+  } : null;
   const calls: string[] = [];
   await page.route("**/api/mobile/**", async (route) => {
     const request = route.request();
@@ -158,9 +181,34 @@ async function installMobileApi(
       return;
     }
     if (url.pathname.endsWith("/gate/events/event-1/actions")) {
-      const body = request.postDataJSON() as { action: string; input?: { outcome?: string } };
+      const body = request.postDataJSON() as { action: string; scenario?: string; reason?: string; input?: { outcome?: string } };
       if (body.action === "IDENTITY_PENDING") gateStatus = "IDENTITY_PENDING";
-      if (body.action === "SYNTHETIC_IDENTITY_VERIFY") gateStatus = "IDENTITY_VERIFIED";
+      if (body.action === "SYNTHETIC_IDENTITY_VERIFY") {
+        const mapped = body.scenario === "SUCCESS" ? "MATCH"
+          : body.scenario === "NON_MATCH" ? "NO_MATCH"
+            : body.scenario === "LIVENESS_FAILURE" ? "LIVENESS_FAILED"
+              : body.scenario === "PROVIDER_OUTAGE" || body.scenario === "RATE_LIMITING" ? "PROVIDER_UNAVAILABLE"
+                : "REVIEW_REQUIRED";
+        latestAttempt = {
+          id: `attempt-${body.scenario}`,
+          result: enrolled ? mapped : "NOT_ENROLLED",
+          livenessResult: body.scenario === "LIVENESS_FAILURE" ? "FAILED" : "NOT_REQUIRED",
+          safeErrorCode: body.scenario === "RATE_LIMITING" ? "RATE_LIMITED" : body.scenario === "PROVIDER_OUTAGE" ? "OUTAGE" : null,
+          attemptedAt: "2026-08-12T18:20:00.000Z",
+          synthetic: true,
+          disclosure: syntheticDisclosure,
+          providerId: "genbridge-local-biometric-simulator",
+          policyVersion: "synthetic-policy-v1",
+        };
+        if (enrolled && body.scenario === "SUCCESS") gateStatus = "IDENTITY_VERIFIED";
+      }
+      if (body.action === "REQUEST_MANUAL_FALLBACK") fallback = {
+        id: "fallback-1", gateEventId: "event-1",
+        driver: { id: "driver-1", name: "Synthetic Driver", employeeNumber: "SYN-D016" },
+        reason: body.reason, status: "PENDING",
+        requestedBy: { id: "guard-user", name: "Synthetic Guard" }, approvedBy: null,
+        requestedAt: "2026-08-12T18:25:00.000Z", resolvedAt: null, selfApprovalBlocked: true,
+      };
       if (body.action === "BEGIN_CHECKS") gateStatus = "VEHICLE_CHECKS_IN_PROGRESS";
       if (body.action === "RECORD_INSPECTION") {
         inspectionOutcome = body.input?.outcome ?? null;
@@ -184,6 +232,19 @@ async function installMobileApi(
           driver: movement().driver,
           gate: { id: "gate-1", name: "Main Gate" },
           site: movement().site,
+          identity: {
+            disclosure: syntheticDisclosure,
+            enrolment: { status: enrolled ? "ENROLLED" : "NOT_ENROLLED", version: enrolled ? 1 : null, synthetic: enrolled ? true : null },
+            latestAttempt,
+            attemptsRemaining: 4,
+            rateLimit: { maximum: 5, windowMinutes: 5 },
+            fallback,
+            auditConfirmation: latestAttempt || fallback ? {
+              recorded: true,
+              action: latestAttempt ? "facialVerification.syntheticAttemptRecorded" : "facialVerification.manualFallback.requested",
+              recordedAt: "2026-08-12T18:25:00.000Z",
+            } : null,
+          },
           inspectionTemplate: {
             items: [
               {
@@ -243,6 +304,16 @@ async function installMobileApi(
       });
       return;
     }
+    if (url.pathname.endsWith("/facial-verification/fallbacks") && request.method() === "GET") {
+      await fulfill(route, { fallbacks: fallback?.status === "PENDING" ? [fallback] : [] });
+      return;
+    }
+    if (url.pathname.endsWith("/facial-verification/fallbacks/fallback-1/decision")) {
+      const body = request.postDataJSON() as { decision: "APPROVED" | "DENIED" };
+      fallback = { ...fallback, status: body.decision, approvedBy: { id: "owner-user", name: "Synthetic Owner" }, resolvedAt: "2026-08-12T18:30:00.000Z" };
+      await fulfill(route, { fallback });
+      return;
+    }
     if (url.pathname.endsWith("/notifications")) {
       await fulfill(route, {
         items: [
@@ -298,7 +369,7 @@ async function signIn(
   await expect(page.getByText(kind === "guard" ? "Hello, Synthetic Guard" : "Hello, Synthetic Owner")).toBeVisible();
 }
 
-async function openStartedGateEvent(page: Page) {
+async function openIdentityPending(page: Page) {
   await page.getByRole("button", { name: "Open gate queue" }).click();
   await expect(page.getByRole("heading", { name: "Gate queue" })).toBeVisible();
   await page.getByRole("button", { name: "Open movement" }).click();
@@ -307,10 +378,52 @@ async function openStartedGateEvent(page: Page) {
   await page.getByRole("button", { name: "Start departure checks" }).click();
   await expect(page.getByRole("heading", { name: "Gate event" })).toBeVisible();
   await page.getByRole("button", { name: "Confirm identity step" }).click();
-  await page.getByRole("button", { name: "Run synthetic identity verification" }).click();
+  await expect(page.getByText(syntheticDisclosure).first()).toBeVisible();
+}
+
+async function openStartedGateEvent(page: Page) {
+  await openIdentityPending(page);
+  await page.getByRole("button", { name: /Check camera permission/ }).click();
+  await page.getByRole("button", { name: "Initiate synthetic facial-verification test" }).click();
+  await expect(page.getByText("Audit confirmation")).toBeVisible();
   await page.getByRole("button", { name: "Begin vehicle checks" }).click();
   await page.getByLabel("Odometer (km)").fill("12000");
 }
+
+for (const [scenario, result] of [
+  ["Non-match result", "Non-match result"],
+  ["Facial-liveness failure", "Facial-liveness failure"],
+  ["Indeterminate result", "Indeterminate result"],
+  ["Provider-unavailable result", "Provider unavailable"],
+  ["Provider rate-limit result", "Rate limit feedback"],
+] as const) {
+  test(`Security Guard receives explicit ${result.toLowerCase()} feedback`, async ({ page }) => {
+    const api = await installMobileApi(page, "guard");
+    await signIn(page, "guard", api);
+    await openIdentityPending(page);
+    await page.getByRole("button", { name: /Check camera permission/ }).click();
+    await page.getByLabel("Test outcome").selectOption({ label: scenario });
+    await page.getByRole("button", { name: "Initiate synthetic facial-verification test" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: result })).toBeVisible();
+    await expect(page.getByText("Audit confirmation")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Begin vehicle checks" })).toHaveCount(0);
+  });
+}
+
+test("not-enrolled status blocks simulation and requires controlled fallback", async ({ page }) => {
+  const api = await installMobileApi(page, "guard", false, false);
+  await signIn(page, "guard", api);
+  await openIdentityPending(page);
+  await expect(page.getByLabel("Danger: NOT ENROLLED")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Initiate synthetic facial-verification test" })).toBeDisabled();
+  const request = page.getByRole("button", { name: "Request manager approval" });
+  await expect(request).toBeDisabled();
+  await page.getByLabel("Mandatory fallback reason").fill("No active test enrolment is available");
+  await expect(request).toBeEnabled();
+  await request.click();
+  await expect(page.locator(".badge", { hasText: "Fallback PENDING" })).toBeVisible();
+  await expect(page.getByText(/Separation of duties is enforced/)).toBeVisible();
+});
 
 test("Security Guard completes a synthetic departure with evidence and server confirmation", async ({ page }) => {
   const api = await installMobileApi(page, "guard");
@@ -352,6 +465,9 @@ test("Owner reviews summary, provenance and performs one authorized approval", a
   await expect(page.getByLabel("Vehicles out: 4")).toBeVisible();
   await expect(page.getByText("Synthetic tracker data present")).toBeVisible();
   await expect(page.getByText(/not evidence of wrongdoing/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Manual identity fallback approvals" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve fallback" }).click();
+  await expect(page.getByText(/fallback approved and audit event recorded/i)).toBeVisible();
   await page.getByRole("button", { name: "Notifications" }).click();
   await page.getByRole("button", { name: "Open authorized record" }).click();
   await expect(page.getByRole("heading", { name: "Movement decision" })).toBeVisible();

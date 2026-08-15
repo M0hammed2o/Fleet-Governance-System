@@ -42,10 +42,16 @@ export function mobileApiErrorResponse(error: unknown): NextResponse {
             ? "SESSION_INVALID"
             : error.status === 403
               ? "FORBIDDEN"
+              : error.status === 429
+                ? "RATE_LIMITED"
               : "INVALID_REQUEST",
-        retryable: error.status >= 500,
+        retryable: error.status === 429 || error.status >= 500,
       },
-      { status: error.status },
+      {
+        status: error.status,
+        headers:
+          error.status === 429 ? { "Retry-After": "300" } : undefined,
+      },
     );
   if (error instanceof ForbiddenError)
     return NextResponse.json(

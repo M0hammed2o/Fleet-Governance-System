@@ -1,5 +1,21 @@
 # Android device testing guide
 
+## Phase 17B synthetic facial-verification APK
+
+The Phase 17B debug artifact is at `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Before transfer, verify the file against the final reported SHA-256. The preliminary verified rebuild is 7,247,283 bytes with SHA-256 `D6DBD981ABF1D6E53C95C7E60859026B6F7BAC0EBDE0640255F0759B0706546B`, which differs from the Phase 16B/17A hash.
+
+On Mohammed's Windows computer, enable Developer options and USB debugging on the Android device, unlock it, connect a data-capable USB cable, and accept the RSA authorization prompt. From the repository root run:
+
+```powershell
+$adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+& $adb devices -l
+Get-FileHash -Algorithm SHA256 'apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk'
+& $adb install -r -t 'apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk'
+& $adb shell am start -n 'za.co.genbridge.fleet/.MainActivity'
+```
+
+The device must appear as `device`, not `unauthorized` or `offline`, and the hash must match the final report before installation. If using the local API, keep the development server running and then run `& $adb reverse tcp:3000 tcp:3000`. Use only synthetic pilot accounts and records. In the facial workflow, grant Camera only to test permission recovery; the app must state that no image is captured. Do not point the camera at a real person and do not select a real image. Uninstall after testing with `& $adb uninstall za.co.genbridge.fleet` if the test owner requires removal.
+
 ## Phase 17A diagnostic
 
 On 2026-08-14 SDK tools were found under `%LOCALAPPDATA%\Android\Sdk` but were not on `PATH`. No physical device was listed. `PropertyVault_Pixel7_API35` reported Android 15 briefly, then returned to `offline` without `sys.boot_completed=1`; the Phase 17A APK was not installed. The launched emulator processes were stopped and ADB reset. Follow `PILOT_DEVICE_SETUP_GUIDE.md` for the required physical-device run.

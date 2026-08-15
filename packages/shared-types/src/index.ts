@@ -161,3 +161,64 @@ export interface ApiFailureBody {
   code?: string;
   retryable?: boolean;
 }
+
+export const SYNTHETIC_BIOMETRIC_DISCLOSURE =
+  "SYNTHETIC BIOMETRIC TEST — NOT REAL FACIAL VERIFICATION" as const;
+
+export type MobileBiometricScenario =
+  | "SUCCESS"
+  | "NON_MATCH"
+  | "INDETERMINATE"
+  | "LIVENESS_FAILURE"
+  | "PROVIDER_OUTAGE"
+  | "RATE_LIMITING";
+
+export interface MobileFacialAttemptSummary {
+  id: string;
+  result:
+    | "MATCH"
+    | "NO_MATCH"
+    | "REVIEW_REQUIRED"
+    | "NOT_ENROLLED"
+    | "CAPTURE_FAILED"
+    | "LIVENESS_FAILED"
+    | "PROVIDER_UNAVAILABLE";
+  livenessResult: "PASSED" | "FAILED" | "NOT_REQUIRED" | "SKIPPED";
+  safeErrorCode: string | null;
+  attemptedAt: string;
+  synthetic: true;
+  disclosure: typeof SYNTHETIC_BIOMETRIC_DISCLOSURE;
+  providerId: string;
+  policyVersion: string;
+}
+
+export interface MobileManualFallbackSummary {
+  id: string;
+  gateEventId: string | null;
+  driver: { id: string; name: string; employeeNumber: string | null };
+  reason: string;
+  status: "PENDING" | "APPROVED" | "DENIED";
+  requestedBy: { id: string; name: string };
+  approvedBy: { id: string; name: string } | null;
+  requestedAt: string;
+  resolvedAt: string | null;
+  selfApprovalBlocked: boolean;
+}
+
+export interface MobileFacialIdentityContext {
+  disclosure: typeof SYNTHETIC_BIOMETRIC_DISCLOSURE;
+  enrolment: {
+    status: "ENROLLED" | "NOT_ENROLLED";
+    version: number | null;
+    synthetic: boolean | null;
+  };
+  latestAttempt: MobileFacialAttemptSummary | null;
+  attemptsRemaining: number;
+  rateLimit: { maximum: number; windowMinutes: number };
+  fallback: MobileManualFallbackSummary | null;
+  auditConfirmation: {
+    recorded: true;
+    action: string;
+    recordedAt: string;
+  } | null;
+}

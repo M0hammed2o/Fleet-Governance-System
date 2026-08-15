@@ -4,6 +4,8 @@ import type {
   MobileBootstrapResponse,
   MobileMovementDetail,
   MobileNotification,
+  MobileFacialIdentityContext,
+  MobileManualFallbackSummary,
   OwnerOverview,
   Page,
 } from "@genbridge/shared-types";
@@ -199,6 +201,22 @@ export class GenbridgeMobileClient {
   ownerOverview() {
     return this.request<OwnerOverview>("/api/mobile/owner/overview");
   }
+  facialFallbacks(status: "PENDING" | "APPROVED" | "DENIED" = "PENDING") {
+    return this.request<{ fallbacks: MobileManualFallbackSummary[] }>(
+      `/api/mobile/facial-verification/fallbacks?status=${status}`,
+    );
+  }
+  decideFacialFallback(
+    id: string,
+    decision: "APPROVED" | "DENIED",
+    key = createIdempotencyKey("facial-fallback"),
+  ) {
+    return this.mutate<{ fallback: MobileManualFallbackSummary }>(
+      `/api/mobile/facial-verification/fallbacks/${encodeURIComponent(id)}/decision`,
+      { decision },
+      key,
+    );
+  }
   movementDecision(
     id: string,
     decision: "APPROVE" | "REJECT",
@@ -314,6 +332,7 @@ export interface MobileGateEvent {
   driver: { id: string; name: string; employeeNumber: string | null };
   gate: { id: string; name: string };
   site: { id: string; name: string };
+  identity: MobileFacialIdentityContext;
   inspectionTemplate: {
     items: Array<{
       id: string;

@@ -786,3 +786,9 @@ An API 35 AVD reached Android service readiness but became offline during every 
 installation attempt. The instrumentation APK compiled but did not run, and no native UI/device pass is
 claimed. Connected tests plus the full phone/tablet/accessibility/evidence matrix must be rerun after AVD or
 physical-device repair.
+
+# Phase 17B Android facial-verification scope
+
+`npm run mobile:test` now includes 7 files / 21 tests, including tenant-isolated mobile facial context, exact disclosure, safe attempt summaries, audit linkage, retry budget, fallback binding, manager separation and disconnected mutation refusal. `e2e/mobile-priority-workflows.spec.ts` has 10 rendered mobile journeys covering verified, non-match, liveness failure, indeterminate, provider outage, provider rate limiting, not-enrolled, mandatory fallback, manager approval, 44px responsive controls and offline fail-closed behavior.
+
+After `npm run android:sync`, the fourth Android JVM contract reads the synchronized JavaScript assets and requires the exact warning, mobile initiation/fallback/manager controls and scenario identifiers while rejecting the retired `capturedImageRef` contract. Android configuration, JVM, lint and debug assembly remain independent gates. No emulator or physical-device outcome is inferred from browser/JVM coverage.

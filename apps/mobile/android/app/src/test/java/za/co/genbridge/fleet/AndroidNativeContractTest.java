@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 public class AndroidNativeContractTest {
@@ -46,5 +47,29 @@ public class AndroidNativeContractTest {
         String paths = source("src/main/res/xml/file_paths.xml");
         assertFalse(paths.contains("<external-path"));
         assertTrue(paths.contains("<external-files-path"));
+    }
+
+    @Test
+    public void synchronizedBundleContainsSyntheticFacialWorkflowAndNoLegacyCaptureReference() throws Exception {
+        StringBuilder bundle = new StringBuilder();
+        try (Stream<java.nio.file.Path> paths = Files.walk(Paths.get("src/main/assets/public"))) {
+            paths.filter(path -> path.toString().endsWith(".js"))
+                .forEach(path -> {
+                    try {
+                        bundle.append(source(path.toString()));
+                    } catch (Exception error) {
+                        throw new RuntimeException(error);
+                    }
+                });
+        }
+        String javascript = bundle.toString();
+        assertTrue(javascript.contains("SYNTHETIC BIOMETRIC TEST — NOT REAL FACIAL VERIFICATION"));
+        assertTrue(javascript.contains("Initiate synthetic facial-verification test"));
+        assertTrue(javascript.contains("Mandatory fallback reason"));
+        assertTrue(javascript.contains("Manual identity fallback approvals"));
+        assertTrue(javascript.contains("Camera permission"));
+        assertTrue(javascript.contains("LIVENESS_FAILURE"));
+        assertTrue(javascript.contains("PROVIDER_OUTAGE"));
+        assertFalse(javascript.contains("capturedImageRef"));
     }
 }
