@@ -52,8 +52,9 @@ test("DriverFacialEnrolmentCapture loads both models and runs its detection loop
   await expect(page.getByRole("heading", { name: "Biometric enrolment" })).toBeVisible({ timeout: 10_000 });
 
   await page.getByRole("button", { name: /enrol driver|re-enrol/i }).click();
-  await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Start camera" }).click();
+  await page.getByRole("checkbox", { name: /notice has been shown/i }).check();
+  await page.getByRole("checkbox", { name: /selected driver, tenant, authority/i }).check();
+  await page.getByRole("button", { name: /start local camera capture/i }).click();
 
   // The video element becoming visible proves getUserMedia resolved with a
   // live stream; waiting past that lets the detection loop run several

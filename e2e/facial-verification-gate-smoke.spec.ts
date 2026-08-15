@@ -31,7 +31,7 @@ test("GateFacialVerification loads its models and starts a liveness challenge ag
 
   await roles.officerPage.goto(`/gate/events/${fixture.gateEventId}`);
 
-  const startButton = roles.officerPage.getByRole("button", { name: "Start facial verification" });
+  const startButton = roles.officerPage.getByRole("button", { name: "Start local one-to-one verification" });
   await expect(startButton).toBeVisible({ timeout: 15_000 });
 
   await startButton.click();
@@ -61,7 +61,7 @@ test("P9F-001: a provider-unavailable browser reports a safe, audited, never-suc
 
   await roles.officerPage.goto(`/gate/events/${fixture.gateEventId}`);
 
-  const startButton = roles.officerPage.getByRole("button", { name: "Start facial verification" });
+  const startButton = roles.officerPage.getByRole("button", { name: "Start local one-to-one verification" });
   await expect(startButton).toBeVisible({ timeout: 15_000 });
   await startButton.click();
 
@@ -73,7 +73,7 @@ test("P9F-001: a provider-unavailable browser reports a safe, audited, never-suc
   // retry/manual-fallback route remains available.
   await expect(roles.officerPage.getByText(/Last result:\s*PROVIDER_UNAVAILABLE/)).toBeVisible({ timeout: 15_000 });
   await expect(roles.officerPage.getByText("Verified", { exact: true })).toHaveCount(0);
-  await expect(roles.officerPage.getByRole("button", { name: "Start facial verification" })).toBeVisible(); // retry route
+  await expect(roles.officerPage.getByRole("button", { name: "Start local one-to-one verification" })).toBeVisible(); // retry route
   await expect(roles.officerPage.getByRole("button", { name: "Request manual fallback" })).toBeVisible(); // manual-fallback route
   await expect(roles.officerPage.getByText("IDENTITY PENDING")).toBeVisible(); // never silently advanced
 
