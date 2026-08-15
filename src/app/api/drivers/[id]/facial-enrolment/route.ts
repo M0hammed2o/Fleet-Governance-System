@@ -11,9 +11,15 @@ import {
   InsufficientCapturesError,
   InconsistentCapturesError,
   NoActiveTemplateError,
+  AlternativeAuthorityReferenceRequiredError,
 } from "@/lib/repositories/facial-enrolment-repository";
 import { EncryptionKeyNotConfiguredError } from "@/lib/facial-verification/template-encryption";
 import { enrolDriverSchema, revokeFacialTemplateSchema } from "@/lib/validation/facial-verification";
+import { assertBiometricSimulatorAllowed } from "@/lib/facial-verification/simulator";
+import {
+  assertFacialVerificationRuntimeAllowed,
+  FacialVerificationActivationBlockedError,
+} from "@/lib/operations/facial-verification-readiness";
 
 /** Status + full audit history (Phase 9C) — never the template bytes. Gated by the restricted `facialTemplate:VIEW` permission, not ordinary `driver:VIEW`. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -37,6 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 /** Enrol or re-enrol (Phase 9C). Restricted role only (`facialTemplate:CREATE`). */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    assertFacialVerificationRuntimeAllowed(process.env);
     const session = await requireApiPermission("facialTemplate", "CREATE");
     const { id } = await params;
 
@@ -45,25 +52,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const parsed = enrolDriverSchema.safeParse(body);
     if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message ?? "Invalid input");
 
+    if (process.env.PILOT_MODE === "true" && !parsed.data.synthetic) {
+      throw new ApiError(403, "Internal pilot mode permits synthetic non-biometric enrolment only.");
+    }
+
+    if (parsed.data.synthetic) {
+      assertBiometricSimulatorAllowed({
+        APP_ENV: process.env.APP_ENV,
+        BIOMETRIC_SIMULATOR_APPROVED_TEST_ONLY:
+          process.env.BIOMETRIC_SIMULATOR_APPROVED_TEST_ONLY,
+        BIOMETRIC_SIMULATOR_ISOLATED:
+          process.env.BIOMETRIC_SIMULATOR_ISOLATED,
+      });
+    }
+
     const template = await enrolDriver({
       tenantId: session.tenantId,
       actorUserId: session.userId,
       driverId: id,
       captureDescriptors: parsed.data.captureDescriptors,
       consentAcknowledged: parsed.data.consentAcknowledged,
+      lawfulAuthority: parsed.data.lawfulAuthority,
+      lawfulAuthorityReference: parsed.data.lawfulAuthorityReference,
+      noticeVersion: parsed.data.noticeVersion,
+      retentionPolicyVersion: parsed.data.retentionPolicyVersion,
+      synthetic: parsed.data.synthetic,
     });
 
     // Never return template bytes — status fields only.
     return NextResponse.json(
-      { template: { id: template.id, status: template.status, templateVersion: template.templateVersion, modelVersion: template.modelVersion, enrolledAt: template.enrolledAt } },
+      { template: { id: template.id, status: template.status, templateVersion: template.templateVersion, modelVersion: template.modelVersion, version: template.version, providerId: template.providerId, synthetic: template.synthetic, syntheticDisclosure: template.syntheticDisclosure, enrolledAt: template.enrolledAt } },
       { status: 201 },
     );
   } catch (err) {
     if (err instanceof DriverNotFoundError) return apiErrorResponse(new ApiError(404, err.message));
-    if (err instanceof ConsentNotAcknowledgedError || err instanceof InsufficientCapturesError || err instanceof InconsistentCapturesError) {
+    if (err instanceof ConsentNotAcknowledgedError || err instanceof InsufficientCapturesError || err instanceof InconsistentCapturesError || err instanceof AlternativeAuthorityReferenceRequiredError) {
       return apiErrorResponse(new ApiError(400, err.message));
     }
     if (err instanceof EncryptionKeyNotConfiguredError) return apiErrorResponse(new ApiError(503, err.message));
+    if (err instanceof FacialVerificationActivationBlockedError) return apiErrorResponse(new ApiError(503, err.message));
     return apiErrorResponse(err);
   }
 }

@@ -7,6 +7,10 @@ import {
   TooManyVerificationAttemptsError,
 } from "@/lib/repositories/gate-event-repository";
 import { runVerificationAttemptSchema } from "@/lib/validation/facial-verification";
+import {
+  assertFacialVerificationRuntimeAllowed,
+  FacialVerificationActivationBlockedError,
+} from "@/lib/operations/facial-verification-readiness";
 
 /** Full audit trail of every verification attempt for this gate event (Phase 9D). Gated by `facialVerificationAttempt:VIEW`. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -29,6 +33,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    assertFacialVerificationRuntimeAllowed(process.env);
+    if (process.env.PILOT_MODE === "true") {
+      throw new ApiError(403, "Internal pilot mode permits the labelled synthetic biometric simulator only.");
+    }
     const session = await requireApiPermission("facialVerificationAttempt", "CREATE");
     const { id } = await params;
 
@@ -47,6 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       livenessChallenge: parsed.data.livenessChallenge,
       deviceLabel: parsed.data.deviceLabel,
       providerUnavailable: parsed.data.providerUnavailable,
+      idempotencyKey: parsed.data.idempotencyKey,
     });
     if (!result) throw new ApiError(404, "Gate event not found");
 
@@ -54,6 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (err) {
     if (err instanceof GateEventPreconditionError) return apiErrorResponse(new ApiError(409, err.message));
     if (err instanceof TooManyVerificationAttemptsError) return apiErrorResponse(new ApiError(429, err.message));
+    if (err instanceof FacialVerificationActivationBlockedError) return apiErrorResponse(new ApiError(503, err.message));
     return apiErrorResponse(err);
   }
 }

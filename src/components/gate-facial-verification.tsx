@@ -15,6 +15,8 @@ import {
   type LivenessChallengeType,
   type LivenessFrameSignal,
 } from "@/lib/facial-verification/liveness-challenge";
+import { SYNTHETIC_BIOMETRIC_LABEL } from "@/lib/facial-verification/contracts";
+import type { BiometricSimulatorScenario } from "@/lib/facial-verification/simulator";
 
 /**
  * Gate-tablet facial verification (Phase 9D/9E/9H): a random active
@@ -202,6 +204,31 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
     rafRef.current = requestAnimationFrame(loop);
   }
 
+  async function runSyntheticScenario(scenario: BiometricSimulatorScenario) {
+    setError(null);
+    setPhase("verifying");
+    try {
+      const res = await fetch(`/api/gate/gate-events/${gateEventId}/facial-verification/simulator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario, idempotencyKey: crypto.randomUUID() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Synthetic verification failed");
+        setPhase("error");
+        return;
+      }
+      const result: string = data.attempt.result;
+      setResultLabel(result);
+      setPhase("result");
+      onVerified?.({ result, gateEventVerified: result === "MATCH" });
+    } catch {
+      setError("Could not reach the server. No result was recorded.");
+      setPhase("error");
+    }
+  }
+
   function retry() {
     setResultLabel(null);
     setPhase("idle");
@@ -210,9 +237,28 @@ export function GateFacialVerification({ gateEventId, onVerified }: { gateEventI
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4">
       {phase === "idle" && (
-        <button type="button" onClick={startChallenge} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-          Start facial verification
-        </button>
+        <div className="space-y-3">
+          <button type="button" onClick={startChallenge} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+            Start local one-to-one verification
+          </button>
+          <div className="rounded-md border border-sky-300 bg-sky-50 p-3">
+            <p className="text-sm font-semibold text-sky-900" role="note">{SYNTHETIC_BIOMETRIC_LABEL}</p>
+            <p className="mt-1 text-xs text-sky-800">Internal rehearsal only. No face, camera image, or real biometric template is used.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {([
+                ["SUCCESS", "Synthetic verified"],
+                ["NON_MATCH", "Synthetic non-match"],
+                ["LIVENESS_FAILURE", "Synthetic liveness failure"],
+                ["PROVIDER_OUTAGE", "Synthetic unavailable"],
+                ["MANUAL_FALLBACK", "Synthetic indeterminate"],
+              ] as const).map(([scenario, label]) => (
+                <button key={scenario} type="button" onClick={() => runSyntheticScenario(scenario)} className="min-h-11 rounded-md border border-sky-400 bg-white px-3 py-2 text-xs font-medium text-sky-900">
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {phase === "starting-camera" && <p className="text-sm text-slate-500">Requesting camera access…</p>}

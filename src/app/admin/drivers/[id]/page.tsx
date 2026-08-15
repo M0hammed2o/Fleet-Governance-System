@@ -25,6 +25,15 @@ interface ManualFallback {
   resolvedAt: string | null;
 }
 
+interface BiometricDeletionRequest {
+  id: string;
+  reason: string;
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "IN_RECOVERY" | "COMPLETED" | "CANCELLED";
+  initiatedAt: string;
+  recoveryExpiresAt: string | null;
+  completedAt: string | null;
+}
+
 export default function DriverDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [driver, setDriver] = useState<Driver | null>(null);
@@ -38,6 +47,8 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
   const [enrolmentHistory, setEnrolmentHistory] = useState<Array<{ id: string; status: string; enrolledAt: string; revokedAt: string | null; revokedReason: string | null }>>([]);
   const [showEnrolmentCapture, setShowEnrolmentCapture] = useState(false);
   const [revokeReason, setRevokeReason] = useState("");
+  const [deletionReason, setDeletionReason] = useState("");
+  const [deletionRequests, setDeletionRequests] = useState<BiometricDeletionRequest[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +79,11 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
     const data = await res.json();
     setEnrolmentStatus(data.status);
     setEnrolmentHistory(data.history);
+    const deletionRes = await fetch(`/api/drivers/${id}/facial-enrolment/deletion`);
+    if (deletionRes.ok) {
+      const deletionData = await deletionRes.json();
+      setDeletionRequests(deletionData.requests);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -87,6 +103,38 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
       return;
     }
     setRevokeReason("");
+    await loadEnrolment();
+  }
+
+  async function requestTemplateDeletion(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    const res = await fetch(`/api/drivers/${id}/facial-enrolment/deletion`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: deletionReason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Could not request biometric deletion");
+      return;
+    }
+    setDeletionReason("");
+    await loadEnrolment();
+  }
+
+  async function decideTemplateDeletion(requestId: string, action: "APPROVE" | "COMPLETE") {
+    setError(null);
+    const res = await fetch(`/api/drivers/${id}/facial-enrolment/deletion`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId, action }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Could not update biometric deletion");
+      return;
+    }
     await loadEnrolment();
   }
 
@@ -207,7 +255,7 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
             )}
           </div>
 
-          {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         </div>
 
         <ComplianceDocumentsPanel ownerType="DRIVER" ownerId={driver.id} documents={documents} onChanged={load} />
@@ -259,11 +307,39 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
                 ))}
               </ul>
             )}
+
+            {enrolmentHistory.some((entry) => entry.status !== "DELETED") && !deletionRequests.some((entry) => ["PENDING_APPROVAL", "APPROVED", "IN_RECOVERY"].includes(entry.status)) && (
+              <form onSubmit={requestTemplateDeletion} className="mt-5 space-y-2 border-t border-slate-200 pt-4">
+                <label htmlFor="biometric-deletion-reason" className="block text-sm font-medium text-slate-800">Request biometric material deletion</label>
+                <p className="text-xs text-slate-600">A different authorized user must approve. Material is erased only after the 30-day recovery window; safe chronology remains.</p>
+                <div className="flex flex-wrap gap-2">
+                  <input id="biometric-deletion-reason" required minLength={10} value={deletionReason} onChange={(event) => setDeletionReason(event.target.value)} placeholder="Required deletion reason" className="min-h-11 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <button type="submit" className="min-h-11 rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-800">Request deletion</button>
+                </div>
+              </form>
+            )}
+
+            {deletionRequests.length > 0 && (
+              <div className="mt-4 space-y-2" aria-label="Biometric deletion requests">
+                {deletionRequests.map((request) => (
+                  <div key={request.id} className="rounded-md border border-slate-200 p-3 text-xs text-slate-700">
+                    <p><span className="font-semibold">{request.status}</span> — {request.reason}</p>
+                    <p>Requested {new Date(request.initiatedAt).toLocaleString()}{request.recoveryExpiresAt ? ` · deletion eligible after ${new Date(request.recoveryExpiresAt).toLocaleString()}` : ""}</p>
+                    {request.status === "PENDING_APPROVAL" && <button type="button" onClick={() => decideTemplateDeletion(request.id, "APPROVE")} className="mt-2 min-h-11 rounded-md border border-amber-300 px-3 py-2 font-medium text-amber-900">Approve as independent reviewer</button>}
+                    {request.status === "APPROVED" && <button type="button" onClick={() => decideTemplateDeletion(request.id, "COMPLETE")} className="mt-2 min-h-11 rounded-md border border-red-300 px-3 py-2 font-medium text-red-800">Complete after recovery window</button>}
+                    {request.completedAt && <p>Material deleted {new Date(request.completedAt).toLocaleString()}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Facial verification (mock provider — dev only)</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">Synthetic facial-verification scenarios</h2>
+          <p className="mb-3 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900" role="note">
+            SYNTHETIC BIOMETRIC TEST — NOT REAL FACIAL VERIFICATION
+          </p>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => runMockVerification()} className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50">
               Verify (should pass)

@@ -10,6 +10,7 @@ import {
   computeDescriptorFromVideoFrame,
 } from "@/lib/facial-verification/browser-engine";
 import { evaluateCaptureQuality, type FaceDetectionSummary } from "@/lib/facial-verification/capture-quality";
+import { SYNTHETIC_BIOMETRIC_LABEL } from "@/lib/facial-verification/contracts";
 
 /**
  * Driver biometric enrolment capture (Phase 9C). Restricted-role gated at
@@ -30,6 +31,9 @@ type EnrolmentState = "consent" | "starting-camera" | "capturing" | "submitting"
 export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverId: string; onEnrolled?: () => void }) {
   const [state, setState] = useState<EnrolmentState>("consent");
   const [consentChecked, setConsentChecked] = useState(false);
+  const [submissionConfirmed, setSubmissionConfirmed] = useState(false);
+  const [lawfulAuthority, setLawfulAuthority] = useState<"CONSENT" | "APPROVED_ALTERNATIVE">("CONSENT");
+  const [lawfulAuthorityReference, setLawfulAuthorityReference] = useState("");
   const [captures, setCaptures] = useState<number[][]>([]);
   const [liveIssues, setLiveIssues] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +132,8 @@ export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverI
     }
   }
 
-  async function submitEnrolment() {
+  async function submitEnrolment(descriptors = captures, synthetic = false) {
+    if (!consentChecked || !submissionConfirmed) return;
     stopCamera();
     setState("submitting");
     setError(null);
@@ -136,7 +141,15 @@ export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverI
       const res = await fetch(`/api/drivers/${driverId}/facial-enrolment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ captureDescriptors: captures, consentAcknowledged: true }),
+        body: JSON.stringify({
+          captureDescriptors: descriptors,
+          consentAcknowledged: true,
+          lawfulAuthority,
+          lawfulAuthorityReference: lawfulAuthority === "APPROVED_ALTERNATIVE" ? lawfulAuthorityReference : undefined,
+          noticeVersion: "phase17a-biometric-notice-v1",
+          retentionPolicyVersion: "phase17a-pending-approval-v1",
+          synthetic,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -152,6 +165,18 @@ export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverI
     }
   }
 
+  function syntheticDescriptor(seed: number): number[] {
+    return Array.from({ length: 128 }, (_, index) => Math.sin(seed + index) * 0.1);
+  }
+
+  async function createSyntheticEnrolment() {
+    const seed = Array.from(driverId).reduce((total, character) => total + character.charCodeAt(0), 17);
+    const descriptors = [0, 1, 2].map((offset) =>
+      syntheticDescriptor(seed).map((value, index) => value + Math.sin(offset + index) * 0.001),
+    );
+    await submitEnrolment(descriptors, true);
+  }
+
   const canCaptureMore = captures.length < MAX_CAPTURES;
   const readyToSubmit = captures.length >= REQUIRED_CAPTURES;
 
@@ -160,24 +185,55 @@ export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverI
       {state === "consent" && (
         <div className="space-y-3 text-sm">
           <p className="font-medium text-slate-900">Biometric-processing notice</p>
+          <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 font-semibold text-sky-900" role="note">
+            {SYNTHETIC_BIOMETRIC_LABEL}
+          </p>
           <p className="text-slate-600">
             This will capture and process images of the driver&apos;s face to create an encrypted biometric template used
             solely for verifying this driver&apos;s identity at the gate. No raw enrolment video is stored — only the
-            resulting numeric template. The template is retained for as long as this driver is active, and can be
-            revoked at any time by an authorised administrator. See your organisation&apos;s privacy policy for full
-            retention and processing details.
+            resulting numeric template. Retention and deletion follow the approved tenant policy; the current Phase
+            17A internal candidate does not approve real biometric collection. Use the synthetic option for rehearsal.
           </p>
+          <fieldset className="space-y-2 rounded-md border border-slate-200 p-3">
+            <legend className="px-1 font-medium">Lawful authority recorded for this enrolment</legend>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="lawfulAuthority" checked={lawfulAuthority === "CONSENT"} onChange={() => setLawfulAuthority("CONSENT")} />
+              Driver consent after notice
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="lawfulAuthority" checked={lawfulAuthority === "APPROVED_ALTERNATIVE"} onChange={() => setLawfulAuthority("APPROVED_ALTERNATIVE")} />
+              Approved alternative lawful authority
+            </label>
+            {lawfulAuthority === "APPROVED_ALTERNATIVE" && (
+              <label className="block">
+                <span className="mb-1 block">Non-sensitive approval reference</span>
+                <input value={lawfulAuthorityReference} onChange={(event) => setLawfulAuthorityReference(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2" required />
+              </label>
+            )}
+          </fieldset>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={consentChecked} onChange={(e) => setConsentChecked(e.target.checked)} />
             I confirm this notice has been shown to the driver and they acknowledge the purpose and retention terms.
           </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={submissionConfirmed} onChange={(e) => setSubmissionConfirmed(e.target.checked)} />
+            I confirm the selected driver, tenant, authority and synthetic/test status before submission.
+          </label>
           <button
             type="button"
-            disabled={!consentChecked}
+            disabled={!consentChecked || !submissionConfirmed || (lawfulAuthority === "APPROVED_ALTERNATIVE" && !lawfulAuthorityReference.trim())}
+            onClick={createSyntheticEnrolment}
+            className="mr-2 rounded-md bg-sky-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+          >
+            Create synthetic test enrolment
+          </button>
+          <button
+            type="button"
+            disabled={!consentChecked || !submissionConfirmed || (lawfulAuthority === "APPROVED_ALTERNATIVE" && !lawfulAuthorityReference.trim())}
             onClick={startCamera}
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
-            Start camera
+            Start local camera capture (not pilot-approved)
           </button>
         </div>
       )}
@@ -211,7 +267,7 @@ export function DriverFacialEnrolmentCapture({ driverId, onEnrolled }: { driverI
                 <button
                   type="button"
                   disabled={!readyToSubmit}
-                  onClick={submitEnrolment}
+                  onClick={() => submitEnrolment()}
                   className="rounded-md border border-slate-300 px-4 py-2 text-sm disabled:opacity-40"
                 >
                   Finish enrolment ({captures.length})

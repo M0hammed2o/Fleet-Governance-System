@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       action: "facialVerification.attempted",
       entityType: "Driver",
       entityId: id,
-      afterValue: { result: outcome.result, providerReference: outcome.providerReference },
+      afterValue: { result: outcome.result, providerReference: outcome.providerReference, synthetic: outcome.synthetic, disclosure: outcome.disclosure },
     });
 
     return NextResponse.json({ outcome });

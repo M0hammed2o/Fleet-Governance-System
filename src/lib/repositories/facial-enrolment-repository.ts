@@ -4,6 +4,8 @@ import { tenantWhere } from "@/lib/db/tenant-scope";
 import { recordAudit } from "@/lib/audit/record-audit";
 import { encryptTemplate, decryptTemplate } from "@/lib/facial-verification/template-encryption";
 import { euclideanDistance, meanDescriptor } from "@/lib/facial-verification/descriptor-math";
+import { SYNTHETIC_BIOMETRIC_LABEL } from "@/lib/facial-verification/contracts";
+import type { FacialLawfulAuthority } from "@/generated/prisma/client";
 
 /**
  * Driver biometric enrolment (Phase 9C, see FACIAL_VERIFICATION_LICENSING.md
@@ -38,6 +40,24 @@ export class ConsentNotAcknowledgedError extends Error {
     this.name = "ConsentNotAcknowledgedError";
   }
 }
+export class LawfulAuthorityNotConfirmedError extends Error {
+  constructor() {
+    super("Consent or an approved alternative lawful authority must be recorded before enrolment.");
+    this.name = "LawfulAuthorityNotConfirmedError";
+  }
+}
+export class AlternativeAuthorityReferenceRequiredError extends Error {
+  constructor() {
+    super("An approved alternative lawful authority requires a non-sensitive decision reference.");
+    this.name = "AlternativeAuthorityReferenceRequiredError";
+  }
+}
+export class TemplateMaterialUnavailableError extends Error {
+  constructor() {
+    super("The active biometric template material is unavailable.");
+    this.name = "TemplateMaterialUnavailableError";
+  }
+}
 export class InsufficientCapturesError extends Error {
   constructor(min: number, max: number) {
     super(`Enrolment requires between ${min} and ${max} guided captures.`);
@@ -64,6 +84,11 @@ export interface EnrolDriverInput {
   /** One descriptor per guided capture (3-5), computed client-side — see components/facial-enrolment-capture.tsx. */
   captureDescriptors: number[][];
   consentAcknowledged: boolean;
+  lawfulAuthority?: FacialLawfulAuthority;
+  lawfulAuthorityReference?: string;
+  noticeVersion?: string;
+  retentionPolicyVersion?: string;
+  synthetic?: boolean;
 }
 
 /**
@@ -74,7 +99,12 @@ export interface EnrolDriverInput {
  * so this is a hard guarantee, not just an application-level convention.
  */
 export async function enrolDriver(input: EnrolDriverInput) {
+  const lawfulAuthority = input.lawfulAuthority ?? "CONSENT";
   if (!input.consentAcknowledged) throw new ConsentNotAcknowledgedError();
+  if (!lawfulAuthority) throw new LawfulAuthorityNotConfirmedError();
+  if (lawfulAuthority === "APPROVED_ALTERNATIVE" && !input.lawfulAuthorityReference?.trim()) {
+    throw new AlternativeAuthorityReferenceRequiredError();
+  }
   if (input.captureDescriptors.length < MIN_ENROLMENT_CAPTURES || input.captureDescriptors.length > MAX_ENROLMENT_CAPTURES) {
     throw new InsufficientCapturesError(MIN_ENROLMENT_CAPTURES, MAX_ENROLMENT_CAPTURES);
   }
@@ -100,6 +130,12 @@ export async function enrolDriver(input: EnrolDriverInput) {
       });
     }
 
+    const latestVersion = await tx.driverFacialTemplate.aggregate({
+      where: { tenantId: input.tenantId, driverId: input.driverId },
+      _max: { version: true },
+    });
+    const version = (latestVersion._max.version ?? 0) + 1;
+
     const template = await tx.driverFacialTemplate.create({
       data: {
         tenantId: input.tenantId,
@@ -110,7 +146,15 @@ export async function enrolDriver(input: EnrolDriverInput) {
         encryptionKeyId: encrypted.keyId,
         templateVersion: TEMPLATE_VERSION,
         modelVersion: MODEL_VERSION,
+        version,
+        providerId: input.synthetic ? "genbridge-local-biometric-simulator" : "local-on-device",
+        synthetic: input.synthetic ?? false,
+        syntheticDisclosure: input.synthetic ? SYNTHETIC_BIOMETRIC_LABEL : null,
         consentAcknowledgedAt: now,
+        lawfulAuthority,
+        lawfulAuthorityReference: input.lawfulAuthorityReference?.trim() || null,
+        noticeVersion: input.noticeVersion?.trim() || "phase17a-biometric-notice-v1",
+        retentionPolicyVersion: input.retentionPolicyVersion?.trim() || "phase17a-pending-approval-v1",
         enrolledByUserId: input.actorUserId,
       },
     });
@@ -129,7 +173,18 @@ export async function enrolDriver(input: EnrolDriverInput) {
     action: created.wasReEnrolment ? "facialTemplate.reEnrolled" : "facialTemplate.enrolled",
     entityType: "DriverFacialTemplate",
     entityId: created.template.id,
-    afterValue: { driverId: input.driverId, templateVersion: TEMPLATE_VERSION, modelVersion: MODEL_VERSION, captureCount: input.captureDescriptors.length },
+    afterValue: {
+      driverId: input.driverId,
+      templateVersion: TEMPLATE_VERSION,
+      modelVersion: MODEL_VERSION,
+      version: created.template.version,
+      providerId: created.template.providerId,
+      synthetic: created.template.synthetic,
+      lawfulAuthority,
+      noticeVersion: created.template.noticeVersion,
+      retentionPolicyVersion: created.template.retentionPolicyVersion,
+      captureCount: input.captureDescriptors.length,
+    },
   });
 
   return created.template;
@@ -164,6 +219,9 @@ export async function revokeDriverFacialTemplate(tenantId: string, actorUserId: 
 export async function getActiveTemplateDescriptorForDriver(tenantId: string, driverId: string): Promise<{ templateId: string; descriptor: number[]; templateVersion: string; modelVersion: string } | null> {
   const active = await prisma.driverFacialTemplate.findFirst({ where: tenantWhere(tenantId, { driverId, status: "ACTIVE" as const }) });
   if (!active) return null;
+  if (!active.templateCiphertext || !active.templateIv || !active.templateAuthTag || !active.encryptionKeyId) {
+    throw new TemplateMaterialUnavailableError();
+  }
   const descriptor = decryptTemplate({
     ciphertext: active.templateCiphertext,
     iv: active.templateIv,
@@ -180,17 +238,41 @@ export interface FacialEnrolmentStatus {
   modelVersion: string | null;
   enrolledAt: Date | null;
   enrolledByUserId: string | null;
+  version: number | null;
+  providerId: string | null;
+  synthetic: boolean;
+  lawfulAuthority: FacialLawfulAuthority | null;
+  noticeVersion: string | null;
+  retentionPolicyVersion: string | null;
 }
 
 export async function getFacialEnrolmentStatus(tenantId: string, driverId: string): Promise<FacialEnrolmentStatus> {
   const active = await prisma.driverFacialTemplate.findFirst({ where: tenantWhere(tenantId, { driverId, status: "ACTIVE" as const }) });
-  if (!active) return { enrolled: false, templateVersion: null, modelVersion: null, enrolledAt: null, enrolledByUserId: null };
+  if (!active) return {
+    enrolled: false,
+    templateVersion: null,
+    modelVersion: null,
+    enrolledAt: null,
+    enrolledByUserId: null,
+    version: null,
+    providerId: null,
+    synthetic: false,
+    lawfulAuthority: null,
+    noticeVersion: null,
+    retentionPolicyVersion: null,
+  };
   return {
     enrolled: true,
     templateVersion: active.templateVersion,
     modelVersion: active.modelVersion,
     enrolledAt: active.enrolledAt,
     enrolledByUserId: active.enrolledByUserId,
+    version: active.version,
+    providerId: active.providerId,
+    synthetic: active.synthetic,
+    lawfulAuthority: active.lawfulAuthority,
+    noticeVersion: active.noticeVersion,
+    retentionPolicyVersion: active.retentionPolicyVersion,
   };
 }
 
@@ -204,12 +286,25 @@ export async function listFacialTemplateHistoryForDriver(tenantId: string, drive
       status: true,
       templateVersion: true,
       modelVersion: true,
+      version: true,
+      providerId: true,
+      synthetic: true,
+      syntheticDisclosure: true,
+      lawfulAuthority: true,
+      lawfulAuthorityReference: true,
+      noticeVersion: true,
+      retentionPolicyVersion: true,
+      expiresAt: true,
       consentAcknowledgedAt: true,
       enrolledByUserId: true,
       enrolledAt: true,
       revokedByUserId: true,
       revokedAt: true,
       revokedReason: true,
+      deletedByUserId: true,
+      deletedAt: true,
+      deletionReason: true,
+      materialDeletedAt: true,
     },
   });
   return rows;

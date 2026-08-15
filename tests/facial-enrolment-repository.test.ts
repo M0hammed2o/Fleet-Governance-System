@@ -59,7 +59,8 @@ describe("Phase 9C: facial-enrolment-repository", () => {
 
     // Never stores raw captures or plaintext — only ciphertext + iv + authTag.
     expect(template.templateCiphertext).toBeInstanceOf(Uint8Array);
-    expect(template.templateCiphertext.length).toBeGreaterThan(0);
+    expect(template.templateCiphertext).not.toBeNull();
+    expect(template.templateCiphertext!.length).toBeGreaterThan(0);
 
     const status = await getFacialEnrolmentStatus(tenant.id, driver.id);
     expect(status.enrolled).toBe(true);

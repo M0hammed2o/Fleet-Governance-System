@@ -16,6 +16,11 @@ import type { FacialVerificationProvider } from "@/lib/facial-verification/provi
 import { MockFacialVerificationProvider } from "@/lib/facial-verification/mock-provider";
 import { getActiveTemplateDescriptorForDriver } from "@/lib/repositories/facial-enrolment-repository";
 import { evaluateMatch, DEFAULT_MATCH_THRESHOLD, DEFAULT_REVIEW_THRESHOLD } from "@/lib/facial-verification/descriptor-math";
+import {
+  DeterministicBiometricSimulator,
+  type BiometricSimulatorScenario,
+} from "@/lib/facial-verification/simulator";
+import { SYNTHETIC_BIOMETRIC_LABEL } from "@/lib/facial-verification/contracts";
 import { logger } from "@/lib/observability/logger";
 import type {
   GateEventDirection,
@@ -289,7 +294,7 @@ export async function verifyIdentityForGateEvent(
     action: "gateEvent.identityVerificationAttempted",
     entityType: "GateEvent",
     entityId: gateEventId,
-    afterValue: { result: outcome.result, providerReference: outcome.providerReference },
+    afterValue: { result: outcome.result, providerReference: outcome.providerReference, synthetic: outcome.synthetic, disclosure: outcome.disclosure },
   });
 
   let updated = null;
@@ -312,11 +317,14 @@ export interface RunOnDeviceFacialVerificationInput {
   deviceLabel?: string;
   /** Set by the client when the on-device model itself failed to load/run (e.g. the CDN model fetch failed, or the browser lacks WASM/WebGL support) — distinct from CAPTURE_FAILED, which means the provider ran fine but couldn't get a usable face capture in time. */
   providerUnavailable?: boolean;
+  /** Tenant-scoped retry key. A duplicate returns the original audited attempt without creating a second row or transition. */
+  idempotencyKey?: string;
 }
 
 export interface RunOnDeviceFacialVerificationResult {
   gateEvent: Awaited<ReturnType<typeof prisma.gateEvent.update>> | null;
   attempt: Awaited<ReturnType<typeof prisma.facialVerificationAttempt.create>>;
+  duplicate: boolean;
 }
 
 /**
@@ -348,6 +356,23 @@ const VERIFICATION_ATTEMPT_RATE_LIMIT = 5;
 const VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES = 5;
 
 export async function runOnDeviceFacialVerificationAttempt(input: RunOnDeviceFacialVerificationInput): Promise<RunOnDeviceFacialVerificationResult | null> {
+  if (input.idempotencyKey) {
+    const existing = await prisma.facialVerificationAttempt.findUnique({
+      where: {
+        tenantId_idempotencyKey: {
+          tenantId: input.tenantId,
+          idempotencyKey: input.idempotencyKey,
+        },
+      },
+    });
+    if (existing) {
+      if (existing.gateEventId !== input.gateEventId || existing.securityOfficerUserId !== input.securityOfficerUserId) {
+        throw new GateEventPreconditionError("The idempotency key is already bound to another verification attempt.");
+      }
+      return { gateEvent: null, attempt: existing, duplicate: true };
+    }
+  }
+
   const gateEvent = await prisma.gateEvent.findFirst({ where: tenantWhere(input.tenantId, { id: input.gateEventId }) });
   if (!gateEvent) return null;
   if (gateEvent.status !== "IDENTITY_PENDING") {
@@ -400,6 +425,7 @@ export async function runOnDeviceFacialVerificationAttempt(input: RunOnDeviceFac
       driverId: gateEvent.driverId,
       templateId,
       result,
+      idempotencyKey: input.idempotencyKey,
       confidenceScore,
       threshold,
       templateVersion,
@@ -437,7 +463,144 @@ export async function runOnDeviceFacialVerificationAttempt(input: RunOnDeviceFac
     updatedGateEvent = await transitionGateEvent(input.tenantId, gateEvent.id, "IDENTITY_VERIFIED", input.securityOfficerUserId, "gateEvent.identityVerified");
   }
 
-  return { gateEvent: updatedGateEvent, attempt };
+  return { gateEvent: updatedGateEvent, attempt, duplicate: false };
+}
+
+export async function runSyntheticFacialVerificationAttempt(input: {
+  tenantId: string;
+  gateEventId: string;
+  securityOfficerUserId: string;
+  scenario: BiometricSimulatorScenario;
+  idempotencyKey: string;
+}): Promise<RunOnDeviceFacialVerificationResult | null> {
+  const existing = await prisma.facialVerificationAttempt.findUnique({
+    where: {
+      tenantId_idempotencyKey: {
+        tenantId: input.tenantId,
+        idempotencyKey: input.idempotencyKey,
+      },
+    },
+  });
+  if (existing) {
+    if (existing.gateEventId !== input.gateEventId || existing.securityOfficerUserId !== input.securityOfficerUserId) {
+      throw new GateEventPreconditionError("The idempotency key is already bound to another verification attempt.");
+    }
+    return { gateEvent: null, attempt: existing, duplicate: true };
+  }
+
+  const gateEvent = await prisma.gateEvent.findFirst({
+    where: tenantWhere(input.tenantId, { id: input.gateEventId }),
+  });
+  if (!gateEvent) return null;
+  if (gateEvent.status !== "IDENTITY_PENDING") {
+    throw new GateEventPreconditionError(
+      `Gate event must be IDENTITY_PENDING to attempt verification (current: ${gateEvent.status}).`,
+    );
+  }
+  const windowStart = new Date(Date.now() - VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES * 60 * 1000);
+  const recentAttemptCount = await prisma.facialVerificationAttempt.count({
+    where: { tenantId: input.tenantId, gateEventId: gateEvent.id, attemptedAt: { gte: windowStart } },
+  });
+  if (recentAttemptCount >= VERIFICATION_ATTEMPT_RATE_LIMIT) {
+    throw new TooManyVerificationAttemptsError(VERIFICATION_ATTEMPT_RATE_LIMIT, VERIFICATION_ATTEMPT_RATE_WINDOW_MINUTES);
+  }
+
+  const template = await prisma.driverFacialTemplate.findFirst({
+    where: tenantWhere(input.tenantId, { driverId: gateEvent.driverId, status: "ACTIVE" as const }),
+    select: { id: true, tenantId: true, templateVersion: true, modelVersion: true, version: true },
+  });
+  const simulator = new DeterministicBiometricSimulator(input.scenario);
+  const simulated = template
+    ? await simulator.verify({
+        tenantId: input.tenantId,
+        templateTenantId: template.tenantId,
+        driverId: gateEvent.driverId,
+        providerTemplateReference: `synthetic-template:${template.id}:v${template.version}`,
+        requestId: input.idempotencyKey,
+        idempotencyKey: input.idempotencyKey,
+        artifact: {
+          opaqueReference: `private://synthetic/${input.idempotencyKey}`,
+          sha256: "0".repeat(64),
+          mimeType: "image/png",
+          byteLength: 1,
+        },
+        decisionThreshold: DEFAULT_MATCH_THRESHOLD,
+      })
+    : null;
+  const result: FacialVerificationResultType = !simulated
+    ? "NOT_ENROLLED"
+    : simulated.decision === "VERIFIED"
+      ? "MATCH"
+      : simulated.decision === "NOT_VERIFIED"
+        ? "NO_MATCH"
+        : simulated.decision === "LIVENESS_FAILED"
+          ? "LIVENESS_FAILED"
+          : simulated.decision === "UNAVAILABLE"
+            ? "PROVIDER_UNAVAILABLE"
+            : simulated.decision === "NOT_ENROLLED"
+              ? "NOT_ENROLLED"
+              : "REVIEW_REQUIRED";
+  const livenessResult: LivenessChallengeResult =
+    simulated?.liveness.decision === "PASSED"
+      ? "PASSED"
+      : simulated?.liveness.decision === "FAILED"
+        ? "FAILED"
+        : "NOT_REQUIRED";
+
+  const attempt = await prisma.facialVerificationAttempt.create({
+    data: {
+      tenantId: input.tenantId,
+      gateEventId: gateEvent.id,
+      driverId: gateEvent.driverId,
+      templateId: template?.id,
+      result,
+      idempotencyKey: input.idempotencyKey,
+      confidenceScore: simulated?.confidence,
+      threshold: DEFAULT_MATCH_THRESHOLD,
+      templateVersion: template?.templateVersion,
+      modelVersion: template?.modelVersion,
+      providerId: simulated?.provenance.providerId ?? "genbridge-local-biometric-simulator",
+      providerVersion: simulated?.provenance.providerVersion ?? "phase17a-v1",
+      policyVersion: simulated?.provenance.policyVersion ?? "synthetic-policy-v1",
+      synthetic: true,
+      syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL,
+      safeErrorCode: simulated?.reasonCode,
+      livenessResult,
+      source: "ON_DEVICE",
+      gateId: gateEvent.gateId,
+      deviceLabel: "synthetic-no-camera",
+      securityOfficerUserId: input.securityOfficerUserId,
+    },
+  });
+  await recordAudit({
+    tenantId: input.tenantId,
+    userId: input.securityOfficerUserId,
+    action: "facialVerification.syntheticAttemptRecorded",
+    entityType: "FacialVerificationAttempt",
+    entityId: attempt.id,
+    relatedGateEventId: gateEvent.id,
+    afterValue: {
+      driverId: gateEvent.driverId,
+      result,
+      scenario: input.scenario,
+      synthetic: true,
+      disclosure: SYNTHETIC_BIOMETRIC_LABEL,
+      providerId: attempt.providerId,
+      policyVersion: attempt.policyVersion,
+    },
+  });
+  await prisma.gateEvent.update({
+    where: { id: gateEvent.id },
+    data: {
+      identityVerificationResult: `SYNTHETIC_${result}`,
+      identityVerificationRef: attempt.id,
+      identityVerifiedAt: result === "MATCH" ? attempt.attemptedAt : null,
+    },
+  });
+  const updatedGateEvent = result === "MATCH"
+    ? await transitionGateEvent(input.tenantId, gateEvent.id, "IDENTITY_VERIFIED", input.securityOfficerUserId, "gateEvent.identityVerifiedSynthetic")
+    : null;
+  return { gateEvent: updatedGateEvent, attempt, duplicate: false };
 }
 
 export async function listFacialVerificationAttemptsForGateEvent(tenantId: string, gateEventId: string) {

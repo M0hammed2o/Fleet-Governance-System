@@ -2,9 +2,14 @@ import { NextResponse } from "next/server";
 import { requireApiPermission, apiErrorResponse, ApiError } from "@/lib/auth/api-guard";
 import { verifyIdentityForGateEvent, GateEventPreconditionError } from "@/lib/repositories/gate-event-repository";
 import { verifyIdentitySchema } from "@/lib/validation/gate-event";
+import {
+  assertFacialVerificationRuntimeAllowed,
+  FacialVerificationActivationBlockedError,
+} from "@/lib/operations/facial-verification-readiness";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    assertFacialVerificationRuntimeAllowed(process.env);
     const session = await requireApiPermission("gateEvent", "EDIT");
     const { id } = await params;
     const body = await request.json().catch(() => null);
@@ -15,6 +20,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!outcome) throw new ApiError(404, "Gate event not found");
     return NextResponse.json(outcome);
   } catch (err) {
+    if (err instanceof FacialVerificationActivationBlockedError) return apiErrorResponse(new ApiError(503, err.message));
     if (err instanceof GateEventPreconditionError) return apiErrorResponse(new ApiError(409, err.message));
     return apiErrorResponse(err);
   }

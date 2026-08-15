@@ -18,6 +18,7 @@ import {
   verifyIdentityForGateEvent,
 } from "@/lib/repositories/gate-event-repository";
 import { hasPermission } from "@/lib/auth/authorize";
+import { assertBiometricSimulatorAllowed } from "@/lib/facial-verification/simulator";
 
 export async function POST(
   request: Request,
@@ -49,6 +50,19 @@ export async function POST(
         403,
         "Synthetic identity verification is unavailable.",
       );
+    if (parsed.data.action === "SYNTHETIC_IDENTITY_VERIFY") {
+      try {
+        assertBiometricSimulatorAllowed({
+          APP_ENV: process.env.APP_ENV,
+          BIOMETRIC_SIMULATOR_APPROVED_TEST_ONLY:
+            process.env.BIOMETRIC_SIMULATOR_APPROVED_TEST_ONLY,
+          BIOMETRIC_SIMULATOR_ISOLATED:
+            process.env.BIOMETRIC_SIMULATOR_ISOLATED,
+        });
+      } catch {
+        throw new ApiError(403, "Synthetic identity verification is unavailable.");
+      }
+    }
     const result = await executeMobileMutation({
       session,
       key: request.headers.get("idempotency-key"),

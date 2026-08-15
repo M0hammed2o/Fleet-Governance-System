@@ -1,5 +1,9 @@
 # DEPLOYMENT.md
 
+## Phase 17A migration and activation
+
+Migration `20260814143000_phase17a_biometric_lifecycle` is local-only until reviewed deployment authority exists. Roll back application code compatibly and use a new forward migration for corrections; never restore deleted biometric material or edit applied SQL. Production and staging biometric activation remain blocked by `facial:readiness`; the simulator is always refused in production.
+
 ## Local development (working as of 2026-07-19)
 1. `docker compose up -d` — starts local Postgres 16 on host port **55490** (chosen to avoid colliding
    with other Postgres containers already running on this machine on 5432/55432/5434).

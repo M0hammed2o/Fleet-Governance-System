@@ -43,6 +43,27 @@ function consistentCaptures(identitySeed: number, count = 3, length = 128): numb
 }
 
 describe("Phase 9D: runOnDeviceFacialVerificationAttempt — one-to-one only, never a global search", () => {
+  it("replays an idempotent duplicate without creating or advancing twice", async () => {
+    const setup = await baseSetup();
+    await enrolDriver({ tenantId: setup.tenant.id, actorUserId: setup.officer.id, driverId: setup.driver.id, captureDescriptors: consistentCaptures(14), consentAcknowledged: true });
+    const gateEvent = await gateEventAtIdentityPending(setup);
+    const idempotencyKey = crypto.randomUUID();
+    const input = {
+      tenantId: setup.tenant.id,
+      gateEventId: gateEvent.id,
+      securityOfficerUserId: setup.officer.id,
+      liveDescriptor: consistentCaptures(14, 1)[0],
+      livenessResult: "PASSED" as const,
+      idempotencyKey,
+    };
+    const first = await runOnDeviceFacialVerificationAttempt(input);
+    const replay = await runOnDeviceFacialVerificationAttempt(input);
+    expect(first?.duplicate).toBe(false);
+    expect(replay?.duplicate).toBe(true);
+    expect(replay?.attempt.id).toBe(first?.attempt.id);
+    expect(await prisma.facialVerificationAttempt.count({ where: { tenantId: setup.tenant.id, idempotencyKey } })).toBe(1);
+  });
+
   it("MATCH: a live descriptor close to the enrolled template advances the gate event to IDENTITY_VERIFIED", async () => {
     const setup = await baseSetup();
     await enrolDriver({ tenantId: setup.tenant.id, actorUserId: setup.officer.id, driverId: setup.driver.id, captureDescriptors: consistentCaptures(1), consentAcknowledged: true });
