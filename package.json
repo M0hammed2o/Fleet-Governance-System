@@ -39,6 +39,7 @@
     "staging:rc": "node scripts/staging-release-check.mjs",
     "security:scan": "node scripts/verify-no-secrets.mjs",
     "backup:readiness": "node scripts/verify-repository-backup-readiness.mjs",
+    "phase17a:gate": "node scripts/phase17a-final-gate.mjs",
     "mobile:typecheck": "tsc --noEmit -p apps/mobile/tsconfig.json",
     "mobile:lint": "eslint apps/mobile packages/api-client packages/mobile-ui packages/shared-types",
     "mobile:test": "vitest run tests/mobile-api-client.test.ts tests/mobile-api-contract.test.ts tests/mobile-idempotency.test.ts tests/mobile-security-foundation.test.ts tests/mobile-session-storage.test.ts tests/android-native-config.test.ts",
