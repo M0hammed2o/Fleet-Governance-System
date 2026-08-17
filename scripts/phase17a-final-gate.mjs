@@ -42,6 +42,7 @@ run("full Vitest regression", "npm test");
 run("facial contracts and biometric lifecycle", "npx vitest run tests/facial-verification-contracts.test.ts tests/biometric-lifecycle.test.ts tests/facial-enrolment-repository.test.ts tests/facial-verification-attempt.test.ts tests/facial-verification.test.ts");
 run("structured log redaction", "npx vitest run tests/production-readiness.test.ts tests/security-operations-hardening.test.ts");
 run("production build", "npm run build");
+run("fresh synthetic browser fixtures", "npm run seed && npm run demo:reset");
 run("Playwright workflows", "npx playwright test");
 run("pilot reset seed idempotency and tenant boundaries", "npm run pilot:test-boundaries && npm run pilot:verify");
 run("pilot import validation", "npm run pilot:imports:validate");
