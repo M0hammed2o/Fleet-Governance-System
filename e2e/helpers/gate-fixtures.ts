@@ -95,13 +95,19 @@ export async function createDedicatedGateEventAtIdentityPending(roles: Dedicated
   const { sites } = await sitesRes.json();
   const gatesRes = await roles.adminPage.request.get("/api/admin/gates");
   const { gates } = await gatesRes.json();
+  const usersRes = await roles.adminPage.request.get("/api/admin/users");
+  const { users } = await usersRes.json();
   const vehiclesRes = await roles.adminPage.request.get("/api/vehicles");
   const { items: vehicles } = await vehiclesRes.json();
   expect(sites.length).toBeGreaterThan(0);
   expect(gates.length).toBeGreaterThan(0);
   expect(vehicles.length).toBeGreaterThan(0);
-  const siteId = sites[0].id;
-  const gateId = gates[0].id;
+  const guard = users.find((user: { email: string }) => user.email === "gate.security.officer@example.test");
+  expect(guard).toMatchObject({ approvalStatus: "APPROVED", assignedSite: { id: expect.any(String) }, assignedGate: { id: expect.any(String) } });
+  const siteId = guard.assignedSite.id as string;
+  const gateId = guard.assignedGate.id as string;
+  expect(sites.some((site: { id: string }) => site.id === siteId)).toBe(true);
+  expect(gates.some((gate: { id: string }) => gate.id === gateId)).toBe(true);
   const vehicleId = vehicles[0].id;
 
   const createMovementRes = await roles.dispatchPage.request.post("/api/movements", {

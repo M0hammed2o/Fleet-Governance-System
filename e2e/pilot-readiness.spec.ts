@@ -14,11 +14,13 @@ async function expectAccessibleViewport(page: Page) {
         if (element.hasAttribute("disabled") || element.getAttribute("aria-hidden") === "true") return false;
         const id = element.id;
         const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : "";
+        const wrappingLabel = element.closest("label")?.textContent;
         return ![
           element.getAttribute("aria-label"),
           element.getAttribute("title"),
           element.getAttribute("placeholder"),
           label,
+          wrappingLabel,
           element.textContent,
         ].some((value) => value?.trim());
       })
@@ -136,7 +138,7 @@ test("vehicle detail clearly distinguishes synthetic tracker mapping and provena
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/admin/vehicles/pilot-vehicle-1");
-    await expect(page.getByRole("heading", { name: "SYN001GP" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "SYN001GP", exact: true })).toBeVisible();
     await expect(page.getByText("Synthetic — not live", { exact: true })).toBeVisible();
     await expect(page.getByText("SYNTHETIC MAPPING — NOT LIVE", { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("Generated test data; not observed from a real vehicle.");

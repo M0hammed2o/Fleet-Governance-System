@@ -654,6 +654,24 @@ async function main() {
     usersByRole.set(roleName, { id: user.id, email: user.email });
   }
 
+  const seededGuard = usersByRole.get("Gate Security Officer");
+  const seededApprover = usersByRole.get("Security Supervisor / Approving Manager");
+  const mainGate = await prisma.gate.findFirst({ where: { tenantId: demoTenant.id, siteId: site.id, name: "Main Gate" } });
+  if (seededGuard && seededApprover && mainGate) {
+    await prisma.user.update({
+      where: { id: seededGuard.id },
+      data: {
+        employeeNumber: "SYN-GUARD-001",
+        approvalStatus: "APPROVED",
+        approvalReason: "Synthetic local guard independently approved for automated test duties.",
+        approvedAt: new Date(),
+        approvedByUserId: seededApprover.id,
+        assignedSiteId: site.id,
+        assignedGateId: mainGate.id,
+      },
+    });
+  }
+
   await seedMasterData(demoTenant.id, site.id, usersByRole);
   await seedBilling(demoTenant.id);
   await prisma.tenantInvestigationSettings.upsert({
