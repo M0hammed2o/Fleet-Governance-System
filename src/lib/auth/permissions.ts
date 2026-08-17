@@ -75,10 +75,9 @@ const EXCEPTION_ACTIONS = ["VIEW", "CREATE", "APPROVE", "CONFIGURE"] as const;
 // governs minting a signed read URL for a specific MediaAsset (permission
 // checked, then tenant-matched — see mintSignedUrlForMediaAsset()); CREATE
 // governs uploading. Deliberately no EDIT — evidence is immutable once
-// uploaded, same append-only spirit as AuditLog. No DELETE yet either
-// (hard-delete is reserved for a future POPIA-erasure mechanism, see
-// DATA_MODEL.md "Record lifecycle notes" — out of scope this phase).
-const MEDIA_ASSET_ACTIONS = ["VIEW", "CREATE"] as const;
+// uploaded. DELETE is narrowly authorized for the Phase 18A replace/remove
+// workflow; the repository preserves structured chronology and audit history.
+const MEDIA_ASSET_ACTIONS = ["VIEW", "CREATE", "DELETE"] as const;
 
 // Phase 5B — reconciliation (PRODUCT_REQUIREMENTS.md RECON-001..003). CREATE
 // covers manually (re)triggering the pairing/build step — the common path is

@@ -15,11 +15,21 @@ export const createDriverSchema = z.object({
   department: z.string().trim().max(200).optional(),
   licenceNumber: z.string().trim().max(100).optional(),
   licenceClass: z.string().trim().max(50).optional(),
+  licenceIssueDate: isoDateToDate.optional(),
   licenceExpiry: isoDateToDate.optional(),
   pdpNumber: z.string().trim().max(100).optional(),
+  pdpStatus: z.enum(["NOT_REQUIRED", "VALID", "EXPIRED", "PENDING", "SUSPENDED"]).optional(),
   pdpExpiry: isoDateToDate.optional(),
   authorisedVehicleClasses: z.array(z.string().trim().max(20)).optional(),
   restrictions: z.string().trim().max(1000).optional(),
+  notes: z.string().trim().max(2000).optional(),
+}).superRefine((value, context) => {
+  if (value.licenceIssueDate && value.licenceExpiry && value.licenceExpiry <= value.licenceIssueDate) {
+    context.addIssue({ code: "custom", path: ["licenceExpiry"], message: "Licence expiry must be after the issue date" });
+  }
+  if (value.pdpStatus && value.pdpStatus !== "NOT_REQUIRED" && !value.pdpNumber) {
+    context.addIssue({ code: "custom", path: ["pdpNumber"], message: "A professional permit number is required for this status" });
+  }
 });
 export type CreateDriverInput = z.infer<typeof createDriverSchema>;
 
@@ -27,8 +37,28 @@ export type CreateDriverInput = z.infer<typeof createDriverSchema>;
 // MediaAsset must already exist with ownerId=this driver's id, which is only
 // possible once the driver itself exists (upload happens after creation) —
 // see DECISIONS.md D-012.
-export const updateDriverSchema = createDriverSchema.partial().extend({
+const updateDriverBaseSchema = z.object({
+  employeeNumber: z.string().trim().max(100).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  contactPhone: z.string().trim().max(50).optional(),
+  contactEmail: z.string().trim().email().optional().or(z.literal("")),
+  department: z.string().trim().max(200).optional(),
+  licenceNumber: z.string().trim().max(100).optional(),
+  licenceClass: z.string().trim().max(50).optional(),
+  licenceIssueDate: isoDateToDate.optional(),
+  licenceExpiry: isoDateToDate.optional(),
+  pdpNumber: z.string().trim().max(100).optional(),
+  pdpStatus: z.enum(["NOT_REQUIRED", "VALID", "EXPIRED", "PENDING", "SUSPENDED"]).optional(),
+  pdpExpiry: isoDateToDate.optional(),
+  authorisedVehicleClasses: z.array(z.string().trim().max(20)).optional(),
+  restrictions: z.string().trim().max(1000).optional(),
+  notes: z.string().trim().max(2000).optional(),
   portraitMediaAssetId: z.string().trim().min(1).max(200).optional(),
+});
+export const updateDriverSchema = updateDriverBaseSchema.superRefine((value, context) => {
+  if (value.licenceIssueDate && value.licenceExpiry && value.licenceExpiry <= value.licenceIssueDate) {
+    context.addIssue({ code: "custom", path: ["licenceExpiry"], message: "Licence expiry must be after the issue date" });
+  }
 });
 
 export const driverStatusSchema = z.object({

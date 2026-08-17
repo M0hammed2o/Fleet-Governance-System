@@ -23,6 +23,9 @@ export const inviteUserSchema = z.object({
   email: z.string().trim().min(1, "Email is required").email("Enter a valid email address"),
   name: z.string().trim().min(1, "Name is required").max(200),
   roleId: z.string().trim().min(1, "Role is required"),
+  employeeNumber: z.string().trim().max(100).optional(),
+  assignedSiteId: z.string().trim().max(200).optional().or(z.literal("")),
+  assignedGateId: z.string().trim().max(200).optional().or(z.literal("")),
 });
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
 

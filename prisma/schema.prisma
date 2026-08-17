@@ -16,25 +16,34 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Tenant {
-  id                       String                   @id @default(cuid())
-  name                     String
-  slug                     String                   @unique
-  timezone                 String                   @default("Africa/Johannesburg")
-  currency                 String                   @default("ZAR")
-  status                   TenantStatus             @default(ACTIVE)
+  id                        String                   @id @default(cuid())
+  name                      String
+  slug                      String                   @unique
+  timezone                  String                   @default("Africa/Johannesburg")
+  currency                  String                   @default("ZAR")
+  status                    TenantStatus             @default(ACTIVE)
   // Movement-approval policy (build brief 7.5/7.7: "must not approve their own
   // movement request where tenant policy prohibits self-approval"). Default is
   // the safer option — self-approval disabled — tenants opt in explicitly.
-  allowSelfApproveMovement Boolean                  @default(false)
+  allowSelfApproveMovement  Boolean                  @default(false)
+  companyRegistrationNumber String?
+  industry                  String?
+  contactEmail              String?
+  contactPhone              String?
+  address                   String?
+  departments               String[]                 @default([])
+  demoWorkspace             Boolean                  @default(false)
+  demoTermsAcceptedAt       DateTime?
+  demoDisclosureVersion     String?
   // Phase 7 (SUPPORT-001) — a manually-set status flag for the platform
   // customer health summary, deliberately NOT a real billing/payment
   // integration (subscription billing is explicitly out of scope for this
   // build run, PRODUCT_REQUIREMENTS.md "Unresolved questions" #5). Set by a
   // Platform Administrator; no invoicing, no payment provider, no automatic
   // transitions.
-  subscriptionStatus       TenantSubscriptionStatus @default(TRIAL)
-  createdAt                DateTime                 @default(now())
-  updatedAt                DateTime                 @updatedAt
+  subscriptionStatus        TenantSubscriptionStatus @default(TRIAL)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
 
   sites                                 Site[]
   gates                                 Gate[]
@@ -119,6 +128,10 @@ model Tenant {
   mobileMutationReceipts   MobileMutationReceipt[]
   mobileNotificationStates MobileNotificationState[]
 
+  // --- Phase 18A: demonstration onboarding and fleet assignments --------
+  onboardingProgress       TenantOnboarding?
+  driverVehicleAssignments DriverVehicleAssignment[]
+
   @@map("tenants")
 }
 
@@ -150,6 +163,7 @@ model Site {
   gates                  Gate[]
   movementAuthorisations MovementAuthorisation[]
   gateEvents             GateEvent[]
+  assignedUsers          User[]                  @relation("UserAssignedSite")
 
   @@index([tenantId])
   @@map("sites")
@@ -177,6 +191,7 @@ model Gate {
 
   gateEvents                 GateEvent[]
   facialVerificationAttempts FacialVerificationAttempt[]
+  assignedUsers              User[]                      @relation("UserAssignedGate")
 
   @@index([tenantId])
   @@index([siteId])
@@ -193,18 +208,41 @@ enum UserStatus {
   INVITED
 }
 
+enum StaffApprovalStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id       String @id @default(cuid())
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  email        String
+  email          String
   // Null until the user accepts their invitation and sets a password — see
   // UserInvitation. A null passwordHash must never be treated as "any
   // password accepted"; login explicitly rejects it (lib/auth/password.ts).
-  passwordHash String?
-  name         String
-  status       UserStatus @default(INVITED)
+  passwordHash   String?
+  name           String
+  status         UserStatus          @default(INVITED)
+  employeeNumber String?
+  approvalStatus StaffApprovalStatus @default(NOT_REQUIRED)
+  approvalReason String?
+  approvedAt     DateTime?
+
+  approvedByUserId String?
+  approvedBy       User?   @relation("StaffApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  staffApproved    User[]  @relation("StaffApprovedBy")
+
+  assignedSiteId String?
+  assignedSite   Site?   @relation("UserAssignedSite", fields: [assignedSiteId], references: [id], onDelete: SetNull)
+  assignedGateId String?
+  assignedGate   Gate?   @relation("UserAssignedGate", fields: [assignedGateId], references: [id], onDelete: SetNull)
+
+  profileMediaAssetId String?     @unique
+  profileMediaAsset   MediaAsset? @relation("StaffProfile", fields: [profileMediaAssetId], references: [id], onDelete: SetNull)
 
   mfaEnabled Boolean @default(false)
   mfaSecret  String?
@@ -299,6 +337,8 @@ model User {
   analyticsIndicatorEventsActed AnalyticsIndicatorEvent[] @relation("AnalyticsIndicatorEventActor")
   trackerMappingsCreated        TrackerVehicleMapping[]   @relation("TrackerMappingCreatedBy")
   trackerMappingsEnded          TrackerVehicleMapping[]   @relation("TrackerMappingEndedBy")
+  driverVehicleAssignmentsMade  DriverVehicleAssignment[] @relation("DriverVehicleAssignmentAssignedBy")
+  driverVehicleAssignmentsEnded DriverVehicleAssignment[] @relation("DriverVehicleAssignmentEndedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, id])
@@ -574,6 +614,14 @@ enum DriverStatus {
   BLACKLISTED
 }
 
+enum ProfessionalPermitStatus {
+  NOT_REQUIRED
+  VALID
+  EXPIRED
+  PENDING
+  SUSPENDED
+}
+
 model Driver {
   id       String @id @default(cuid())
   tenantId String
@@ -593,14 +641,17 @@ model Driver {
 
   status DriverStatus @default(ACTIVE)
 
-  licenceNumber String?
-  licenceClass  String?
-  licenceExpiry DateTime?
-  pdpNumber     String?
-  pdpExpiry     DateTime?
+  licenceNumber    String?
+  licenceClass     String?
+  licenceIssueDate DateTime?
+  licenceExpiry    DateTime?
+  pdpNumber        String?
+  pdpStatus        ProfessionalPermitStatus @default(NOT_REQUIRED)
+  pdpExpiry        DateTime?
 
   authorisedVehicleClasses String[] @default([])
   restrictions             String?
+  notes                    String?
 
   // Facial-verification enrolment status — see FacialVerificationProvider
   // interface, INTEGRATIONS.md. No production provider selected yet; this
@@ -624,6 +675,7 @@ model Driver {
   biometricTemplateDeletionRequests BiometricTemplateDeletionRequest[]
   facialVerificationAttempts        FacialVerificationAttempt[]
   investigationSubjectLinks         InvestigationSubject[]
+  vehicleAssignments                DriverVehicleAssignment[]
 
   @@index([tenantId])
   @@map("drivers")
@@ -910,6 +962,11 @@ enum VehicleCategory {
   TRUCK
   TRUCK_DUAL_REAR_WHEEL
   TRAILER
+  BAKKIE_PICKUP
+  VAN
+  SALES_REPRESENTATIVE
+  PLANT_EQUIPMENT
+  OTHER
   CUSTOM
 }
 
@@ -960,9 +1017,18 @@ model Vehicle {
   ownership VehicleOwnership @default(OWNED)
   fuelType  FuelType?
 
-  tankCapacityLitres Float?
-  odometerReading    Int?
-  fuelLevelPercent   Float?
+  tankCapacityLitres     Float?
+  carryingCapacityTonnes Float?
+  odometerReading        Int?
+  fuelLevelPercent       Float?
+  department             String?
+
+  serviceIntervalKm   Int?
+  nextServiceOdometer Int?
+  nextServiceDate     DateTime?
+
+  imageMediaAssetId String?     @unique
+  imageMediaAsset   MediaAsset? @relation("VehicleImage", fields: [imageMediaAssetId], references: [id], onDelete: SetNull)
 
   assignedDriverId String?
   assignedDriver   Driver? @relation(fields: [assignedDriverId], references: [id], onDelete: SetNull)
@@ -1009,12 +1075,65 @@ model Vehicle {
   manualGpsConfirmations    ManualGpsConfirmation[]
   usePolicyAssignments      VehicleUsePolicyVehicle[]
   investigationSubjectLinks InvestigationSubject[]
+  driverAssignments         DriverVehicleAssignment[]
 
   @@unique([tenantId, registrationNumber])
   @@unique([tenantId, vin])
   @@unique([tenantId, id])
   @@index([tenantId])
   @@map("vehicles")
+}
+
+enum DriverVehicleAssignmentStatus {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+model DriverVehicleAssignment {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  driverId  String
+  driver    Driver  @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  status        DriverVehicleAssignmentStatus @default(ACTIVE)
+  reason        String
+  endReason     String?
+
+  assignedByUserId String
+  assignedBy       User    @relation("DriverVehicleAssignmentAssignedBy", fields: [assignedByUserId], references: [id])
+  endedByUserId    String?
+  endedBy          User?   @relation("DriverVehicleAssignmentEndedBy", fields: [endedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, driverId, effectiveFrom])
+  @@index([tenantId, vehicleId, effectiveFrom])
+  @@map("driver_vehicle_assignments")
+}
+
+model TenantOnboarding {
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  currentStep       Int       @default(1)
+  completedSections String[]  @default([])
+  declaredFleetSize Int?
+  fleetComposition  Json?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("tenant_onboarding")
 }
 
 enum ComplianceDocumentOwnerType {
@@ -1642,6 +1761,8 @@ enum MediaAssetOwnerType {
   GATE_EVENT_INSPECTION_ITEM
   MANUAL_FACIAL_VERIFICATION_FALLBACK
   DRIVER_PORTRAIT
+  VEHICLE_IMAGE
+  STAFF_PROFILE
   COMPLIANCE_DOCUMENT
   // Phase 5C (DISPATCH-003) — delivery notes / supporting movement documents.
   // Many-to-one with MovementAuthorisation (a movement can have several
@@ -1804,6 +1925,8 @@ model MediaAsset {
   inspectionItemEvidenceFor       GateEventInspectionItem?          @relation("InspectionItemEvidence")
   manualFallbackEvidenceFor       ManualFacialVerificationFallback? @relation("ManualFallbackEvidence")
   driverPortraitFor               Driver?                           @relation("DriverPortrait")
+  vehicleImageFor                 Vehicle?                          @relation("VehicleImage")
+  staffProfileFor                 User?                             @relation("StaffProfile")
   complianceDocumentAttachmentFor ComplianceDocument?               @relation("ComplianceDocumentAttachment")
   deletionRequestLinks            DeletionRequestAsset[]
   retentionNotifications          RetentionNotificationRecord[]

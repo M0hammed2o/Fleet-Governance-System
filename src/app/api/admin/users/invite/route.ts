@@ -14,10 +14,19 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       throw new ApiError(400, parsed.error.issues[0]?.message ?? "Invalid input");
     }
-    const { email, name, roleId } = parsed.data;
+    const { email, name, roleId, employeeNumber, assignedSiteId, assignedGateId } = parsed.data;
 
     const role = await prisma.role.findFirst({ where: { id: roleId, tenantId: session.tenantId } });
     if (!role) throw new ApiError(400, "That role does not belong to your company.");
+
+    if (assignedSiteId) {
+      const site = await prisma.site.findFirst({ where: { id: assignedSiteId, tenantId: session.tenantId, archivedAt: null } });
+      if (!site) throw new ApiError(400, "That site does not belong to your company.");
+    }
+    if (assignedGateId) {
+      const gate = await prisma.gate.findFirst({ where: { id: assignedGateId, tenantId: session.tenantId, archivedAt: null } });
+      if (!gate || (assignedSiteId && gate.siteId !== assignedSiteId)) throw new ApiError(400, "That gate does not belong to the selected company site.");
+    }
 
     const existing = await prisma.user.findUnique({
       where: { tenantId_email: { tenantId: session.tenantId, email } },
@@ -30,6 +39,10 @@ export async function POST(request: Request) {
       roleId,
       email,
       name,
+      employeeNumber,
+      assignedSiteId: assignedSiteId || undefined,
+      assignedGateId: assignedGateId || undefined,
+      approvalStatus: role.name === "Gate Security Officer" ? "PENDING" : "NOT_REQUIRED",
     });
 
     await recordAudit({
@@ -38,6 +51,7 @@ export async function POST(request: Request) {
       action: "user.invited",
       entityType: "User",
       entityId: invitation.userId,
+      afterValue: { roleName: role.name, employeeNumber: employeeNumber || null, approvalRequired: role.name === "Gate Security Officer", assignedSiteId: assignedSiteId || null, assignedGateId: assignedGateId || null },
     });
 
     // No email provider is selected yet (INTEGRATIONS.md) — the raw token is

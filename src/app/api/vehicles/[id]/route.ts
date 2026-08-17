@@ -8,6 +8,7 @@ import { recordAudit } from "@/lib/audit/record-audit";
 import { evaluateDocumentExpiry } from "@/lib/documents/expiry-rules";
 import { hasPermission } from "@/lib/auth/authorize";
 import { trackerProvenanceDisplay } from "@/lib/telematics/provenance";
+import { listAssignmentsInTenant } from "@/lib/repositories/driver-vehicle-assignment-repository";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -16,9 +17,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const vehicle = await getVehicleInTenant(session.tenantId, id);
     if (!vehicle) throw new ApiError(404, "Vehicle not found");
 
-    const rawDocuments = await prisma.complianceDocument.findMany({
-      where: tenantWhere(session.tenantId, { vehicleId: id, archivedAt: null }),
-    });
+    const [rawDocuments, assignments, gateActivity, auditHistory] = await Promise.all([
+      prisma.complianceDocument.findMany({ where: tenantWhere(session.tenantId, { vehicleId: id, archivedAt: null }) }),
+      listAssignmentsInTenant(session.tenantId, { vehicleId: id }),
+      prisma.gateEvent.findMany({ where: tenantWhere(session.tenantId, { vehicleId: id }), orderBy: { createdAt: "desc" }, take: 20, select: { id: true, status: true, direction: true, decision: true, createdAt: true, driver: { select: { id: true, name: true } }, gate: { select: { name: true } }, exceptions: { select: { id: true, severity: true, description: true, resolvedAt: true } } } }),
+      prisma.auditLog.findMany({ where: tenantWhere(session.tenantId, { OR: [{ entityType: "Vehicle", entityId: id }, { entityType: "DriverVehicleAssignment", afterValue: { path: ["vehicleId"], equals: id } }] }), orderBy: { timestamp: "desc" }, take: 30, select: { id: true, timestamp: true, action: true, reason: true, user: { select: { name: true } } } }),
+    ]);
     const documents = rawDocuments.map((doc) => ({
       ...doc,
       isExpired: doc.expiryDate ? evaluateDocumentExpiry(doc.expiryDate, null).isExpired : false,
@@ -43,7 +47,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       trackerMappingStatus = activeMapping ? activeMapping.source === "SYNTHETIC" ? "SYNTHETIC MAPPING — NOT LIVE" : "MAPPED — PROVIDER NOT YET VERIFIED" : "UNMAPPED";
     }
 
-    return NextResponse.json({ vehicle, documents, recentTelematicsEvents, manualGpsConfirmations, trackerDataSummary, trackerMappingStatus });
+    return NextResponse.json({ vehicle, documents, assignments, gateActivity, auditHistory, recentTelematicsEvents, manualGpsConfirmations, trackerDataSummary, trackerMappingStatus });
   } catch (err) {
     return apiErrorResponse(err);
   }
@@ -60,12 +64,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const before = await getVehicleInTenant(session.tenantId, id);
     if (!before) throw new ApiError(404, "Vehicle not found");
 
-    const { vin, assignedDriverId, tyrePositionConfigId, ...rest } = parsed.data;
+    const { vin, assignedDriverId, tyrePositionConfigId, imageMediaAssetId, ...rest } = parsed.data;
+    if (imageMediaAssetId) {
+      const asset = await prisma.mediaAsset.findFirst({ where: tenantWhere(session.tenantId, { id: imageMediaAssetId, ownerType: "VEHICLE_IMAGE" as const, ownerId: id, binaryDeletedAt: null }) });
+      if (!asset) throw new ApiError(404, "That private image does not belong to this vehicle.");
+    }
     const updated = await updateVehicle(session.tenantId, id, {
       ...rest,
       ...(vin !== undefined ? { vin: vin || null } : {}),
       ...(assignedDriverId !== undefined ? { assignedDriverId: assignedDriverId || null } : {}),
       ...(tyrePositionConfigId !== undefined ? { tyrePositionConfigId: tyrePositionConfigId || null } : {}),
+      ...(imageMediaAssetId !== undefined ? { imageMediaAssetId: imageMediaAssetId || null } : {}),
     });
     if (!updated) throw new ApiError(404, "Vehicle not found");
 

@@ -91,6 +91,16 @@ export async function retryFailedInvestigationNotifications(now: Date = new Date
 
   let retried = 0;
   for (const record of failed) {
+    if (!record.recipient || !record.case) {
+      // A queued best-effort notification may outlive a synthetic/test user
+      // or case cleanup. Exhaust it without crashing the tenant-wide retry
+      // job or disclosing deleted recipient details.
+      await prisma.investigationNotificationRecord.updateMany({
+        where: { id: record.id, status: "FAILED" },
+        data: { attemptCount: MAX_DELIVERY_ATTEMPTS, nextAttemptAt: null, failureReason: "recipient or case is no longer available" },
+      });
+      continue;
+    }
     const result = await attemptDelivery(record.recipient.email, record.recipient.name, record.case.caseNumber, record.case.title, record.eventType, `Retry: ${record.eventType}`);
     const completedAttempts = record.attemptCount + 1;
     try {

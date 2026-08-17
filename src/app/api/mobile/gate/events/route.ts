@@ -13,6 +13,7 @@ import {
   DriverNotAvailableError,
   VehicleNotAvailableError,
 } from "@/lib/repositories/gate-event-repository";
+import { gateDutyApprovalError } from "@/lib/auth/gate-duty";
 
 export async function POST(request: Request) {
   try {
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
       );
     if (!(await getGateInTenant(session.tenantId, parsed.data.gateId)))
       throw new ApiError(404, "Gate not found.");
+    const dutyError = await gateDutyApprovalError(session, parsed.data.gateId);
+    if (dutyError) throw new ApiError(403, dutyError);
     const result = await executeMobileMutation({
       session,
       key: request.headers.get("idempotency-key"),

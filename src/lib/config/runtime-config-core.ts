@@ -98,6 +98,8 @@ const schema = z.object({
   INFORMATION_OFFICER_CONFIRMED: booleanValue(false),
   PAIA_MANUAL_CONFIRMED: booleanValue(false),
   PILOT_APPROVED: booleanValue(false),
+  DEMO_SELF_SERVICE_ENABLED: booleanValue(false),
+  DEMO_ENVIRONMENT_APPROVED: booleanValue(false),
   PILOT_SUPPORT_OWNER: optionalString,
   STAGING_APPROVED_COMMIT: optionalString,
   STAGING_RELEASE_APPROVED: booleanValue(false),
@@ -159,6 +161,7 @@ export function deploymentEnvironmentFor(input: RuntimeEnvironmentInput): Deploy
   if (input.APP_ENV && DEPLOYMENT_ENVIRONMENTS.includes(input.APP_ENV as DeploymentEnvironment)) {
     return input.APP_ENV as DeploymentEnvironment;
   }
+  if (input.NODE_ENV === "production") return "production";
   return input.NODE_ENV === "test" ? "test" : "development";
 }
 
@@ -240,6 +243,9 @@ export function validateRuntimeConfiguration(input: RuntimeEnvironmentInput): Ru
     if (config.APP_ENV === "production" && ["mock", "synthetic"].includes(config.TELEMATICS_PROVIDER)) {
       issues.push(issue("TELEMATICS_PROVIDER", "mock or synthetic tracker data is forbidden in production"));
     }
+    if (config.APP_ENV === "production" && config.DEMO_SELF_SERVICE_ENABLED) {
+      issues.push(issue("DEMO_SELF_SERVICE_ENABLED", "self-service demonstration registration is forbidden in production"));
+    }
     if (config.EMAIL_REQUIRED && config.BILLING_EMAIL_PROVIDER !== "transactional") {
       issues.push(issue("BILLING_EMAIL_PROVIDER", "must select the approved transactional adapter when EMAIL_REQUIRED=true"));
     }
@@ -263,6 +269,15 @@ export function validateRuntimeConfiguration(input: RuntimeEnvironmentInput): Ru
   }
 
   return { valid: issues.length === 0, config, issues };
+}
+
+/** Server-only, explicit and production-denying demonstration registration gate. */
+export function demoSelfServiceEnabled(input: RuntimeEnvironmentInput): boolean {
+  const environment = deploymentEnvironmentFor(input);
+  if (environment === "production") return false;
+  if (input.DEMO_SELF_SERVICE_ENABLED !== "true") return false;
+  if (environment === "staging") return input.DEMO_ENVIRONMENT_APPROVED === "true";
+  return environment === "development" || environment === "test";
 }
 
 export class RuntimeConfigurationError extends Error {

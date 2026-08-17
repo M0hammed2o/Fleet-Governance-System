@@ -63,6 +63,13 @@ export class InvalidFileTypeError extends Error {
   }
 }
 
+export class MediaDeletionBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaDeletionBlockedError";
+  }
+}
+
 export class EmptyFileError extends Error {
   constructor() {
     super("The uploaded file is empty.");
@@ -174,6 +181,12 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "DRIVER_PORTRAIT":
       found = await prisma.driver.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
+    case "VEHICLE_IMAGE":
+      found = await prisma.vehicle.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
+      break;
+    case "STAFF_PROFILE":
+      found = await prisma.user.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
+      break;
     case "COMPLIANCE_DOCUMENT":
       found = await prisma.complianceDocument.findFirst({ where: tenantWhere(tenantId, { id: ownerId }) });
       break;
@@ -193,11 +206,43 @@ async function assertOwnerExistsInTenant(tenantId: string, ownerType: MediaAsset
     case "GOVERNANCE_ANALYTICS_REPORT":
       // Analytics reports are tenant-level snapshots rather than evidence
       // owned by one operational record. ownerId is therefore the tenant ID
-      // and must match both arguments exactly.
-      found = ownerId === tenantId ? await prisma.tenant.findUnique({ where: { id: tenantId } }) : null;
+      // and must match the already-authenticated tenant argument exactly.
+      found = ownerId === tenantId;
       break;
   }
   if (!found) throw new MediaOwnerNotFoundError(ownerType, ownerId);
+}
+
+const ALLOWED_EXTENSIONS: Record<string, ReadonlySet<string>> = {
+  "image/jpeg": new Set(["jpg", "jpeg"]),
+  "image/png": new Set(["png"]),
+  "image/webp": new Set(["webp"]),
+  "image/heic": new Set(["heic"]),
+  "application/pdf": new Set(["pdf"]),
+  "video/mp4": new Set(["mp4"]),
+  "video/quicktime": new Set(["mov"]),
+  "video/webm": new Set(["webm"]),
+};
+const DECEPTIVE_EXTENSION = /\.(?:exe|com|bat|cmd|ps1|msi|scr|jar|js|vbs|sh)(?:\.|$)/i;
+
+export function hasExpectedFileSignature(contentType: string, data: Uint8Array): boolean {
+  const ascii = (start: number, end: number) => Buffer.from(data.subarray(start, end)).toString("ascii");
+  if (contentType === "application/pdf") return ascii(0, 5) === "%PDF-";
+  if (contentType === "image/jpeg") return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (contentType === "image/png") return data.length >= 8 && Buffer.from(data.subarray(0, 8)).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (contentType === "image/webp") return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+  if (contentType === "video/webm") return data[0] === 0x1a && data[1] === 0x45 && data[2] === 0xdf && data[3] === 0xa3;
+  if (["video/mp4", "video/quicktime", "image/heic"].includes(contentType)) return ascii(4, 8) === "ftyp";
+  return false;
+}
+
+export function validateUploadIdentity(fileName: string, contentType: string, data: Uint8Array): void {
+  if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0") || DECEPTIVE_EXTENSION.test(fileName)) {
+    throw new InvalidFileTypeError("unsafe or deceptive filename");
+  }
+  const extension = fileName.toLowerCase().split(".").pop() ?? "";
+  if (!ALLOWED_EXTENSIONS[contentType.toLowerCase()]?.has(extension)) throw new InvalidFileTypeError("filename extension does not match the declared content type");
+  if (!hasExpectedFileSignature(contentType.toLowerCase(), data)) throw new InvalidFileTypeError("file signature does not match the declared content type");
 }
 
 /**
@@ -270,9 +315,9 @@ export async function uploadMediaAsset(input: UploadMediaAssetInput, provider: O
 
   const kind = classifyContentType(input.contentType);
   if (!kind) throw new InvalidFileTypeError(input.contentType);
-
   const maxBytes = maxBytesForKind(kind);
   if (input.data.byteLength > maxBytes) throw new FileTooLargeError(kind, input.data.byteLength, maxBytes);
+  validateUploadIdentity(input.fileName, input.contentType, input.data);
 
   const category = input.category ?? "OTHER_DOCUMENT";
   const processed = await runCompressionPipeline(kind, category, input.data, input.contentType);
@@ -488,6 +533,7 @@ export async function confirmPresignedUpload(
     if (uploaded.data.byteLength === 0) throw new EmptyFileError();
     const kind = classifyContentType(uploaded.contentType) ?? classifyContentType(asset.contentType);
     if (!kind) throw new InvalidFileTypeError(uploaded.contentType || asset.contentType);
+    validateUploadIdentity(asset.fileName, uploaded.contentType || asset.contentType, uploaded.data);
     const maxBytes = maxBytesForKind(kind);
     if (uploaded.data.byteLength > maxBytes) throw new FileTooLargeError(kind, uploaded.data.byteLength, maxBytes);
 
@@ -651,6 +697,36 @@ export async function getMediaAssetInTenant(tenantId: string, mediaAssetId: stri
   return prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId }) });
 }
 
+const REPLACEABLE_OWNER_TYPES = new Set<MediaAssetOwnerType>(["DRIVER_PORTRAIT", "VEHICLE_IMAGE", "STAFF_PROFILE", "COMPLIANCE_DOCUMENT"]);
+
+export async function deleteReplaceableMediaAsset(
+  tenantId: string,
+  actorUserId: string,
+  mediaAssetId: string,
+  reason: string,
+  provider: ObjectStorageProvider = defaultProvider,
+) {
+  const asset = await prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId }) });
+  if (!asset) return null;
+  if (!REPLACEABLE_OWNER_TYPES.has(asset.ownerType)) throw new MediaDeletionBlockedError("This evidence type must use the formal retention deletion workflow.");
+  if (asset.legalHold || asset.investigationHold) throw new MediaDeletionBlockedError("This file is protected by a legal or investigation hold.");
+  if (asset.binaryDeletedAt) {
+    await Promise.all([asset.storageKey, asset.thumbnailStorageKey, asset.originalStorageKey].filter((key): key is string => Boolean(key)).map((key) => provider.delete(key)));
+    return asset;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (asset.ownerType === "DRIVER_PORTRAIT") await tx.driver.updateMany({ where: { tenantId, portraitMediaAssetId: asset.id }, data: { portraitMediaAssetId: null } });
+    if (asset.ownerType === "VEHICLE_IMAGE") await tx.vehicle.updateMany({ where: { tenantId, imageMediaAssetId: asset.id }, data: { imageMediaAssetId: null } });
+    if (asset.ownerType === "STAFF_PROFILE") await tx.user.updateMany({ where: { tenantId, profileMediaAssetId: asset.id }, data: { profileMediaAssetId: null } });
+    if (asset.ownerType === "COMPLIANCE_DOCUMENT") await tx.complianceDocument.updateMany({ where: { tenantId, attachmentMediaAssetId: asset.id }, data: { attachmentMediaAssetId: null } });
+    await tx.mediaAsset.update({ where: { id: asset.id }, data: { binaryDeletedAt: new Date(), retentionStatus: "DELETED" } });
+    await recordAudit({ tenantId, userId: actorUserId, action: "mediaAsset.replaceableBinaryDeleted", entityType: "MediaAsset", entityId: asset.id, reason, beforeValue: { ownerType: asset.ownerType, ownerId: asset.ownerId }, afterValue: { binaryDeleted: true, structuredRecordPreserved: true } }, tx);
+  });
+  await Promise.all([asset.storageKey, asset.thumbnailStorageKey, asset.originalStorageKey].filter((key): key is string => Boolean(key)).map((key) => provider.delete(key)));
+  return prisma.mediaAsset.findUnique({ where: { id: asset.id } });
+}
+
 /**
  * Lists every MediaAsset recorded against one polymorphic (ownerType,
  * ownerId) pair — e.g. every delivery-note document uploaded against a
@@ -686,7 +762,7 @@ export async function mintSignedUrlForMediaAsset(
   expiresInSeconds: number = SIGNED_URL_DEFAULT_EXPIRY_SECONDS,
   provider: ObjectStorageProvider = defaultProvider,
 ): Promise<MintSignedUrlResult | null> {
-  const asset = await prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId }) });
+  const asset = await prisma.mediaAsset.findFirst({ where: tenantWhere(tenantId, { id: mediaAssetId, binaryDeletedAt: null }) });
   if (!asset) return null;
 
   const url = await provider.getSignedReadUrl(asset.storageKey, expiresInSeconds);
@@ -724,7 +800,7 @@ export async function serveRawMediaAsset(input: ServeRawMediaInput, provider: Ob
   if (!verification.valid) throw new InvalidOrExpiredSignedUrlError(verification.reason);
 
   const asset = await prisma.mediaAsset.findUnique({ where: { storageKey: input.storageKey } });
-  if (!asset) throw new MediaAssetNotFoundForStorageKeyError();
+  if (!asset || asset.binaryDeletedAt) throw new MediaAssetNotFoundForStorageKeyError();
   if (asset.tenantId !== input.requestingTenantId) {
     // Deliberately the same error/shape as an invalid signature — this
     // endpoint must not reveal "the key was valid but you're the wrong

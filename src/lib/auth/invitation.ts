@@ -14,6 +14,10 @@ export interface CreateInvitationInput {
   roleId: string;
   email: string;
   name: string;
+  employeeNumber?: string;
+  assignedSiteId?: string;
+  assignedGateId?: string;
+  approvalStatus?: "NOT_REQUIRED" | "PENDING";
 }
 
 export interface CreateInvitationResult {
@@ -43,6 +47,10 @@ export async function createInvitation(input: CreateInvitationInput): Promise<Cr
         name: input.name,
         passwordHash: null,
         status: "INVITED",
+        employeeNumber: input.employeeNumber || null,
+        assignedSiteId: input.assignedSiteId || null,
+        assignedGateId: input.assignedGateId || null,
+        approvalStatus: input.approvalStatus ?? "NOT_REQUIRED",
       },
     });
     await tx.userInvitation.create({

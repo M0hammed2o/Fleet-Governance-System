@@ -31,7 +31,12 @@ export async function findUserByIdInTenant(tenantId: string, userId: string) {
 export async function listUsersInTenant(tenantId: string) {
   return prisma.user.findMany({
     where: tenantWhere(tenantId),
-    include: { role: true },
+    include: {
+      role: { include: { rolePermissions: { include: { permission: true } } } },
+      assignedSite: { select: { id: true, name: true } },
+      assignedGate: { select: { id: true, name: true } },
+      approvedBy: { select: { id: true, name: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
 }

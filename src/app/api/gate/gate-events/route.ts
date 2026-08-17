@@ -10,6 +10,7 @@ import {
 import { startGateEventSchema } from "@/lib/validation/gate-event";
 import { getGateInTenant } from "@/lib/repositories/gate-repository";
 import type { GateEventStatus } from "@/lib/gate-events/state-machine";
+import { gateDutyApprovalError } from "@/lib/auth/gate-duty";
 
 export async function GET(request: Request) {
   try {
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
 
     const gate = await getGateInTenant(session.tenantId, parsed.data.gateId);
     if (!gate) throw new ApiError(400, "That gate does not belong to your company.");
+    const dutyError = await gateDutyApprovalError(session, parsed.data.gateId);
+    if (dutyError) throw new ApiError(403, dutyError);
 
     const gateEvent = await startGateEvent({
       tenantId: session.tenantId,

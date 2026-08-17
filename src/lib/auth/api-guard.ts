@@ -4,6 +4,7 @@ import { getSession, type AuthenticatedSession } from "@/lib/auth/session";
 import { hasPermission, ForbiddenError } from "@/lib/auth/authorize";
 import type { PermissionResource, PermissionAction } from "@/lib/auth/permissions";
 import { logger } from "@/lib/observability/logger";
+import { gateDutyApprovalError } from "@/lib/auth/gate-duty";
 
 export class ApiError extends Error {
   status: number;
@@ -22,6 +23,10 @@ export async function requireApiPermission(
   if (!session) throw new ApiError(401, "Not authenticated");
   const allowed = await hasPermission(session, resource, action);
   if (!allowed) throw new ApiError(403, "Forbidden");
+  if (resource === "gateEvent" && action !== "VIEW") {
+    const dutyError = await gateDutyApprovalError(session);
+    if (dutyError) throw new ApiError(403, dutyError);
+  }
   return session;
 }
 

@@ -60,5 +60,6 @@ export async function POST(request: Request) {
     entityId: user.id,
   });
 
-  return NextResponse.json({ ok: true });
+  const onboarding = await prisma.tenantOnboarding.findUnique({ where: { tenantId: user.tenantId }, select: { completedAt: true } });
+  return NextResponse.json({ ok: true, onboardingRequired: Boolean(onboarding && !onboarding.completedAt) });
 }

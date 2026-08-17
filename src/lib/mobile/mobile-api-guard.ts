@@ -11,6 +11,7 @@ import type {
 } from "@/lib/auth/permissions";
 import { ApiError } from "@/lib/auth/api-guard";
 import { logger } from "@/lib/observability/logger";
+import { gateDutyApprovalError } from "@/lib/auth/gate-duty";
 
 export async function requireMobileSession(
   request: Request,
@@ -29,6 +30,10 @@ export async function requireMobilePermission(
   const session = await requireMobileSession(request);
   if (!(await hasPermission(session, resource, action)))
     throw new ApiError(403, "This action is not permitted.");
+  if (resource === "gateEvent" && action !== "VIEW") {
+    const dutyError = await gateDutyApprovalError(session);
+    if (dutyError) throw new ApiError(403, dutyError);
+  }
   return session;
 }
 

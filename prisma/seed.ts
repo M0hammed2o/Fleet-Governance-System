@@ -90,8 +90,10 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "role", action: "VIEW" }, { resource: "role", action: "CREATE" }, { resource: "role", action: "EDIT" }, { resource: "role", action: "DELETE" }, { resource: "role", action: "CONFIGURE" },
       { resource: "tenant", action: "VIEW" }, { resource: "tenant", action: "CONFIGURE" },
       { resource: "auditLog", action: "VIEW" },
-      { resource: "driver", action: "VIEW" }, { resource: "vehicle", action: "VIEW" }, { resource: "movement", action: "VIEW" },
-      { resource: "complianceDocument", action: "VIEW" },
+      { resource: "driver", action: "VIEW" }, { resource: "driver", action: "CREATE" }, { resource: "driver", action: "EDIT" }, { resource: "driver", action: "DELETE" }, { resource: "driver", action: "EXPORT" },
+      { resource: "vehicle", action: "VIEW" }, { resource: "vehicle", action: "CREATE" }, { resource: "vehicle", action: "EDIT" }, { resource: "vehicle", action: "DELETE" }, { resource: "vehicle", action: "EXPORT" },
+      { resource: "movement", action: "VIEW" },
+      { resource: "complianceDocument", action: "VIEW" }, { resource: "complianceDocument", action: "CREATE" }, { resource: "complianceDocument", action: "EDIT" }, { resource: "complianceDocument", action: "DELETE" }, { resource: "complianceDocument", action: "AUDIT" },
       { resource: "tyrePositionConfig", action: "VIEW" }, { resource: "tyrePositionConfig", action: "CREATE" }, { resource: "tyrePositionConfig", action: "EDIT" }, { resource: "tyrePositionConfig", action: "DELETE" }, { resource: "tyrePositionConfig", action: "CONFIGURE" },
       { resource: "facialVerificationFallback", action: "VIEW" }, { resource: "facialVerificationFallback", action: "APPROVE" }, { resource: "facialVerificationFallback", action: "REJECT" },
       { resource: "gateEvent", action: "VIEW" },
@@ -99,7 +101,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       { resource: "exception", action: "VIEW" }, { resource: "exception", action: "CONFIGURE" },
       // Oversight visibility only — Company Administrator doesn't personally
       // capture gate/driver/document evidence.
-      { resource: "mediaAsset", action: "VIEW" },
+      { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" }, { resource: "mediaAsset", action: "DELETE" },
       { resource: "reconciliation", action: "VIEW" },
       { resource: "telematics", action: "VIEW" },
       { resource: "vehicleUsePolicy", action: "VIEW" },
@@ -282,7 +284,7 @@ const TENANT_ROLE_DEFINITIONS: Record<string, { description: string; permissions
       // Owns driver/vehicle master data, including portraits and compliance
       // document attachments — needs upload rights for those, not just
       // gate-side evidence (build brief EVID item 3).
-      { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" },
+      { resource: "mediaAsset", action: "VIEW" }, { resource: "mediaAsset", action: "CREATE" }, { resource: "mediaAsset", action: "DELETE" },
       // Reviews vehicle-condition-related discrepancies from a master-data
       // perspective (e.g. confirming pre-existing damage on file); final
       // sign-off stays with the supervisor (no reconciliation:APPROVE here).
