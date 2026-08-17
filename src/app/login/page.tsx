@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function LoginPage() {
         setError(data.error ?? "Login failed");
         return;
       }
-      router.push("/dashboard");
+      router.push(data.onboardingRequired ? "/onboarding" : "/dashboard");
       router.refresh();
     } catch {
       setError("Could not reach the server. Please try again.");
@@ -100,6 +101,9 @@ export default function LoginPage() {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <p className="mt-5 text-center text-sm text-slate-500">
+          Preparing a customer demonstration? <Link href="/register" className="font-medium text-cyan-800 underline-offset-4 hover:underline">Create a demo workspace</Link>
+        </p>
       </div>
     </main>
   );

@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, use } from "react";
 import { ComplianceDocumentsPanel, type ComplianceDocument } from "@/components/compliance-documents-panel";
 import { DriverFacialEnrolmentCapture } from "@/components/driver-facial-enrolment";
+import { PrivateProfileUpload } from "@/components/private-profile-upload";
+import Link from "next/link";
 
 interface Driver {
   id: string;
@@ -11,11 +13,21 @@ interface Driver {
   status: "ACTIVE" | "SUSPENDED" | "BLACKLISTED";
   licenceNumber: string | null;
   licenceClass: string | null;
+  licenceIssueDate: string | null;
   licenceExpiry: string | null;
   pdpNumber: string | null;
+  pdpStatus: string;
   pdpExpiry: string | null;
   restrictions: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  department: string | null;
+  notes: string | null;
+  portraitMediaAssetId: string | null;
 }
+
+interface Rating { score: number; status: "GOOD_STANDING" | "REVIEW_REQUIRED" | "SERIOUS_ATTENTION"; label: string; ruleVersion: string; calculatedAt: string; disclaimer: string; factors: Array<{ code: string; label: string; impact: number; kind: string; action: string | null }> }
+interface Assignment { id: string; status: string; effectiveFrom: string; effectiveTo: string | null; reason: string; vehicle: { id: string; registrationNumber: string; fleetNumber: string | null; category: string }; assignedBy: { name: string } }
 
 interface ManualFallback {
   id: string;
@@ -49,6 +61,10 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
   const [revokeReason, setRevokeReason] = useState("");
   const [deletionReason, setDeletionReason] = useState("");
   const [deletionRequests, setDeletionRequests] = useState<BiometricDeletionRequest[]>([]);
+  const [rating, setRating] = useState<Rating | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [gateActivity, setGateActivity] = useState<Array<{ id: string; status: string; direction: string; decision: string | null; createdAt: string; vehicle: { id: string; registrationNumber: string }; gate: { name: string }; exceptions: Array<{ id: string; severity: string; description: string; resolvedAt: string | null }> }>>([]);
+  const [auditHistory, setAuditHistory] = useState<Array<{ id: string; timestamp: string; action: string; reason: string | null; user: { name: string } | null }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +76,10 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
       setDriver(data.driver);
       setDocuments(data.documents);
       setFallbacks(data.manualFallbacks);
+      setRating(data.rating);
+      setAssignments(data.assignments ?? []);
+      setGateActivity(data.gateActivity ?? []);
+      setAuditHistory(data.auditHistory ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -169,6 +189,18 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
     setVerifyResult(`${data.outcome.result}${data.outcome.failureReason ? ` — ${data.outcome.failureReason}` : ""}`);
   }
 
+  async function updateProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const response = await fetch(`/api/drivers/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      name: form.get("name"), employeeNumber: form.get("employeeNumber") || undefined, contactPhone: form.get("contactPhone") || undefined, contactEmail: form.get("contactEmail") || "", department: form.get("department") || undefined,
+      licenceNumber: form.get("licenceNumber") || undefined, licenceClass: form.get("licenceClass") || undefined, licenceIssueDate: form.get("licenceIssueDate") || undefined, licenceExpiry: form.get("licenceExpiry") || undefined,
+      pdpStatus: form.get("pdpStatus"), pdpNumber: form.get("pdpNumber") || undefined, pdpExpiry: form.get("pdpExpiry") || undefined, restrictions: form.get("restrictions") || undefined, notes: form.get("notes") || undefined,
+    }) });
+    const result = await response.json();
+    if (!response.ok) setError(result.error ?? "Driver details could not be saved"); else await load();
+  }
+
   async function requestFallback(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -206,7 +238,7 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="min-h-screen bg-slate-50 p-8">
-      <div className="mx-auto max-w-2xl space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -231,8 +263,16 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
             <dd>{driver.licenceNumber ?? "—"} {driver.licenceClass ?? ""}</dd>
             <dt className="text-slate-500">Licence expiry</dt>
             <dd>{driver.licenceExpiry ? new Date(driver.licenceExpiry).toLocaleDateString() : "—"}</dd>
+            <dt className="text-slate-500">Licence issue</dt>
+            <dd>{driver.licenceIssueDate ? new Date(driver.licenceIssueDate).toLocaleDateString() : "—"}</dd>
             <dt className="text-slate-500">PDP</dt>
             <dd>{driver.pdpNumber ?? "—"}</dd>
+            <dt className="text-slate-500">Permit status</dt>
+            <dd>{driver.pdpStatus.replaceAll("_", " ")}</dd>
+            <dt className="text-slate-500">Contact</dt>
+            <dd>{driver.contactPhone ?? driver.contactEmail ?? "—"}</dd>
+            <dt className="text-slate-500">Department</dt>
+            <dd>{driver.department ?? "—"}</dd>
             <dt className="text-slate-500">Restrictions</dt>
             <dd>{driver.restrictions ?? "None"}</dd>
           </dl>
@@ -256,9 +296,18 @@ export default function DriverDetailPage({ params }: { params: Promise<{ id: str
           </div>
 
           {error && <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          <details className="mt-5 rounded-xl bg-slate-50 p-4"><summary className="cursor-pointer text-sm font-semibold text-slate-800">Edit private driver and licence details</summary><form onSubmit={updateProfile} className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium">Name and surname<input name="name" required defaultValue={driver.name} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Employee number<input name="employeeNumber" defaultValue={driver.employeeNumber ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Contact phone<input name="contactPhone" defaultValue={driver.contactPhone ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Contact email<input name="contactEmail" type="email" defaultValue={driver.contactEmail ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Department<input name="department" defaultValue={driver.department ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Licence number<input name="licenceNumber" defaultValue={driver.licenceNumber ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Licence class<input name="licenceClass" defaultValue={driver.licenceClass ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Licence issue date<input name="licenceIssueDate" type="date" defaultValue={driver.licenceIssueDate?.slice(0,10) ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Licence expiry<input name="licenceExpiry" type="date" defaultValue={driver.licenceExpiry?.slice(0,10) ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Permit status<select name="pdpStatus" defaultValue={driver.pdpStatus} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option>NOT_REQUIRED</option><option>VALID</option><option>PENDING</option><option>EXPIRED</option><option>SUSPENDED</option></select></label><label className="text-xs font-medium">Permit number<input name="pdpNumber" defaultValue={driver.pdpNumber ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium">Permit expiry<input name="pdpExpiry" type="date" defaultValue={driver.pdpExpiry?.slice(0,10) ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-xs font-medium sm:col-span-2">Restrictions<textarea name="restrictions" defaultValue={driver.restrictions ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>{driver.notes !== null && <label className="text-xs font-medium sm:col-span-2">Authorised internal notes<textarea name="notes" defaultValue={driver.notes ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>}<button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white sm:col-span-2">Save driver details</button>
+          </form></details>
         </div>
 
+        <div className="grid gap-6 lg:grid-cols-2"><PrivateProfileUpload ownerType="DRIVER_PORTRAIT" ownerId={driver.id} currentMediaAssetId={driver.portraitMediaAssetId} linkEndpoint={`/api/drivers/${driver.id}`} linkField="portraitMediaAssetId" label={`Driver profile image for ${driver.name}`} onChanged={load} />{rating && <section className={`rounded-2xl border p-5 shadow-sm ${rating.status === "GOOD_STANDING" ? "border-emerald-200 bg-emerald-50" : rating.status === "REVIEW_REQUIRED" ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}><h2 className="text-sm font-semibold">Operational governance rating</h2><p className="mt-2 text-2xl font-semibold">{rating.status === "GOOD_STANDING" ? "✓" : rating.status === "REVIEW_REQUIRED" ? "!" : "×"} {rating.label} · {rating.score}/100</p><p className="mt-2 text-xs text-slate-600">{rating.disclaimer}</p><ul className="mt-3 space-y-2 text-sm">{rating.factors.map((factor) => <li key={factor.code}><strong>{factor.impact < 0 ? `${factor.impact}: ` : "✓ "}</strong>{factor.label}{factor.action && <span className="block text-xs text-slate-600">Action: {factor.action}</span>}</li>)}</ul><p className="mt-3 text-xs text-slate-500">Rule {rating.ruleVersion} · calculated {new Date(rating.calculatedAt).toLocaleString()}</p></section>}</div>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Vehicle assignment history</h2><Link href="/admin/assignments" className="text-xs font-medium text-cyan-800">Manage assignments</Link></div><ul className="mt-3 space-y-2 text-sm">{assignments.map((assignment) => <li key={assignment.id} className="rounded-xl bg-slate-50 p-3"><Link href={`/admin/vehicles/${assignment.vehicle.id}`} className="font-medium hover:underline">{assignment.vehicle.registrationNumber}</Link> · {assignment.vehicle.category.replaceAll("_", " ")} · <strong>{assignment.status}</strong><span className="block text-xs text-slate-500">{new Date(assignment.effectiveFrom).toLocaleString()} — {assignment.effectiveTo ? new Date(assignment.effectiveTo).toLocaleString() : "current"} · {assignment.assignedBy.name} · {assignment.reason}</span></li>)}{assignments.length === 0 && <li className="text-slate-500">No assignment history.</li>}</ul></section>
+
         <ComplianceDocumentsPanel ownerType="DRIVER" ownerId={driver.id} documents={documents} onChanged={load} />
+
+        <section className="grid gap-6 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-sm font-semibold">Recent gate activity and exceptions</h2><ul className="mt-3 space-y-2 text-sm">{gateActivity.map((event) => <li key={event.id} className="border-b border-slate-100 pb-2"><Link href={`/gate/events/${event.id}`} className="font-medium hover:underline">{event.direction} · {event.vehicle.registrationNumber}</Link><span className="block text-xs text-slate-500">{event.gate.name} · {event.status} · {new Date(event.createdAt).toLocaleString()}</span>{event.exceptions.map((exception) => <span key={exception.id} className="block text-xs text-red-700">{exception.severity}: {exception.description} · {exception.resolvedAt ? "resolved" : "open"}</span>)}</li>)}{gateActivity.length === 0 && <li className="text-slate-500">No gate activity.</li>}</ul></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-sm font-semibold">Audit chronology</h2><ul className="mt-3 space-y-2 text-sm">{auditHistory.map((entry) => <li key={entry.id} className="border-b border-slate-100 pb-2"><strong>{entry.action}</strong><span className="block text-xs text-slate-500">{new Date(entry.timestamp).toLocaleString()} · {entry.user?.name ?? "System"}{entry.reason ? ` · ${entry.reason}` : ""}</span></li>)}{auditHistory.length === 0 && <li className="text-slate-500">No matching audit events.</li>}</ul></div></section>
 
         {enrolmentStatus && (
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">

@@ -1,158 +1,88 @@
 "use client";
 
-import { useEffect, useState, useCallback, use } from "react";
+import Link from "next/link";
+import { use, useCallback, useEffect, useState } from "react";
 import { ComplianceDocumentsPanel, type ComplianceDocument } from "@/components/compliance-documents-panel";
+import { PrivateProfileUpload } from "@/components/private-profile-upload";
 
 interface Vehicle {
-  id: string;
-  registrationNumber: string;
-  fleetNumber: string | null;
-  vin: string | null;
-  make: string | null;
-  model: string | null;
-  category: string;
+  id: string; registrationNumber: string; fleetNumber: string | null; vin: string | null; engineNumber: string | null;
+  make: string | null; model: string | null; year: number | null; colour: string | null; category: string; ownership: string;
+  fuelType: string | null; tankCapacityLitres: number | null; carryingCapacityTonnes: number | null; department: string | null;
+  odometerReading: number | null; fuelLevelPercent: number | null; serviceIntervalKm: number | null; nextServiceOdometer: number | null;
+  nextServiceDate: string | null; imageMediaAssetId: string | null; gpsStatus: string; licenceDiscExpiry: string | null;
+  roadworthyExpiry: string | null; insuranceExpiry: string | null; baselineConditionNotes: string | null;
   operationalStatus: "OPERATIONAL" | "WORKSHOP_LOCKOUT" | "SECURITY_LOCKOUT" | "DECOMMISSIONED";
-  odometerReading: number | null;
-  fuelLevelPercent: number | null;
-  gpsStatus: string;
-  licenceDiscExpiry: string | null;
-  roadworthyExpiry: string | null;
-  insuranceExpiry: string | null;
   assignedDriver: { id: string; name: string } | null;
   tyrePositionConfig: { name: string; positions: { id: string; code: string; label: string }[] } | null;
   tyres: { positionDefinitionId: string; brand: string | null; size: string | null }[];
 }
-
+interface Assignment { id: string; status: string; effectiveFrom: string; effectiveTo: string | null; reason: string; endReason: string | null; driver: { id: string; name: string; employeeNumber: string | null }; assignedBy: { name: string } }
+interface GateActivity { id: string; status: string; direction: string; decision: string | null; createdAt: string; driver: { id: string; name: string } | null; gate: { name: string }; exceptions: Array<{ id: string; severity: string; description: string; resolvedAt: string | null }> }
+interface TelematicsEvent { id: string; source: string; recordedAt: string; freshness: string; isSynthetic: boolean; speedKmh: number | null; odometerKm: number | null; confidenceLimitations: string | null }
 interface TrackerDataSummary { kind: string; label: string; warning: string }
-
 const STATUS_OPTIONS = ["OPERATIONAL", "WORKSHOP_LOCKOUT", "SECURITY_LOCKOUT", "DECOMMISSIONED"] as const;
+
+function dateValue(value: string | null) { return value?.slice(0, 10) ?? ""; }
 
 export default function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [documents, setDocuments] = useState<ComplianceDocument[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [gateActivity, setGateActivity] = useState<GateActivity[]>([]);
+  const [auditHistory, setAuditHistory] = useState<Array<{ id: string; timestamp: string; action: string; reason: string | null; user: { name: string } | null }>>([]);
+  const [telematics, setTelematics] = useState<TelematicsEvent[]>([]);
   const [trackerDataSummary, setTrackerDataSummary] = useState<TrackerDataSummary>({ kind: "UNAVAILABLE", label: "Tracker data unavailable", warning: "Missing tracker data is not proof of misconduct." });
   const [trackerMappingStatus, setTrackerMappingStatus] = useState("UNMAPPED");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
-      const res = await fetch(`/api/vehicles/${id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load vehicle");
-      setVehicle(data.vehicle);
-      setDocuments(data.documents);
-      setTrackerDataSummary(data.trackerDataSummary);
-      setTrackerMappingStatus(data.trackerMappingStatus);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
+      const response = await fetch(`/api/vehicles/${id}`); const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to load vehicle");
+      setVehicle(data.vehicle); setDocuments(data.documents); setAssignments(data.assignments ?? []); setGateActivity(data.gateActivity ?? []);
+      setAuditHistory(data.auditHistory ?? []); setTelematics(data.recentTelematicsEvents ?? []);
+      setTrackerDataSummary(data.trackerDataSummary); setTrackerMappingStatus(data.trackerMappingStatus);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Failed to load"); } finally { setLoading(false); }
   }, [id]);
-
-  useEffect(() => {
-    queueMicrotask(load);
-  }, [load]);
+  useEffect(() => { queueMicrotask(load); }, [load]);
 
   async function setStatus(operationalStatus: (typeof STATUS_OPTIONS)[number]) {
-    setError(null);
-    const res = await fetch(`/api/vehicles/${id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ operationalStatus }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Failed to update status");
-      return;
-    }
-    await load();
+    const response = await fetch(`/api/vehicles/${id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationalStatus }) });
+    const data = await response.json(); if (!response.ok) setError(data.error ?? "Failed to update status"); else await load();
+  }
+  async function updateVehicle(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const optional = (name: string) => form.get(name) || undefined;
+    const response = await fetch(`/api/vehicles/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      registrationNumber: form.get("registrationNumber"), fleetNumber: optional("fleetNumber"), vin: form.get("vin") || "", engineNumber: optional("engineNumber"), make: optional("make"), model: optional("model"), year: optional("year"), colour: optional("colour"),
+      category: form.get("category"), ownership: form.get("ownership"), department: optional("department"), carryingCapacityTonnes: optional("carryingCapacityTonnes"), fuelType: optional("fuelType"), tankCapacityLitres: optional("tankCapacityLitres"), odometerReading: optional("odometerReading"),
+      serviceIntervalKm: optional("serviceIntervalKm"), nextServiceOdometer: optional("nextServiceOdometer"), nextServiceDate: optional("nextServiceDate"), licenceDiscExpiry: optional("licenceDiscExpiry"), roadworthyExpiry: optional("roadworthyExpiry"), insuranceExpiry: optional("insuranceExpiry"),
+    }) });
+    const data = await response.json(); if (!response.ok) setError(data.error ?? "Vehicle details could not be saved"); else await load();
   }
 
   if (loading) return <main className="p-8 text-sm text-slate-500">Loading…</main>;
   if (!vehicle) return <main className="p-8 text-sm text-red-700">{error ?? "Vehicle not found"}</main>;
-
-  return (
-    <main className="min-h-screen bg-slate-50 p-8">
-      <div className="mx-auto max-w-2xl space-y-6">
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900">{vehicle.registrationNumber}</h1>
-              <p className="text-sm text-slate-500">
-                {vehicle.fleetNumber ?? "No fleet number"} — {[vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Unknown make/model"}
-              </p>
-            </div>
-            <span className={vehicle.operationalStatus === "OPERATIONAL" ? "text-emerald-700" : "text-red-700"}>
-              {vehicle.operationalStatus}
-            </span>
-          </div>
-
-          <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            <dt className="text-slate-500">VIN</dt>
-            <dd>{vehicle.vin ?? "—"}</dd>
-            <dt className="text-slate-500">Category</dt>
-            <dd>{vehicle.category}</dd>
-            <dt className="text-slate-500">Assigned driver</dt>
-            <dd>{vehicle.assignedDriver?.name ?? "—"}</dd>
-            <dt className="text-slate-500">Odometer</dt>
-            <dd>{vehicle.odometerReading ?? "—"}</dd>
-            <dt className="text-slate-500">Fuel level</dt>
-            <dd>{vehicle.fuelLevelPercent != null ? `${vehicle.fuelLevelPercent}%` : "—"}</dd>
-            <dt className="text-slate-500">GPS status</dt>
-            <dd>{vehicle.gpsStatus}</dd>
-            <dt className="text-slate-500">Tracker source</dt>
-            <dd className={trackerDataSummary.kind === "SYNTHETIC" ? "font-semibold text-amber-800" : "font-medium"}>{trackerDataSummary.label}</dd>
-            <dt className="text-slate-500">Mapping status</dt>
-            <dd>{trackerMappingStatus}</dd>
-            <dt className="text-slate-500">Licence disc expiry</dt>
-            <dd>{vehicle.licenceDiscExpiry ? new Date(vehicle.licenceDiscExpiry).toLocaleDateString() : "—"}</dd>
-            <dt className="text-slate-500">Roadworthy expiry</dt>
-            <dd>{vehicle.roadworthyExpiry ? new Date(vehicle.roadworthyExpiry).toLocaleDateString() : "—"}</dd>
-            <dt className="text-slate-500">Insurance expiry</dt>
-            <dd>{vehicle.insuranceExpiry ? new Date(vehicle.insuranceExpiry).toLocaleDateString() : "—"}</dd>
-          </dl>
-
-          <p role="status" className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{trackerDataSummary.warning}</p>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {STATUS_OPTIONS.filter((s) => s !== vehicle.operationalStatus).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-              >
-                Set {s.replace(/_/g, " ").toLowerCase()}
-              </button>
-            ))}
-          </div>
-
-          {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        </div>
-
-        <ComplianceDocumentsPanel ownerType="VEHICLE" ownerId={vehicle.id} documents={documents} onChanged={load} />
-
-        {vehicle.tyrePositionConfig && (
-          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-900">Tyres — {vehicle.tyrePositionConfig.name}</h2>
-            <ul className="grid grid-cols-2 gap-2 text-sm">
-              {vehicle.tyrePositionConfig.positions.map((pos) => {
-                const tyre = vehicle.tyres.find((t) => t.positionDefinitionId === pos.id);
-                return (
-                  <li key={pos.id} className="rounded-md border border-slate-100 p-2">
-                    <div className="font-medium text-slate-700">{pos.label}</div>
-                    <div className="text-slate-500">{tyre ? `${tyre.brand ?? "—"} ${tyre.size ?? ""}` : "No data"}</div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  return <main className="min-h-screen bg-slate-50 p-4 sm:p-8"><div className="mx-auto max-w-6xl space-y-6">
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-xl font-semibold">{vehicle.registrationNumber}</h1><p className="text-sm text-slate-500">{vehicle.fleetNumber ?? "No fleet number"} · {[vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Unknown make/model"}</p></div><span className={vehicle.operationalStatus === "OPERATIONAL" ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>{vehicle.operationalStatus === "OPERATIONAL" ? "✓ " : "! "}{vehicle.operationalStatus.replaceAll("_", " ")}</span></div>
+      <dl className="mt-5 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><dt className="text-slate-500">VIN/chassis</dt><dd>{vehicle.vin ?? "—"}</dd><dt className="text-slate-500">Category</dt><dd>{vehicle.category.replaceAll("_", " ")}</dd><dt className="text-slate-500">Current driver</dt><dd>{vehicle.assignedDriver ? <Link className="font-medium hover:underline" href={`/admin/drivers/${vehicle.assignedDriver.id}`}>{vehicle.assignedDriver.name}</Link> : "Unassigned"}</dd><dt className="text-slate-500">Department</dt><dd>{vehicle.department ?? "—"}</dd><dt className="text-slate-500">Capacity</dt><dd>{vehicle.carryingCapacityTonnes ? `${vehicle.carryingCapacityTonnes} tonnes` : "Not applicable"}</dd><dt className="text-slate-500">Odometer</dt><dd>{vehicle.odometerReading?.toLocaleString() ?? "—"} km</dd><dt className="text-slate-500">Next service</dt><dd>{vehicle.nextServiceOdometer?.toLocaleString() ?? "—"} km</dd><dt className="text-slate-500">Ownership</dt><dd>{vehicle.ownership}</dd></dl>
+      <dl className="mt-4 grid gap-2 rounded-lg bg-slate-50 p-3 text-sm sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Tracker source</dt><dd className="font-semibold text-amber-800">{trackerDataSummary.label}</dd></div><div><dt className="text-xs text-slate-500">Mapping status</dt><dd className="font-medium">{trackerMappingStatus}</dd></div></dl>
+      <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">{trackerDataSummary.warning}</p>
+      <div className="mt-4 flex flex-wrap gap-2">{STATUS_OPTIONS.filter((status) => status !== vehicle.operationalStatus).map((status) => <button key={status} onClick={() => setStatus(status)} className="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm">Set {status.replaceAll("_", " ").toLowerCase()}</button>)}</div>
+      {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <details className="mt-5 rounded-xl bg-slate-50 p-4"><summary className="cursor-pointer font-semibold">Edit vehicle master data</summary><form onSubmit={updateVehicle} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="text-xs font-medium">Registration<input required name="registrationNumber" defaultValue={vehicle.registrationNumber} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Fleet/asset number<input name="fleetNumber" defaultValue={vehicle.fleetNumber ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">VIN/chassis<input name="vin" defaultValue={vehicle.vin ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Engine number<input name="engineNumber" defaultValue={vehicle.engineNumber ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Make<input name="make" defaultValue={vehicle.make ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Model<input name="model" defaultValue={vehicle.model ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Year<input name="year" type="number" defaultValue={vehicle.year ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Colour<input name="colour" defaultValue={vehicle.colour ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Category<select name="category" defaultValue={vehicle.category} className="mt-1 w-full rounded-lg border p-2 text-sm">{["TRUCK","BAKKIE_PICKUP","VAN","PASSENGER","SALES_REPRESENTATIVE","TRAILER","PLANT_EQUIPMENT","LIGHT_COMMERCIAL","OTHER","CUSTOM"].map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-xs font-medium">Truck capacity (tonnes)<input name="carryingCapacityTonnes" type="number" step="0.1" defaultValue={vehicle.carryingCapacityTonnes ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Department<input name="department" defaultValue={vehicle.department ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Ownership<select name="ownership" defaultValue={vehicle.ownership} className="mt-1 w-full rounded-lg border p-2 text-sm"><option>OWNED</option><option>LEASED</option><option>CONTRACTOR</option><option>THIRD_PARTY</option></select></label><label className="text-xs font-medium">Fuel type<select name="fuelType" defaultValue={vehicle.fuelType ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm"><option value="">Not applicable</option><option>PETROL</option><option>DIESEL</option><option>ELECTRIC</option><option>HYBRID</option><option>OTHER</option></select></label><label className="text-xs font-medium">Tank capacity (L)<input name="tankCapacityLitres" type="number" step="0.1" defaultValue={vehicle.tankCapacityLitres ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Current odometer<input name="odometerReading" type="number" defaultValue={vehicle.odometerReading ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Service interval (km)<input name="serviceIntervalKm" type="number" defaultValue={vehicle.serviceIntervalKm ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Next service odometer<input name="nextServiceOdometer" type="number" defaultValue={vehicle.nextServiceOdometer ?? ""} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Next service date<input name="nextServiceDate" type="date" defaultValue={dateValue(vehicle.nextServiceDate)} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Licence expiry<input name="licenceDiscExpiry" type="date" defaultValue={dateValue(vehicle.licenceDiscExpiry)} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Roadworthy expiry<input name="roadworthyExpiry" type="date" defaultValue={dateValue(vehicle.roadworthyExpiry)} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><label className="text-xs font-medium">Insurance expiry<input name="insuranceExpiry" type="date" defaultValue={dateValue(vehicle.insuranceExpiry)} className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><button className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white sm:col-span-2 lg:col-span-3">Save vehicle details</button>
+      </form></details>
+    </section>
+    <div className="grid gap-6 lg:grid-cols-2"><PrivateProfileUpload ownerType="VEHICLE_IMAGE" ownerId={vehicle.id} currentMediaAssetId={vehicle.imageMediaAssetId} linkEndpoint={`/api/vehicles/${vehicle.id}`} linkField="imageMediaAssetId" label={`Vehicle image for ${vehicle.registrationNumber}`} onChanged={load} /><section className="rounded-2xl border bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="font-semibold">Assignment history</h2><Link href="/admin/assignments" className="text-sm font-medium text-cyan-800">Manage</Link></div><ul className="mt-3 space-y-2 text-sm">{assignments.map((assignment) => <li key={assignment.id} className="rounded-lg bg-slate-50 p-3"><Link href={`/admin/drivers/${assignment.driver.id}`} className="font-medium hover:underline">{assignment.driver.name}</Link> · <strong>{assignment.status}</strong><span className="block text-xs text-slate-500">{new Date(assignment.effectiveFrom).toLocaleString()} – {assignment.effectiveTo ? new Date(assignment.effectiveTo).toLocaleString() : "current"} · {assignment.assignedBy.name}</span><span className="block text-xs">{assignment.endReason ?? assignment.reason}</span></li>)}{assignments.length === 0 && <li className="text-slate-500">No assignment history.</li>}</ul></section></div>
+    <ComplianceDocumentsPanel ownerType="VEHICLE" ownerId={vehicle.id} documents={documents} onChanged={load} />
+    <div className="grid gap-6 lg:grid-cols-2"><section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="font-semibold">Gate movements, inspections and exceptions</h2><ul className="mt-3 space-y-2 text-sm">{gateActivity.map((event) => <li key={event.id} className="border-b pb-2"><Link href={`/gate/events/${event.id}`} className="font-medium hover:underline">{event.direction} · {event.gate.name}</Link><span className="block text-xs text-slate-500">{event.decision ?? event.status} · {new Date(event.createdAt).toLocaleString()} · {event.driver?.name ?? "No driver"}</span>{event.exceptions.map((item) => <span key={item.id} className="block text-xs text-red-700">{item.severity}: {item.description} · {item.resolvedAt ? "resolved" : "open"}</span>)}</li>)}{gateActivity.length === 0 && <li className="text-slate-500">No recorded gate movements.</li>}</ul></section><section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="font-semibold">Tracker provenance</h2><p className="mt-2 text-xs font-semibold text-amber-800">DEMONSTRATION TRACKING — SYNTHETIC OR MANUALLY ENTERED; NOT A LIVE PROVIDER FEED</p><ul className="mt-3 space-y-2 text-sm">{telematics.map((event) => <li key={event.id} className="border-b pb-2"><strong>{event.isSynthetic ? "Synthetic" : event.source}</strong> · {event.freshness}<span className="block text-xs text-slate-500">{new Date(event.recordedAt).toLocaleString()} · {event.speedKmh ?? "—"} km/h · {event.odometerKm ?? "—"} km</span>{event.confidenceLimitations && <span className="block text-xs">{event.confidenceLimitations}</span>}</li>)}{telematics.length === 0 && <li className="text-slate-500">No tracker records. This does not imply misconduct.</li>}</ul></section></div>
+    <section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="font-semibold">Audit chronology</h2><ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">{auditHistory.map((entry) => <li key={entry.id} className="rounded-lg bg-slate-50 p-3"><strong>{entry.action}</strong><span className="block text-xs text-slate-500">{new Date(entry.timestamp).toLocaleString()} · {entry.user?.name ?? "System"}{entry.reason ? ` · ${entry.reason}` : ""}</span></li>)}{auditHistory.length === 0 && <li className="text-slate-500">No matching audit events.</li>}</ul></section>
+    {vehicle.tyrePositionConfig && <section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="font-semibold">Tyres — {vehicle.tyrePositionConfig.name}</h2><ul className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">{vehicle.tyrePositionConfig.positions.map((position) => { const tyre = vehicle.tyres.find((item) => item.positionDefinitionId === position.id); return <li key={position.id} className="rounded-lg border p-2"><strong>{position.label}</strong><span className="block text-slate-500">{tyre ? `${tyre.brand ?? "—"} ${tyre.size ?? ""}` : "No data"}</span></li>; })}</ul></section>}
+  </div></main>;
 }

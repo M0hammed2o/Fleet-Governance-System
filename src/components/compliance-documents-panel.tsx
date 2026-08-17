@@ -11,6 +11,7 @@ export interface ComplianceDocument {
   // Computed server-side (lib/documents/expiry-rules.ts) — avoids comparing
   // against the client's clock and avoids calling Date.now() during render.
   isExpired: boolean;
+  attachmentMediaAssetId?: string | null;
 }
 
 const DOCUMENT_TYPES_BY_OWNER: Record<"DRIVER" | "VEHICLE", string[]> = {
@@ -79,6 +80,40 @@ export function ComplianceDocumentsPanel({
     await onChanged();
   }
 
+  async function uploadAttachment(document: ComplianceDocument, file: File) {
+    setError(null);
+    const form = new FormData();
+    form.set("file", file);
+    form.set("ownerType", "COMPLIANCE_DOCUMENT");
+    form.set("ownerId", document.id);
+    form.set("idempotencyKey", crypto.randomUUID());
+    form.set("category", "OTHER_DOCUMENT");
+    const upload = await fetch("/api/media/upload", { method: "POST", body: form });
+    const uploaded = await upload.json();
+    if (!upload.ok) { setError(uploaded.error ?? "Document upload failed"); return; }
+    const link = await fetch(`/api/compliance-documents/${document.id}/attachment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attachmentMediaAssetId: uploaded.mediaAsset.id }) });
+    const linked = await link.json();
+    if (!link.ok) { setError(linked.error ?? "Document could not be linked"); return; }
+    if (document.attachmentMediaAssetId && document.attachmentMediaAssetId !== uploaded.mediaAsset.id) {
+      await fetch(`/api/media/${document.attachmentMediaAssetId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Compliance-document attachment replaced with an authorised newer copy" }) });
+    }
+    await onChanged();
+  }
+
+  async function viewAttachment(mediaAssetId: string) {
+    const response = await fetch(`/api/media/${mediaAssetId}`);
+    const result = await response.json();
+    if (!response.ok) { setError(result.error ?? "Document could not be opened"); return; }
+    window.open(result.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function deleteAttachment(mediaAssetId: string) {
+    const response = await fetch(`/api/media/${mediaAssetId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Compliance-document attachment removed from the master-data record" }) });
+    const result = await response.json();
+    if (!response.ok) { setError(result.error ?? "Document could not be deleted"); return; }
+    await onChanged();
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="mb-3 text-sm font-semibold text-slate-900">Compliance documents</h2>
@@ -120,7 +155,7 @@ export function ComplianceDocumentsPanel({
           {documents.map((doc) => {
             const isExpired = doc.isExpired;
             return (
-              <li key={doc.id} className="flex items-center justify-between rounded-md border border-slate-100 p-2">
+              <li key={doc.id} className="flex flex-col gap-3 rounded-md border border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="font-medium text-slate-700">
                     {doc.documentType.replace(/_/g, " ")} {doc.documentNumber && `— ${doc.documentNumber}`}
@@ -129,7 +164,7 @@ export function ComplianceDocumentsPanel({
                     {doc.expiryDate ? `Expires ${new Date(doc.expiryDate).toLocaleDateString()}${isExpired ? " (expired)" : ""}` : "No expiry set"}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={
                       doc.verificationStatus === "VERIFIED"
@@ -151,7 +186,10 @@ export function ComplianceDocumentsPanel({
                       </button>
                     </>
                   )}
+                  {doc.attachmentMediaAssetId && <button type="button" onClick={() => viewAttachment(doc.attachmentMediaAssetId!)} aria-label={`View ${doc.documentType.replace(/_/g, " ")} attachment`} className="rounded-md border border-cyan-200 px-2 py-0.5 text-xs text-cyan-800">View</button>}
+                  {doc.attachmentMediaAssetId && <button type="button" onClick={() => deleteAttachment(doc.attachmentMediaAssetId!)} aria-label={`Delete ${doc.documentType.replace(/_/g, " ")} attachment`} className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-700">Delete file</button>}
                 </div>
+                <label className="text-xs font-medium text-slate-600 sm:ml-3">{doc.attachmentMediaAssetId ? "Replace file" : "Attach file"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(doc, file); }} className="mt-1 block w-full max-w-48 text-xs file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1" /></label>
               </li>
             );
           })}
