@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 
 const image = "genbridge-governance:phase15a-local";
@@ -6,9 +7,28 @@ const container = "genbridge-phase15a-smoke";
 let created = false;
 const windowsDocker = "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe";
 const dockerExecutable = process.platform === "win32" && fs.existsSync(windowsDocker) ? windowsDocker : "docker";
+const ephemeralSecret = () => crypto.randomBytes(32).toString("base64url");
+const smokeRuntimeConfiguration = {
+  APP_ENV: "production",
+  APP_BASE_URL: "https://container-smoke.invalid",
+  DATABASE_URL: "postgresql://smoke:unused@database.invalid:5432/governance_smoke?sslmode=require",
+  DIRECT_DATABASE_URL: "postgresql://smoke:unused@database.invalid:5432/governance_smoke?sslmode=require",
+  DATABASE_SSL_MODE: "require",
+  SESSION_SECRET: ephemeralSecret(),
+  MEDIA_URL_SIGNING_SECRET: ephemeralSecret(),
+  BIOMETRIC_TEMPLATE_ENCRYPTION_KEY: ephemeralSecret(),
+  JOB_SCHEDULER_TOKEN: ephemeralSecret(),
+  STORAGE_PROVIDER: "r2",
+  R2_ACCOUNT_ID: "container-smoke-inert",
+  R2_ACCESS_KEY_ID: ephemeralSecret(),
+  R2_SECRET_ACCESS_KEY: ephemeralSecret(),
+  R2_BUCKET_NAME: "container-smoke-inert",
+};
+const smokeEnvironment = { ...process.env, ...smokeRuntimeConfiguration };
+const smokeEnvironmentNames = Object.keys(smokeRuntimeConfiguration);
 
 function docker(args, stdio = "inherit") {
-  return spawnSync(dockerExecutable, args, { stdio, encoding: stdio === "pipe" ? "utf8" : undefined });
+  return spawnSync(dockerExecutable, args, { stdio, encoding: stdio === "pipe" ? "utf8" : undefined, env: smokeEnvironment });
 }
 
 function requireSuccess(label, result) {
@@ -20,7 +40,8 @@ async function main() {
   if (existing.status === 0) throw new Error(`Refusing to replace existing container ${container}. Remove or rename it deliberately first.`);
 
   requireSuccess("container image build", docker(["build", "--tag", image, "."]));
-  requireSuccess("container start", docker(["run", "--detach", "--name", container, "--publish", "127.0.0.1:3100:3000", image]));
+  const environmentArguments = smokeEnvironmentNames.flatMap((name) => ["--env", name]);
+  requireSuccess("container start", docker(["run", "--detach", "--name", container, "--publish", "127.0.0.1:3100:3000", ...environmentArguments, image]));
   created = true;
 
   const configuredUser = docker(["image", "inspect", "--format", "{{.Config.User}}", image], "pipe");
