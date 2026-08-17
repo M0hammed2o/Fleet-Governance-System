@@ -792,3 +792,16 @@ physical-device repair.
 `npm run mobile:test` now includes 7 files / 21 tests, including tenant-isolated mobile facial context, exact disclosure, safe attempt summaries, audit linkage, retry budget, fallback binding, manager separation and disconnected mutation refusal. `e2e/mobile-priority-workflows.spec.ts` has 10 rendered mobile journeys covering verified, non-match, liveness failure, indeterminate, provider outage, provider rate limiting, not-enrolled, mandatory fallback, manager approval, 44px responsive controls and offline fail-closed behavior.
 
 After `npm run android:sync`, the fourth Android JVM contract reads the synchronized JavaScript assets and requires the exact warning, mobile initiation/fallback/manager controls and scenario identifiers while rejecting the retired `capturedImageRef` contract. Android configuration, JVM, lint and debug assembly remain independent gates. No emulator or physical-device outcome is inferred from browser/JVM coverage.
+
+# Phase 18A demo onboarding verification scope
+
+Focused commands:
+
+```powershell
+npx vitest run tests/phase18a-validation-and-ratings.test.ts tests/phase18a-media-security.test.ts tests/phase18a-guard-and-ui.test.ts
+npx vitest run tests/phase18a-registration.test.ts tests/phase18a-assignments.test.ts tests/media-tenant-isolation.test.ts
+npm run demo:reset
+npm run demo:verify
+```
+
+The complete gate also requires Prisma format/validate/generate/status, clean replay, backup/restore, TypeScript, ESLint, all Vitest and Playwright workflows, production build, dependency audit, security scan and repository-backup readiness. Database-backed results require the local disposable PostgreSQL service; a stopped service is an environment block, never a pass. Capacitor synchronization is not required unless shared mobile workspace code changes; Phase 18A navigation/pages are in the server-rendered web application and do not alter `apps/mobile` or shared mobile packages.

@@ -471,3 +471,7 @@ is known; device runtime, final identity/signing and independent review remain m
 ## Phase 17B Android facial-verification finding
 
 ANDROID-DEF-006 (High functional gap if Phase 17A were presented as mobile-complete) found the Phase 17A APK identical to Phase 16B because the Android bundle still exposed only the legacy generic synthetic identity success action. The mobile application had no enrolment state, explicit failure outcomes, camera-readiness surface, controlled fallback/manager workflow, attempt feedback or audit confirmation. The Android workflow, tenant-scoped mobile endpoints, binding/separation enforcement and synchronized-bundle JVM regression are now implemented. The rebuilt APK hash differs. Physical-device execution remains blocked by ANDROID-ENV-001 and is not claimed.
+
+## Phase 18A known limitations
+
+No open Critical/High Phase 18A code defect is accepted. Self-service registration is intentionally unavailable in production; CSV import, live tracking, real email, hosted-scale evidence and real facial verification are out of scope. Vehicle health is presented as factual status/expiry/inspection information rather than an invented score. Physical Android validation remains governed by ANDROID-ENV-001 and is not claimed by this web/backend phase.

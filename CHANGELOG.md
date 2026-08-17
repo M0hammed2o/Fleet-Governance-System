@@ -1,5 +1,17 @@
 # CHANGELOG.md
 
+## 2026-08-17 (Phase 18A) — client demo onboarding and fleet management
+
+### Added
+
+- Environment-gated atomic demo registration, resumable eight-step onboarding, declared fleet composition, richer driver/vehicle records, effective-dated assignments, staff placement and independent guard approval.
+- Private profile/vehicle media lifecycle, hardened filename/signature validation, responsive management dashboard, detail drill-down and versioned explainable driver governance ratings.
+- Repeatable synthetic demo reset/verification, focused security/domain/UI tests, onboarding/data/rating/readiness guides and a timed customer demonstration script.
+
+### Safety
+
+- No deployment, publication, real customer/person/vehicle/location/biometric data, real email, provider connection or production facial verification was used. Production registration remains fail-closed.
+
 ## 2026-08-12 (Phase 15A) - provider-independent staging preparation
 
 ### Added

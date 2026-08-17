@@ -1,5 +1,12 @@
 # WORKLOG.md
 
+## 2026-08-17 — Phase 18A client demonstration candidate
+
+- Extended the existing tenant/RBAC/media/audit architecture with atomic demo provisioning, resumable onboarding, declared fleet data, richer master records, effective-dated assignments and independent guard approval.
+- Replaced the placeholder overview with a responsive management dashboard and added private profile media, document actions, assignment/gate/tracker/audit drill-down and deterministic operational ratings.
+- Extended the fixed synthetic pilot rather than creating duplicate seed infrastructure; added an environment-supplied interactive password boundary and one-command reset/seed alias.
+- Added focused validation, security, integration and source-contract coverage plus the five required Phase 18A guides. Final immutable-gate results are pending completion and must not be inferred from implementation.
+
 ## 2026-08-14 — Phase 17A internal pilot candidate (in progress)
 
 - Added provider-neutral contracts and 25 deterministic, no-network, non-biometric simulator scenarios with exact disclosure and environment refusal.

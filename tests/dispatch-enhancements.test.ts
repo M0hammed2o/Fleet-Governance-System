@@ -135,8 +135,8 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       actorUserId: user.id,
       ownerType: "MOVEMENT_DOCUMENT",
       ownerId: movement.id,
-      fileName: "delivery-note.pdf",
-      contentType: "image/png",
+      fileName: "delivery-note.jpg",
+      contentType: "image/jpeg",
       data: await fakeImageBytes(201),
       idempotencyKey: crypto.randomUUID(),
     });
@@ -187,8 +187,8 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       actorUserId: user.id,
       ownerType: "MOVEMENT_DOCUMENT",
       ownerId: movement.id,
-      fileName: "delivery-note.pdf",
-      contentType: "image/png",
+      fileName: "delivery-note.jpg",
+      contentType: "image/jpeg",
       data: await fakeImageBytes(203),
       idempotencyKey: crypto.randomUUID(),
     });
@@ -197,8 +197,8 @@ describe("DISPATCH-003 — secure delivery-note/document upload (existing MediaA
       actorUserId: user.id,
       ownerType: "MOVEMENT_DOCUMENT",
       ownerId: movement.id,
-      fileName: "proof-of-delivery.png",
-      contentType: "image/png",
+      fileName: "proof-of-delivery.jpg",
+      contentType: "image/jpeg",
       data: await fakeImageBytes(204),
       idempotencyKey: crypto.randomUUID(),
     });

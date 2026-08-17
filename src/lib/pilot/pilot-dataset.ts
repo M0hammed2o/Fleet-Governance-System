@@ -16,7 +16,6 @@ import {
 } from "./pilot-safety";
 import { SYNTHETIC_BIOMETRIC_LABEL } from "../facial-verification/contracts";
 
-const PILOT_PASSWORD = "SyntheticPilot!Local1";
 const FIXED_NOW = new Date("2026-08-01T08:00:00.000Z");
 const STORAGE_LOCAL_PATH = process.env.STORAGE_LOCAL_PATH || "./.data/media";
 
@@ -99,7 +98,43 @@ async function createSyntheticMedia(prisma: PrismaClient, ownerType: "GATE_EVENT
   });
 }
 
+async function createSyntheticProfileImage(
+  prisma: PrismaClient,
+  ownerType: "DRIVER_PORTRAIT" | "VEHICLE_IMAGE" | "STAFF_PROFILE",
+  ownerId: string,
+  userId: string,
+  suffix: string,
+) {
+  // A one-pixel generated colour swatch is deliberately not a photograph of
+  // a person or vehicle. It exercises private-image controls without creating
+  // biometric or real-world evidence.
+  const contents = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const storageKey = `${PILOT_TENANT_ID}/synthetic-${suffix}.png`;
+  const root = path.resolve(process.cwd(), STORAGE_LOCAL_PATH);
+  const target = path.resolve(root, storageKey);
+  if (!target.startsWith(`${root}${path.sep}`)) throw new Error("Invalid pilot storage path.");
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, contents);
+  await fs.writeFile(`${target}.meta.json`, JSON.stringify({ contentType: "image/png" }));
+  return prisma.mediaAsset.create({ data: {
+    id: id("media", suffix), tenantId: PILOT_TENANT_ID, ownerType, ownerId, capturedByUserId: userId,
+    capturedAt: FIXED_NOW, fileName: `synthetic-${suffix}.png`, contentType: "image/png", fileSizeBytes: contents.byteLength,
+    storageKey, checksumSha256: crypto.createHash("sha256").update(contents).digest("hex"), idempotencyKey: `pilot:${suffix}`,
+    category: ownerType === "DRIVER_PORTRAIT" || ownerType === "STAFF_PROFILE" ? "DRIVER_PORTRAIT" : "VEHICLE_INSPECTION_PHOTO",
+    captureMetadata: { synthetic: true, generatedColourSwatch: true, containsPerson: false, containsRealVehicle: false }, uploadStatus: "READY",
+  } });
+}
+
 export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
+  const configuredPassword = process.env.DEMO_SEED_PASSWORD;
+  if (configuredPassword && configuredPassword.length < 12) {
+    throw new Error("DEMO_SEED_PASSWORD must contain at least 12 characters when supplied.");
+  }
+  // Verification jobs do not need to sign in. Give them an unrevealed random
+  // credential so the reset remains one command without storing or logging a
+  // password; an operator explicitly supplies DEMO_SEED_PASSWORD when login is
+  // needed for an interactive local demonstration.
+  const demoSeedPassword = configuredPassword ?? crypto.randomBytes(32).toString("base64url");
   await resetPilotTenant(prisma);
   const templateTenant = await prisma.tenant.findUnique({ where: { slug: "acme-logistics" }, select: { id: true } });
   if (!templateTenant) throw new Error("Run npm run seed first; the local role template tenant is missing.");
@@ -109,16 +144,16 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
   });
   if (templateRoles.length !== PILOT_ROLES.length) throw new Error("The local role template is incomplete; refusing to broaden pilot permissions.");
 
-  await prisma.tenant.create({ data: { id: PILOT_TENANT_ID, slug: PILOT_TENANT_SLUG, name: PILOT_TENANT_NAME, timezone: "Africa/Johannesburg", subscriptionStatus: "PAST_DUE" } });
+  await prisma.tenant.create({ data: { id: PILOT_TENANT_ID, slug: PILOT_TENANT_SLUG, name: PILOT_TENANT_NAME, timezone: "Africa/Johannesburg", subscriptionStatus: "PAST_DUE", companyRegistrationNumber: "SYNTHETIC-DEMO-0001", industry: "Synthetic logistics demonstration", contactEmail: pilotEmail("workspace"), contactPhone: "+27 00 000 0000", address: "1 Example Test Avenue, Fictional Park", departments: ["Synthetic Distribution", "Synthetic Service Operations", "Synthetic Sales"], demoWorkspace: true, demoTermsAcceptedAt: FIXED_NOW, demoDisclosureVersion: "phase18a-demo-synthetic-v1" } });
   for (const template of templateRoles) {
     const role = await prisma.role.create({ data: { id: id("role", template.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")), tenantId: PILOT_TENANT_ID, name: template.name, description: `${template.description ?? ""} Synthetic pilot role copied without permission expansion.`, isSystem: true } });
     await prisma.rolePermission.createMany({ data: template.rolePermissions.map(({ permissionId }) => ({ roleId: role.id, permissionId })) });
   }
 
   const roles = new Map((await prisma.role.findMany({ where: { tenantId: PILOT_TENANT_ID } })).map((role) => [role.name, role.id]));
-  const passwordHash = await bcrypt.hash(PILOT_PASSWORD, 12);
+  const passwordHash = await bcrypt.hash(demoSeedPassword, 12);
   for (const [roleName, localPart] of PILOT_ROLES) {
-    await prisma.user.create({ data: { id: id("user", localPart), tenantId: PILOT_TENANT_ID, roleId: roles.get(roleName)!, email: pilotEmail(localPart), name: `Synthetic ${roleName}`, status: "ACTIVE", passwordHash } });
+    await prisma.user.create({ data: { id: id("user", localPart), tenantId: PILOT_TENANT_ID, roleId: roles.get(roleName)!, email: pilotEmail(localPart), name: `Synthetic ${roleName}`, employeeNumber: `SYN-${localPart.toUpperCase().replaceAll(".", "-")}`, status: "ACTIVE", approvalStatus: roleName === "Gate Security Officer" ? "APPROVED" : "NOT_REQUIRED", approvalReason: roleName === "Gate Security Officer" ? "Synthetic guard approved for local demonstration duties." : null, approvedAt: roleName === "Gate Security Officer" ? FIXED_NOW : null, passwordHash } });
   }
   const users = new Map((await prisma.user.findMany({ where: { tenantId: PILOT_TENANT_ID } })).map((user) => [user.roleId, user]));
   const userFor = (roleName: string) => users.get(roles.get(roleName)!)!;
@@ -137,15 +172,17 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     prisma.gate.create({ data: { id: id("gate", "service-entry"), tenantId: PILOT_TENANT_ID, siteId: service.id, name: "Synthetic Service Entry", direction: "ENTRY" } }),
     prisma.gate.create({ data: { id: id("gate", "service-exit"), tenantId: PILOT_TENANT_ID, siteId: service.id, name: "Synthetic Service Exit", direction: "EXIT" } }),
   ]);
+  await prisma.user.update({ where: { id: officer.id }, data: { assignedSiteId: north.id, assignedGateId: gates[0].id, approvedByUserId: manager.id } });
+  await prisma.user.create({ data: { id: id("user", "security.pending"), tenantId: PILOT_TENANT_ID, roleId: roles.get("Gate Security Officer")!, email: pilotEmail("security.pending"), name: "Synthetic Pending Security Guard", employeeNumber: "SYN-SEC-PENDING", status: "ACTIVE", approvalStatus: "PENDING", assignedSiteId: north.id, assignedGateId: gates[1].id, passwordHash } });
 
   const drivers = [];
   for (let index = 1; index <= 15; index += 1) {
     drivers.push(await prisma.driver.create({ data: {
-      id: id("driver", index), tenantId: PILOT_TENANT_ID, employeeNumber: `SYN-D${String(index).padStart(3, "0")}`,
-      name: `Synthetic Driver ${String(index).padStart(2, "0")}`, contactEmail: pilotEmail(`driver.${String(index).padStart(2, "0")}`),
+      id: id("driver", index), tenantId: PILOT_TENANT_ID, employeeNumber: index === 3 ? null : `SYN-D${String(index).padStart(3, "0")}`,
+      name: `Synthetic Driver ${String(index).padStart(2, "0")}`, contactEmail: index === 3 ? null : pilotEmail(`driver.${String(index).padStart(2, "0")}`),
       department: index <= 8 ? "Synthetic Distribution" : "Synthetic Service Operations", licenceNumber: `SYN-LIC-${String(index).padStart(4, "0")}`,
-      licenceClass: index <= 10 ? "C1" : "EC", licenceExpiry: new Date("2028-12-31T00:00:00.000Z"), pdpNumber: `SYN-PDP-${String(index).padStart(4, "0")}`,
-      pdpExpiry: new Date("2028-06-30T00:00:00.000Z"), authorisedVehicleClasses: [index <= 10 ? "LIGHT_COMMERCIAL" : "TRUCK"],
+      licenceClass: index <= 10 ? "C1" : "EC", licenceIssueDate: new Date("2022-01-15T00:00:00.000Z"), licenceExpiry: index === 2 ? new Date("2026-08-25T00:00:00.000Z") : index === 3 ? new Date("2026-07-01T00:00:00.000Z") : new Date("2028-12-31T00:00:00.000Z"), pdpNumber: `SYN-PDP-${String(index).padStart(4, "0")}`,
+      pdpStatus: index === 3 ? "EXPIRED" : "VALID", pdpExpiry: index === 2 ? new Date("2026-08-30T00:00:00.000Z") : index === 3 ? new Date("2026-06-30T00:00:00.000Z") : new Date("2028-06-30T00:00:00.000Z"), authorisedVehicleClasses: [index <= 10 ? "LIGHT_COMMERCIAL" : "TRUCK"],
       restrictions: "SYNTHETIC PILOT RECORD — not a real person", facialVerificationEnrolled: false,
     } }));
   }
@@ -218,19 +255,29 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
   const vehicles = [];
   for (let index = 1; index <= 15; index += 1) {
     const trailer = index >= 14;
+    const category = index <= 2 ? "TRUCK" : index === 3 ? "SALES_REPRESENTATIVE" : index === 4 ? "PASSENGER" : index === 5 ? "BAKKIE_PICKUP" : index === 6 ? "VAN" : index === 7 ? "PLANT_EQUIPMENT" : index === 8 ? "OTHER" : index > 13 ? "TRAILER" : index > 10 ? "TRUCK" : "LIGHT_COMMERCIAL";
     vehicles.push(await prisma.vehicle.create({ data: {
       id: id("vehicle", index), tenantId: PILOT_TENANT_ID, fleetNumber: `SYN-FLT-${String(index).padStart(3, "0")}`,
       registrationNumber: `SYN${String(index).padStart(3, "0")}GP`, vin: `SYNTHETICVIN${String(index).padStart(5, "0")}`,
-      make: "Synthetic Motors", model: trailer ? "Test Trailer" : index > 10 ? "Test Truck" : "Test Van", year: 2025,
-      colour: "White", category: trailer ? "TRAILER" : index > 10 ? "TRUCK" : "LIGHT_COMMERCIAL", ownership: "OWNED", fuelType: trailer ? null : "DIESEL",
-      tankCapacityLitres: trailer ? null : 80, odometerReading: trailer ? null : 10000 + index * 100,
-      fuelLevelPercent: trailer ? null : 75, assignedDriverId: trailer ? null : drivers[index - 1].id,
-      licenceDiscExpiry: new Date("2028-12-31T00:00:00.000Z"), roadworthyExpiry: new Date("2028-06-30T00:00:00.000Z"), insuranceExpiry: new Date("2028-09-30T00:00:00.000Z"),
+      make: "Synthetic Motors", model: trailer ? "Test Trailer" : category === "TRUCK" ? "Test Truck" : category === "SALES_REPRESENTATIVE" ? "Test Sales Hatch" : "Test Utility", year: 2025,
+      colour: "White", category, ownership: index === 3 ? "LEASED" : "OWNED", fuelType: trailer ? null : index === 4 ? "PETROL" : "DIESEL", department: index === 3 ? "Synthetic Sales" : index <= 8 ? "Synthetic Distribution" : "Synthetic Service Operations",
+      carryingCapacityTonnes: category === "TRUCK" ? (index === 1 ? 8 : index === 2 ? 18 : 12) : null, tankCapacityLitres: trailer ? null : 80, odometerReading: trailer ? null : 10000 + index * 100, serviceIntervalKm: trailer ? null : 15000, nextServiceOdometer: trailer ? null : 25000, nextServiceDate: trailer ? null : new Date("2027-02-01T00:00:00.000Z"),
+      fuelLevelPercent: trailer ? null : 75, assignedDriverId: trailer || index === 3 ? null : drivers[index - 1].id,
+      licenceDiscExpiry: index === 2 ? new Date("2026-08-28T00:00:00.000Z") : new Date("2028-12-31T00:00:00.000Z"), roadworthyExpiry: new Date("2028-06-30T00:00:00.000Z"), insuranceExpiry: new Date("2028-09-30T00:00:00.000Z"),
       gpsProvider: trailer ? null : "synthetic", gpsDeviceReference: trailer ? null : `SYN-TRACK-${index}`, gpsStatus: index === 7 ? "INACTIVE" : trailer ? "UNKNOWN" : "ACTIVE",
       gpsLastCommunicationAt: index === 7 ? new Date("2026-07-20T08:00:00.000Z") : trailer ? null : FIXED_NOW,
       baselineConditionNotes: "SYNTHETIC PILOT VEHICLE — no real asset", operationalStatus: index === 3 ? "WORKSHOP_LOCKOUT" : "OPERATIONAL",
     } }));
   }
+
+  await prisma.driverVehicleAssignment.createMany({ data: vehicles.slice(0, 13).filter((vehicle) => vehicle.assignedDriverId).map((vehicle, index) => ({ id: id("assignment", index + 1), tenantId: PILOT_TENANT_ID, driverId: vehicle.assignedDriverId!, vehicleId: vehicle.id, effectiveFrom: new Date(FIXED_NOW.getTime() - (30 - index) * 86_400_000), status: "ACTIVE", reason: "Deterministic synthetic demo fleet allocation.", assignedByUserId: admin.id })) });
+  const driverProfile = await createSyntheticProfileImage(prisma, "DRIVER_PORTRAIT", drivers[0].id, admin.id, "driver-profile-colour-swatch");
+  await prisma.driver.update({ where: { id: drivers[0].id }, data: { portraitMediaAssetId: driverProfile.id } });
+  const vehicleProfile = await createSyntheticProfileImage(prisma, "VEHICLE_IMAGE", vehicles[0].id, admin.id, "vehicle-profile-colour-swatch");
+  await prisma.vehicle.update({ where: { id: vehicles[0].id }, data: { imageMediaAssetId: vehicleProfile.id } });
+  const staffProfile = await createSyntheticProfileImage(prisma, "STAFF_PROFILE", officer.id, admin.id, "staff-profile-colour-swatch");
+  await prisma.user.update({ where: { id: officer.id }, data: { profileMediaAssetId: staffProfile.id } });
+  await prisma.tenantOnboarding.create({ data: { id: id("onboarding", 1), tenantId: PILOT_TENANT_ID, currentStep: 8, completedSections: ["company", "fleet", "sites", "vehicles", "drivers", "staff", "assignments", "review"], declaredFleetSize: 18, fleetComposition: { TRUCK: 5, BAKKIE_PICKUP: 1, VAN: 1, PASSENGER: 1, SALES_REPRESENTATIVE: 1, TRAILER: 2, PLANT_EQUIPMENT: 1, OTHER: 1, LIGHT_COMMERCIAL: 5 }, completedAt: FIXED_NOW } });
 
   await prisma.trackerVehicleMapping.createMany({
     data: vehicles.slice(0, 13).map((vehicle, offset) => ({
@@ -246,11 +293,11 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
     })),
   });
 
-  for (const driver of drivers) {
-    await prisma.complianceDocument.create({ data: { id: id("document", `driver-${driver.id}`), tenantId: PILOT_TENANT_ID, ownerType: "DRIVER", driverId: driver.id, documentType: "DRIVER_LICENCE", documentNumber: `SYN-${driver.employeeNumber}`, issuer: "Synthetic Licensing Authority", expiryDate: new Date("2028-12-31T00:00:00.000Z"), verificationStatus: "VERIFIED", verifiedById: admin.id, verifiedAt: FIXED_NOW, notes: "Synthetic UAT document; no real attachment." } });
+  for (const [index, driver] of drivers.entries()) {
+    await prisma.complianceDocument.create({ data: { id: id("document", `driver-${driver.id}`), tenantId: PILOT_TENANT_ID, ownerType: "DRIVER", driverId: driver.id, documentType: "DRIVER_LICENCE", documentNumber: `SYN-${driver.employeeNumber ?? `MISSING-${index + 1}`}`, issuer: "Synthetic Licensing Authority", expiryDate: index === 1 ? new Date("2026-08-25T00:00:00.000Z") : index === 2 ? new Date("2026-07-01T00:00:00.000Z") : new Date("2028-12-31T00:00:00.000Z"), verificationStatus: "VERIFIED", verifiedById: admin.id, verifiedAt: FIXED_NOW, notes: "Synthetic UAT document; no real attachment." } });
   }
-  for (const vehicle of vehicles) {
-    await prisma.complianceDocument.create({ data: { id: id("document", `vehicle-${vehicle.id}`), tenantId: PILOT_TENANT_ID, ownerType: "VEHICLE", vehicleId: vehicle.id, documentType: "VEHICLE_LICENCE", documentNumber: `SYN-${vehicle.registrationNumber}`, issuer: "Synthetic Licensing Authority", expiryDate: new Date("2028-12-31T00:00:00.000Z"), verificationStatus: "VERIFIED", verifiedById: admin.id, verifiedAt: FIXED_NOW, notes: "Synthetic UAT document; no real attachment." } });
+  for (const [index, vehicle] of vehicles.entries()) {
+    await prisma.complianceDocument.create({ data: { id: id("document", `vehicle-${vehicle.id}`), tenantId: PILOT_TENANT_ID, ownerType: "VEHICLE", vehicleId: vehicle.id, documentType: "VEHICLE_LICENCE", documentNumber: `SYN-${vehicle.registrationNumber}`, issuer: "Synthetic Licensing Authority", expiryDate: index === 1 ? new Date("2026-08-28T00:00:00.000Z") : new Date("2028-12-31T00:00:00.000Z"), verificationStatus: "VERIFIED", verifiedById: admin.id, verifiedAt: FIXED_NOW, notes: "Synthetic UAT document; no real attachment." } });
   }
 
   const template = await prisma.inspectionTemplate.create({ data: { id: id("inspection", "template"), tenantId: PILOT_TENANT_ID, name: "Synthetic Pilot Gate Inspection", description: "Synthetic Phase 14A checklist", isSystem: true } });
@@ -352,6 +399,7 @@ export async function seedPilotTenant(prisma: PrismaClient): Promise<void> {
 
   const conditionResultId = id("inspection-result", "condition-failure-in-condition");
   const conditionException = await prisma.exception.create({ data: { id: id("exception", "condition"), tenantId: PILOT_TENANT_ID, gateEventId: eventPairs.get("condition-failure")!.returnId, inspectionResultId: conditionResultId, exceptionTypeId: conditionType.id, description: "Synthetic safety defect; vehicle held for authorised correction.", severity: "HIGH", requiresSupervisorApproval: true, outcomeAction: "WORKSHOP_LOCKOUT", raisedByUserId: officer.id, raisedAt: FIXED_NOW } });
+  await prisma.exception.update({ where: { id: conditionException.id }, data: { resolvedByUserId: manager.id, resolvedAt: new Date(FIXED_NOW.getTime() + 3_600_000), resolutionNotes: "Synthetic corrective inspection recorded and independently reviewed." } });
   const conditionMedia = await createSyntheticMedia(prisma, "GATE_EVENT_INSPECTION_ITEM", conditionResultId, officer.id, "condition-defect");
   await prisma.gateEventInspectionItem.update({ where: { id: conditionResultId }, data: { evidenceMediaAssetId: conditionMedia.id } });
   const cargoResult = await prisma.gateEventInspectionItem.create({ data: { id: id("inspection-result", "cargo-discrepancy-in-cargo"), tenantId: PILOT_TENANT_ID, gateEventId: eventPairs.get("cargo-discrepancy")!.returnId, inspectionItemId: inspectionItems[2].id, outcome: "FAIL", comment: "Synthetic sealed-cargo count differs from departure record.", exceptionSeverity: "HIGH", supervisorApprovalRequired: true, recordedByUserId: officer.id, recordedAt: FIXED_NOW } });
@@ -435,11 +483,12 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
   const tenant = await prisma.tenant.findUnique({ where: { slug: PILOT_TENANT_SLUG }, select: { id: true, slug: true, name: true, status: true, subscriptionStatus: true } });
   if (!tenant) throw new Error("Synthetic pilot tenant is not seeded.");
   assertPilotTenantIdentity(tenant);
-  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, biometrics, syntheticBiometrics, activeBiometrics, revokedBiometrics, biometricAttempts, syntheticBiometricAttempts, manualFallbacks, deliverableEmails, heldEvidence, externalGrants] = await Promise.all([
+  const [sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, driverVehicleAssignments, biometrics, syntheticBiometrics, activeBiometrics, revokedBiometrics, biometricAttempts, syntheticBiometricAttempts, manualFallbacks, deliverableEmails, heldEvidence, externalGrants, approvedGuards, pendingGuards, expiringDocuments, resolvedExceptions, onboarding, truckCapacities, distinctCategories] = await Promise.all([
     prisma.site.count({ where: { tenantId: tenant.id } }), prisma.gate.count({ where: { tenantId: tenant.id } }), prisma.user.count({ where: { tenantId: tenant.id } }),
     prisma.driver.count({ where: { tenantId: tenant.id } }), prisma.vehicle.count({ where: { tenantId: tenant.id } }), prisma.complianceDocument.count({ where: { tenantId: tenant.id } }),
     prisma.movementAuthorisation.count({ where: { tenantId: tenant.id } }), prisma.gateEvent.count({ where: { tenantId: tenant.id } }), prisma.reconciliation.count({ where: { tenantId: tenant.id } }), prisma.exception.count({ where: { tenantId: tenant.id } }),
     prisma.investigationCase.count({ where: { tenantId: tenant.id } }), prisma.analyticsIndicator.count({ where: { tenantId: tenant.id } }), prisma.trackerVehicleMapping.count({ where: { tenantId: tenant.id } }), prisma.telematicsEvent.count({ where: { tenantId: tenant.id } }), prisma.manualGpsConfirmation.count({ where: { tenantId: tenant.id } }),
+    prisma.driverVehicleAssignment.count({ where: { tenantId: tenant.id, status: "ACTIVE", effectiveTo: null } }),
     prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id } }),
     prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id, synthetic: true, syntheticDisclosure: SYNTHETIC_BIOMETRIC_LABEL } }),
     prisma.driverFacialTemplate.count({ where: { tenantId: tenant.id, status: "ACTIVE" } }),
@@ -449,15 +498,24 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
     prisma.manualFacialVerificationFallback.count({ where: { tenantId: tenant.id, status: "APPROVED" } }),
     prisma.user.count({ where: { tenantId: tenant.id, NOT: { email: { endsWith: `@${PILOT_EMAIL_DOMAIN}` } } } }),
     prisma.mediaAsset.count({ where: { tenantId: tenant.id, investigationHold: true } }), prisma.externalAuditorAccessGrant.count({ where: { tenantId: tenant.id, revokedAt: null } }),
+    prisma.user.count({ where: { tenantId: tenant.id, role: { name: "Gate Security Officer" }, approvalStatus: "APPROVED" } }),
+    prisma.user.count({ where: { tenantId: tenant.id, role: { name: "Gate Security Officer" }, approvalStatus: "PENDING" } }),
+    prisma.complianceDocument.count({ where: { tenantId: tenant.id, expiryDate: { lte: new Date("2026-09-30T00:00:00.000Z") } } }),
+    prisma.exception.count({ where: { tenantId: tenant.id, resolvedAt: { not: null } } }),
+    prisma.tenantOnboarding.findUnique({ where: { tenantId: tenant.id } }),
+    prisma.vehicle.findMany({ where: { tenantId: tenant.id, category: "TRUCK" }, select: { carryingCapacityTonnes: true }, orderBy: { carryingCapacityTonnes: "asc" } }),
+    prisma.vehicle.groupBy({ by: ["category"], where: { tenantId: tenant.id }, _count: { _all: true } }),
   ]);
-  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations };
+  const counts = { sites, gates, users, drivers, vehicles, complianceDocuments, movements, gateEvents, reconciliations, exceptions, investigations, analyticsIndicators, trackerVehicleMappings, telematicsEvents, manualGpsConfirmations, driverVehicleAssignments };
   for (const [key, expected] of Object.entries(PILOT_EXPECTED_COUNTS)) {
     if (counts[key as keyof typeof counts] !== expected) throw new Error(`Pilot verification failed: ${key} expected ${expected}.`);
   }
   if (
     biometrics !== 2 || syntheticBiometrics !== biometrics || activeBiometrics !== 1 || revokedBiometrics !== 1 ||
     biometricAttempts !== 4 || syntheticBiometricAttempts !== biometricAttempts || manualFallbacks !== 1 ||
-    deliverableEmails !== 0 || heldEvidence < 1 || externalGrants !== 1
+    deliverableEmails !== 0 || heldEvidence < 1 || externalGrants !== 1 || approvedGuards !== 1 || pendingGuards !== 1 ||
+    expiringDocuments < 3 || resolvedExceptions < 1 || !onboarding?.completedAt || onboarding.declaredFleetSize !== 18 ||
+    !truckCapacities.some((vehicle) => vehicle.carryingCapacityTonnes === 8) || !truckCapacities.some((vehicle) => vehicle.carryingCapacityTonnes === 18) || distinctCategories.length < 8
   ) throw new Error("Pilot privacy/access invariants failed.");
   return {
     tenant: { ...tenant, synthetic: true },
@@ -470,6 +528,13 @@ export async function verifyPilotTenant(prisma: PrismaClient) {
       nonDeliverableAddressesOnly: true,
       heldEvidence,
       caseScopedExternalGrants: externalGrants,
+      approvedGuards,
+      pendingGuards,
+      expiringDocuments,
+      resolvedExceptions,
+      completedOnboarding: true,
+      distinctVehicleCategories: distinctCategories.length,
+      truckCapacitiesTonnes: truckCapacities.map((vehicle) => vehicle.carryingCapacityTonnes),
       providers: "synthetic/mock/no-op/disabled",
     },
   };

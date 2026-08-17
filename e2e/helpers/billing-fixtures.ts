@@ -50,7 +50,9 @@ export function loginPilotContext(
   email: string,
   contextOptions?: Parameters<Browser["newContext"]>[0],
 ): Promise<{ context: BrowserContext; page: Page }> {
-  return loginNewContext(browser, "genbridge-synthetic-fleet-pilot", email, contextOptions, "SyntheticPilot!Local1");
+  const password = process.env.DEMO_SEED_PASSWORD;
+  if (!password) throw new Error("DEMO_SEED_PASSWORD is required for interactive synthetic-pilot browser tests.");
+  return loginNewContext(browser, "genbridge-synthetic-fleet-pilot", email, contextOptions, password);
 }
 
 /** Creates a brand-new, empty second tenant (no roles/users) via the real platform-tenant API — enough to prove an invoice/tenant-scoped resource never leaks across a tenant boundary, without needing a second fully-onboarded customer. */

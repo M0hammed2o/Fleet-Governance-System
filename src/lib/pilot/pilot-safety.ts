@@ -38,7 +38,7 @@ export function assertNonDeliverablePilotEmail(email: string): void {
 export const PILOT_EXPECTED_COUNTS = {
   sites: 2,
   gates: 4,
-  users: 10,
+  users: 11,
   drivers: 15,
   vehicles: 15,
   complianceDocuments: 30,
@@ -51,4 +51,5 @@ export const PILOT_EXPECTED_COUNTS = {
   trackerVehicleMappings: 13,
   telematicsEvents: 2,
   manualGpsConfirmations: 1,
+  driverVehicleAssignments: 12,
 } as const;

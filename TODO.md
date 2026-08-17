@@ -1,5 +1,13 @@
 # TODO.md
 
+## Phase 18A external/manual follow-ups
+
+- [ ] Obtain legal/operational approval for production terms, identity/document handling, guard approval policy and rating governance.
+- [ ] Select and approve a live tracking provider before any provider-derived data claim.
+- [ ] Complete hosted capacity, restore, monitoring and real-email readiness before production.
+- [ ] Complete the existing connected physical-Android validation; Phase 18A makes no device-runtime claim.
+- [ ] Consider CSV import only as a separately threat-modelled and tested enhancement; manual onboarding is the supported demo path.
+
 ## Phase 17A external/manual blockers
 
 - [ ] Complete all 42 internal synthetic human UAT cases with reviewed evidence and zero open Critical/High defects.
