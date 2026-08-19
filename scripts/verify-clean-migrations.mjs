@@ -8,13 +8,16 @@
 // a throwaway database is created, migrated, and always dropped again
 // afterward (success or failure), so this never leaves stray state behind
 // in the shared container.
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import fs from "node:fs";
 import { config } from "dotenv";
 
 config({ path: ".env" });
 
 const CONTAINER = "gate-fleet-governance-postgres";
 const VERIFY_DB = "gate_fleet_governance_migration_check";
+const WINDOWS_DOCKER = "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe";
+const dockerExecutable = process.platform === "win32" && fs.existsSync(WINDOWS_DOCKER) ? WINDOWS_DOCKER : "docker";
 
 if (!process.env.DATABASE_URL) {
   console.error("[verify-clean-migrations] DATABASE_URL is not set. Copy .env.example to .env first.");
@@ -26,15 +29,15 @@ const PASSWORD = decodeURIComponent(devUrl.password);
 const HOST_PORT = devUrl.port || "5432";
 
 function psql(sql) {
-  execSync(`docker exec ${CONTAINER} psql -U ${SUPERUSER} -d postgres -v ON_ERROR_STOP=1 -c "${sql}"`, { stdio: "inherit" });
+  execFileSync(dockerExecutable, ["exec", CONTAINER, "psql", "-U", SUPERUSER, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", sql], { stdio: "inherit" });
 }
 
 function dropVerifyDb() {
   // Terminate any lingering connections first — Postgres refuses DROP DATABASE while sessions are attached.
-  execSync(
-    `docker exec ${CONTAINER} psql -U ${SUPERUSER} -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${VERIFY_DB}' AND pid <> pg_backend_pid();"`,
-    { stdio: "ignore" },
-  );
+  execFileSync(dockerExecutable, [
+    "exec", CONTAINER, "psql", "-U", SUPERUSER, "-d", "postgres", "-c",
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${VERIFY_DB}' AND pid <> pg_backend_pid();`,
+  ], { stdio: "ignore" });
   psql(`DROP DATABASE IF EXISTS ${VERIFY_DB};`);
 }
 

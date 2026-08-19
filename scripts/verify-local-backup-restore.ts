@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { config } from "dotenv";
@@ -8,6 +8,8 @@ import { assertDistinctRestoreTarget, validateLocalDatabaseTarget } from "../src
 config({ path: ".env.test" });
 
 const container = "gate-fleet-governance-postgres";
+const windowsDocker = "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe";
+const dockerExecutable = process.platform === "win32" && existsSync(windowsDocker) ? windowsDocker : "docker";
 const sourceResult = validateLocalDatabaseTarget(process.env.DATABASE_URL);
 if (!sourceResult.safe) throw new Error(`Backup source refused: ${sourceResult.reason}. No database was changed.`);
 
@@ -21,7 +23,7 @@ const restore = restoreResult.target;
 assertDistinctRestoreTarget(source, restore);
 
 function docker(args: string[], input?: Buffer): Buffer {
-  const result = spawnSync("docker", args, { input, encoding: null, maxBuffer: 1024 * 1024 * 512 });
+  const result = spawnSync(dockerExecutable, args, { input, encoding: null, maxBuffer: 1024 * 1024 * 512 });
   if (result.status !== 0) {
     const safeError = result.stderr?.toString("utf8").split("\n")[0] || "Docker command failed";
     throw new Error(safeError);
