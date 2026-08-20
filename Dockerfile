@@ -19,6 +19,11 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 \
     DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?schema=public"
 COPY --from=dependencies /app/node_modules ./node_modules
+# npm workspaces does not hoist every mobile-only devDependency (e.g.
+# @capacitor/cli) to the root node_modules — some stay nested under
+# apps/mobile/node_modules instead. Copying only /app/node_modules silently
+# drops those, which breaks the root `next build` typecheck.
+COPY --from=dependencies /app/apps/mobile/node_modules ./apps/mobile/node_modules
 COPY . .
 RUN npx prisma generate && npm run build
 
