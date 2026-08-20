@@ -4,6 +4,17 @@ import path from "node:path";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: {
+    // Render's build container OOMs (>8GB) because Next.js sizes its build
+    // worker pool from the host's full CPU count (observed: 47 workers),
+    // not the memory the build plan actually has — each worker is a
+    // separate Node process with its own base overhead. Locally, where the
+    // detected CPU count is much lower, this never shows up (7 workers,
+    // well within memory). Forcing far fewer, busier workers keeps peak
+    // memory bounded regardless of what the host reports.
+    staticGenerationMinPagesPerWorker: 30,
+    webpackMemoryOptimizations: true,
+  },
   // The Downloads folder this project lives in has unrelated sibling projects
   // with their own lockfiles (e.g. bun.lockb), which trips Next.js's
   // workspace-root auto-detection. Pin it explicitly to this project.
