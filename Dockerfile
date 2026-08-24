@@ -32,11 +32,29 @@ WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    HOME=/tmp
 RUN groupadd --system --gid 1001 nodejs && useradd --system --uid 1001 --gid nodejs nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# The standalone output only traces node_modules actually imported by the
+# running server — it excludes the prisma CLI, its full dependency closure
+# (cherry-picking these one missing transitive module at a time proved
+# impractical — @prisma/config alone needs 'effect', which needs more),
+# and the schema/migrations directory, since none of that is imported by
+# application code. Render's pre-deploy command runs a migration against
+# this same runtime image, so the complete, already-resolved builder
+# node_modules is copied over the pruned standalone one instead. HOME must
+# also be writable (the system `nextjs` user has no home directory
+# otherwise, which fails npm/npx with EACCES) even though this avoids
+# needing npx to fetch anything. Invoke the CLI via its real entry point
+# (node_modules/prisma/build/index.js), not `npx prisma` /
+# node_modules/.bin/prisma — Docker COPY dereferences that bin symlink into
+# a broken file whose relative `require('./cli.js')` no longer resolves.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
