@@ -5,13 +5,18 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   experimental: {
-    // Render's build container OOMs (>8GB) because Next.js sizes its build
-    // worker pool from the host's full CPU count (observed: 47 workers),
-    // not the memory the build plan actually has — each worker is a
-    // separate Node process with its own base overhead. Locally, where the
-    // detected CPU count is much lower, this never shows up (7 workers,
-    // well within memory). Forcing far fewer, busier workers keeps peak
-    // memory bounded regardless of what the host reports.
+    // Render's build container OOMs (>8GB) at "Collecting page data" — that
+    // phase's worker count comes from experimental.cpus (next/dist/build/index.js
+    // getNumberOfWorkers), which defaults to os.cpus().length - 1
+    // (next/dist/server/config-shared.js). Render's build host reports 48
+    // logical CPUs to Node even though the container's memory budget is
+    // nowhere near enough to back 47 separate worker processes; this
+    // machine's much lower detected count is why it never reproduces
+    // locally. Pinning cpus low bounds worker count regardless of what the
+    // host reports. staticGenerationMinPagesPerWorker/webpackMemoryOptimizations
+    // guard the later static-generation/Webpack phases, which the build
+    // never previously reached.
+    cpus: 2,
     staticGenerationMinPagesPerWorker: 30,
     webpackMemoryOptimizations: true,
   },
