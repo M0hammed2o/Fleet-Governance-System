@@ -86,10 +86,6 @@ export function DriverDetailClient({ id }: { id: string }) {
     }
   }, [id]);
 
-  useEffect(() => {
-    queueMicrotask(load);
-  }, [load]);
-
   const loadEnrolment = useCallback(async () => {
     // A restricted permission (facialTemplate:VIEW) — a caller without it
     // simply doesn't see this section, not a page-load failure.
@@ -106,8 +102,15 @@ export function DriverDetailClient({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
-    queueMicrotask(loadEnrolment);
-  }, [loadEnrolment]);
+    // /api/drivers/[id] alone runs 7 parallel queries internally; loading it
+    // and the facial-enrolment panel at the same time on mount pushed this
+    // page's peak concurrent database-connection demand over the pool limit.
+    // Sequencing them keeps the peak well under it.
+    queueMicrotask(async () => {
+      await load();
+      await loadEnrolment();
+    });
+  }, [load, loadEnrolment]);
 
   async function revokeEnrolment() {
     if (!revokeReason.trim()) return;

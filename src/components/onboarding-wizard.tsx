@@ -24,13 +24,18 @@ export function OnboardingWizard() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [onboardingResponse, sitesResponse, driversResponse, vehiclesResponse, rolesResponse] = await Promise.all([
-      fetch("/api/onboarding"), fetch("/api/admin/sites"), fetch("/api/drivers?pageSize=100"), fetch("/api/vehicles?pageSize=100"), fetch("/api/admin/roles"),
-    ]);
+    // /api/onboarding alone runs 8 parallel queries internally; fetching it
+    // first (rather than alongside the other 4 routes) keeps this page's
+    // peak concurrent database-connection demand well under the pool limit
+    // instead of every route racing for a connection at once.
+    const onboardingResponse = await fetch("/api/onboarding");
     const onboarding = await onboardingResponse.json();
     if (!onboardingResponse.ok) throw new Error(onboarding.error ?? "Onboarding could not be loaded");
     setSummary(onboarding);
     setStep((current) => current === 1 ? onboarding.onboarding.currentStep : current);
+    const [sitesResponse, driversResponse, vehiclesResponse, rolesResponse] = await Promise.all([
+      fetch("/api/admin/sites"), fetch("/api/drivers?pageSize=100"), fetch("/api/vehicles?pageSize=100"), fetch("/api/admin/roles"),
+    ]);
     if (sitesResponse.ok) setSites((await sitesResponse.json()).sites);
     if (driversResponse.ok) setDrivers((await driversResponse.json()).items);
     if (vehiclesResponse.ok) setVehicles((await vehiclesResponse.json()).items);
