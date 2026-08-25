@@ -15,10 +15,12 @@ export const LIVE_DEMO_EMAIL_LOCAL_PREFIX = "demo.";
 
 export const LIVE_DEMO_CREATE_CONFIRMATION_VALUE = "CREATE_GENBRIDGE_SYNTHETIC_DEMO";
 export const LIVE_DEMO_CLEANUP_CONFIRMATION_VALUE = "DELETE_GENBRIDGE_SYNTHETIC_DEMO";
+export const LIVE_DEMO_CREDENTIAL_ROTATION_CONFIRMATION_VALUE = "ROTATE_GENBRIDGE_SYNTHETIC_DEMO_CREDENTIALS";
 
 export interface LiveDemoEnvironment {
   LIVE_SYNTHETIC_DEMO_CONFIRMATION?: string;
   LIVE_SYNTHETIC_DEMO_CLEANUP_CONFIRMATION?: string;
+  LIVE_SYNTHETIC_DEMO_CREDENTIAL_ROTATION_CONFIRMATION?: string;
   [key: string]: string | undefined;
 }
 
@@ -36,6 +38,16 @@ export function assertLiveDemoCleanupConfirmed(env: LiveDemoEnvironment = proces
     throw new Error(
       `Refusing to delete the live demo tenant: set LIVE_SYNTHETIC_DEMO_CLEANUP_CONFIRMATION=${LIVE_DEMO_CLEANUP_CONFIRMATION_VALUE} ` +
         "to confirm this permanently deletes the synthetic demo tenant and everything under it.",
+    );
+  }
+}
+
+export function assertLiveDemoCredentialRotationConfirmed(env: LiveDemoEnvironment = process.env): void {
+  if (env.LIVE_SYNTHETIC_DEMO_CREDENTIAL_ROTATION_CONFIRMATION !== LIVE_DEMO_CREDENTIAL_ROTATION_CONFIRMATION_VALUE) {
+    throw new Error(
+      "Refusing to rotate live demo credentials: set " +
+        `LIVE_SYNTHETIC_DEMO_CREDENTIAL_ROTATION_CONFIRMATION=${LIVE_DEMO_CREDENTIAL_ROTATION_CONFIRMATION_VALUE} ` +
+        "to confirm this revokes sessions and changes passwords only for the fixed synthetic demo tenant.",
     );
   }
 }

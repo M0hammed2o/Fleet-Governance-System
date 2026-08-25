@@ -13,6 +13,7 @@ import { signResourceAccess, verifyResourceAccess } from "@/lib/storage/signed-u
 import { authorizeJobRequest } from "@/lib/jobs/service-auth";
 import { GET as getLiveness } from "@/app/api/health/live/route";
 import { GET as getReadiness } from "@/app/api/health/ready/route";
+import { GET as getVersion } from "@/app/api/health/version/route";
 
 const originalEnvironment = { ...process.env };
 
@@ -268,5 +269,15 @@ describe("Phase 13A public health endpoints", () => {
     expect(Object.keys(body)).toEqual(["status", "checks"]);
     expect(Object.keys(body.checks)).toEqual(["database", "configuration"]);
     expect(JSON.stringify(body)).not.toMatch(/postgresql:|localhost|secret|tenant/i);
+  });
+
+  it("exposes only a validated deployment commit", async () => {
+    process.env.RENDER_GIT_COMMIT = "A".repeat(40);
+    const response = getVersion();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ commit: "a".repeat(40) });
+
+    process.env.RENDER_GIT_COMMIT = "unsafe-runtime-details";
+    expect(await getVersion().json()).toEqual({ commit: null });
   });
 });

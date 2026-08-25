@@ -17,6 +17,8 @@
     "pilot:verify": "tsx prisma/pilot-seed.ts verify",
     "demo:reset": "tsx prisma/pilot-seed.ts seed",
     "demo:verify": "tsx prisma/pilot-seed.ts verify",
+    "demo:live:verify": "node scripts/verify-live-demo.mjs",
+    "demo:live:media": "node scripts/prepare-live-demo-media.mjs",
     "pilot:test-boundaries": "node scripts/run-pilot-seed.mjs boundaries",
     "pilot:import:dry": "tsx scripts/pilot-import-dry-run.ts",
     "pilot:uat:validate": "tsx scripts/validate-uat-catalogue.ts",

@@ -20,6 +20,8 @@
  *   LIVE_SYNTHETIC_DEMO_CONFIRMATION=CREATE_GENBRIDGE_SYNTHETIC_DEMO \
  *     npx tsx scripts/provision-live-demo.ts create
  *   npx tsx scripts/provision-live-demo.ts verify
+ *   LIVE_SYNTHETIC_DEMO_CREDENTIAL_ROTATION_CONFIRMATION=ROTATE_GENBRIDGE_SYNTHETIC_DEMO_CREDENTIALS \
+ *     npx tsx scripts/provision-live-demo.ts rotate-credentials
  *   LIVE_SYNTHETIC_DEMO_CLEANUP_CONFIRMATION=DELETE_GENBRIDGE_SYNTHETIC_DEMO \
  *     npx tsx scripts/provision-live-demo.ts cleanup
  */
@@ -39,6 +41,7 @@ import {
   LIVE_DEMO_TENANT_NAME,
   assertLiveDemoCreateConfirmed,
   assertLiveDemoCleanupConfirmed,
+  assertLiveDemoCredentialRotationConfirmed,
   assertLiveDemoTenantIdentity,
   assertNotTestDatabase,
   liveDemoEmail,
@@ -55,6 +58,7 @@ const DEMO_ROLES = [
 
 const ENVIRONMENT_LABEL = "SYNTHETIC CUSTOMER DEMONSTRATION";
 const NOW = () => new Date();
+const LIVE_DEMO_ACCOUNT_EMAILS = ["admin", "dispatch", "guard", "manager", "fleet", "executive", "guard.pending"].map(liveDemoEmail);
 
 function id(kind: string, suffix: string | number): string {
   return `live-demo-${kind}-${suffix}`;
@@ -541,10 +545,20 @@ async function provisionDemoTenant(prisma: PrismaClient): Promise<{ created: boo
   return { created: true, password };
 }
 
+function isLoopbackDatabase(databaseUrl = process.env.DATABASE_URL): boolean {
+  if (!databaseUrl) return false;
+  const hostname = new URL(databaseUrl).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 function writeCredentialFile(password: string, appUrl: string): string {
   const dir = path.resolve(process.cwd(), ".data", "private");
   fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, "demo-login-details.txt");
+  // A loopback DATABASE_URL writes to a distinctly-named file so a local
+  // rehearsal run can never silently overwrite the live credential file that
+  // Mohammed opens before tomorrow's demo.
+  const fileName = isLoopbackDatabase() ? "demo-login-details-LOCAL-REHEARSAL.txt" : "demo-login-details.txt";
+  const filePath = path.join(dir, fileName);
   const today = new Date().toISOString().slice(0, 10);
   const deletionDate = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
   const roles = [
@@ -629,6 +643,59 @@ async function cmdVerify(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// rotate-credentials
+// ---------------------------------------------------------------------------
+
+async function cmdRotateCredentials(): Promise<void> {
+  assertLiveDemoCredentialRotationConfirmed();
+  const prisma = createClient();
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: LIVE_DEMO_TENANT_SLUG },
+      select: { id: true, slug: true, name: true, users: { select: { id: true, email: true } } },
+    });
+    if (!tenant) throw new Error("The fixed synthetic demo tenant does not exist; credentials were not changed.");
+    assertLiveDemoTenantIdentity(tenant);
+
+    const actualEmails = tenant.users.map((user) => user.email).sort();
+    const expectedEmails = [...LIVE_DEMO_ACCOUNT_EMAILS].sort();
+    if (actualEmails.length !== expectedEmails.length || actualEmails.some((email, index) => email !== expectedEmails[index])) {
+      throw new Error("The synthetic demo account set differs from the fixed seven-account manifest; credentials were not changed.");
+    }
+
+    const password = crypto.randomBytes(24).toString("base64url");
+    const passwordHash = await bcrypt.hash(password, 12);
+    const rotatedAt = NOW();
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({
+        where: { tenantId: tenant.id, email: { in: LIVE_DEMO_ACCOUNT_EMAILS } },
+        data: { passwordHash },
+      });
+      if (updated.count !== LIVE_DEMO_ACCOUNT_EMAILS.length) throw new Error("Not every fixed synthetic demo account was updated; rotation rolled back.");
+      await tx.session.updateMany({ where: { tenantId: tenant.id, revokedAt: null }, data: { revokedAt: rotatedAt } });
+      await tx.auditLog.create({
+        data: {
+          tenantId: tenant.id,
+          action: "LIVE_DEMO_CREDENTIALS_ROTATED",
+          entityType: "Tenant",
+          entityId: tenant.id,
+          timestamp: rotatedAt,
+          reason: "Temporary synthetic demonstration credentials rotated; no customer account affected.",
+          afterValue: { synthetic: true, accountCount: LIVE_DEMO_ACCOUNT_EMAILS.length },
+        },
+      });
+    });
+
+    const appUrl = process.env.LIVE_DEMO_APP_URL || "https://genbridge-fleet-governance.onrender.com";
+    const filePath = writeCredentialFile(password, appUrl);
+    console.log(`[provision-live-demo] Rotated credentials for ${LIVE_DEMO_ACCOUNT_EMAILS.length} fixed synthetic accounts.`);
+    console.log(`[provision-live-demo] Login details written to: ${filePath}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // cleanup
 // ---------------------------------------------------------------------------
 
@@ -665,10 +732,10 @@ async function cmdCleanup(): Promise<void> {
 }
 
 const command = process.argv[2];
-const commands: Record<string, () => Promise<void>> = { create: cmdCreate, verify: cmdVerify, cleanup: cmdCleanup };
+const commands: Record<string, () => Promise<void>> = { create: cmdCreate, verify: cmdVerify, "rotate-credentials": cmdRotateCredentials, cleanup: cmdCleanup };
 const run = commands[command];
 if (!run) {
-  console.error(`Usage: npx tsx scripts/provision-live-demo.ts <create|verify|cleanup>`);
+  console.error(`Usage: npx tsx scripts/provision-live-demo.ts <create|verify|rotate-credentials|cleanup>`);
   process.exit(1);
 }
 run().catch((error) => {

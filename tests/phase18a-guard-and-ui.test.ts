@@ -28,7 +28,7 @@ describe("Phase 18A guard separation and accessible UI contracts", () => {
   });
 
   it("renders text and icon status, keyboard controls, responsive layouts and exact synthetic warnings", () => {
-    const dashboard = read("src/app/dashboard/page.tsx"); const onboarding = read("src/components/onboarding-wizard.tsx"); const driver = read("src/app/admin/drivers/[id]/page.tsx"); const vehicle = read("src/app/admin/vehicles/[id]/page.tsx");
+    const dashboard = read("src/app/dashboard/page.tsx"); const onboarding = read("src/components/onboarding-wizard.tsx"); const driver = read("src/app/admin/drivers/[id]/driver-detail-client.tsx"); const vehicle = read("src/app/admin/vehicles/[id]/page.tsx");
     expect(dashboard).toMatch(/GOOD_STANDING/); expect(dashboard).toMatch(/REVIEW_REQUIRED/); expect(dashboard).toMatch(/SERIOUS_ATTENTION/); expect(dashboard).toMatch(/rating\.label/);
     expect(dashboard).toMatch(/aria-hidden|aria-label/); expect(dashboard).toMatch(/sm:|lg:/);
     expect(onboarding).toMatch(/aria-current/); expect(onboarding).toMatch(/Save and continue later/); expect(onboarding).toMatch(/sm:|lg:/);

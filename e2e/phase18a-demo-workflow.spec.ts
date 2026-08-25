@@ -55,6 +55,10 @@ test("Phase 18A seeded dashboard, onboarding and drill-down remain demonstration
   await page.goto("/admin/drivers/pilot-driver-1"); await expect(page.getByRole("heading", { name: "Synthetic Driver 01", exact: true })).toBeVisible();
   await expect(page.getByText("Good standing", { exact: false })).toBeVisible(); await expect(page.getByText(/rule phase18a-driver-governance-v1/i)).toBeVisible();
 
+  const missingDriverResponse = await page.goto("/admin/drivers/synthetic-driver-that-does-not-exist");
+  expect(missingDriverResponse?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "Driver not found" })).toBeVisible();
+
   await page.goto("/admin/vehicles/pilot-vehicle-1"); await expect(page.getByRole("heading", { name: "SYN001GP", exact: true })).toBeVisible();
   await expect(page.getByText("8 tonnes", { exact: true })).toBeVisible(); await expect(page.getByText("DEMONSTRATION TRACKING — SYNTHETIC OR MANUALLY ENTERED; NOT A LIVE PROVIDER FEED")).toBeVisible();
 
