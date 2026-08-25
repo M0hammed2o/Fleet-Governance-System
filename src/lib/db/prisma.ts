@@ -8,13 +8,8 @@ function createPrismaClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env and configure it.");
   }
-  // A single page load (e.g. onboarding, driver detail) can legitimately
-  // fan out into a dozen-plus concurrent queries across its API routes and
-  // their own internal Promise.all calls; 10 was tight enough to produce
-  // intermittent connection-acquisition failures under ordinary browser
-  // navigation (verified live), not just heavy concurrent traffic.
-  const max = Number(process.env.DATABASE_MAX_CONNECTIONS ?? 25);
-  const connectionTimeoutMillis = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? 10_000);
+  const max = Number(process.env.DATABASE_MAX_CONNECTIONS ?? 10);
+  const connectionTimeoutMillis = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? 5_000);
   const statementTimeout = Number(process.env.DATABASE_QUERY_TIMEOUT_MS ?? 15_000);
   const idleInTransactionSessionTimeout = Number(process.env.DATABASE_TRANSACTION_TIMEOUT_MS ?? 30_000);
   const adapter = new PrismaPg({
